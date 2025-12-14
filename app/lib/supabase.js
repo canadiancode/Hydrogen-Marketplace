@@ -584,6 +584,7 @@ export async function updateCreatorProfile(userEmail, updates, supabaseUrl, anon
   if (updates.username !== undefined) dbUpdates.handle = updates.username;
   if (updates.firstName !== undefined) dbUpdates.first_name = updates.firstName;
   if (updates.lastName !== undefined) dbUpdates.last_name = updates.lastName;
+  if (updates.profileImageUrl !== undefined) dbUpdates.profile_image_url = updates.profileImageUrl;
   
   const isNewProfile = !existingProfile;
   

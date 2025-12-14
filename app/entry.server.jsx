@@ -22,6 +22,12 @@ export default async function handleRequest(
       checkoutDomain: context.env.PUBLIC_CHECKOUT_DOMAIN,
       storeDomain: context.env.PUBLIC_STORE_DOMAIN,
     },
+    // Allow images from Supabase Storage
+    imgSrc: [
+      "'self'",
+      'https://cdn.shopify.com',
+      'https://*.supabase.co', // Allow all Supabase Storage domains
+    ],
   });
 
   const body = await renderToReadableStream(

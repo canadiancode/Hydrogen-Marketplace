@@ -1,9 +1,18 @@
+import {useState, useEffect, useMemo} from 'react';
 import {Form, useLoaderData, useActionData, useNavigation} from 'react-router';
 import {requireAuth} from '~/lib/auth-helpers';
 import {fetchCreatorProfile, updateCreatorProfile} from '~/lib/supabase';
+import {ChevronDownIcon} from '@heroicons/react/16/solid';
 
 export const meta = () => {
   return [{title: 'WornVault | Account Settings'}];
+};
+
+// Ensure loader revalidates after form submission
+export const shouldRevalidate = ({formMethod}) => {
+  // Revalidate when a mutation is performed (POST, PUT, DELETE, etc.)
+  if (formMethod && formMethod !== 'GET') return true;
+  return false;
 };
 
 export async function loader({context, request}) {
@@ -20,6 +29,11 @@ export async function loader({context, request}) {
         context.env.SUPABASE_ANON_KEY,
         session.access_token,
       );
+      console.log('Fetched profile in loader:', {
+        email: user.email,
+        profileImageUrl: profile?.profile_image_url,
+        fullProfile: profile,
+      });
     } catch (error) {
       console.error('Error fetching creator profile:', error);
       // Continue with null profile - will use defaults
@@ -38,6 +52,7 @@ export async function loader({context, request}) {
           displayName: profile.display_name || '',
           bio: profile.bio || '',
           payoutMethod: profile.payout_method || '',
+          profileImageUrl: profile.profile_image_url || '',
         }
       : {
           firstName: '',
@@ -47,6 +62,7 @@ export async function loader({context, request}) {
           displayName: '',
           bio: '',
           payoutMethod: '',
+          profileImageUrl: '',
         },
   };
 }
@@ -65,6 +81,39 @@ export async function action({request, context}) {
   const formData = await request.formData();
   
   try {
+    // Handle image upload if provided
+    const imageFile = formData.get('profileImage');
+    let imageUrl = null;
+    
+    if (imageFile && imageFile instanceof File && imageFile.size > 0) {
+      try {
+        const {uploadProfileImage} = await import('~/lib/image-upload');
+        const uploadResult = await uploadProfileImage(
+          imageFile,
+          user.email,
+          context.env.SUPABASE_URL,
+          context.env.SUPABASE_ANON_KEY,
+          session.access_token,
+        );
+        
+        if (uploadResult.error) {
+          return {
+            success: false,
+            error: uploadResult.error.message || 'Failed to upload image',
+          };
+        }
+        
+        imageUrl = uploadResult.url;
+        console.log('Image uploaded successfully, URL:', imageUrl);
+      } catch (error) {
+        console.error('Error uploading image:', error);
+        return {
+          success: false,
+          error: error.message || 'Failed to upload image. Please try again.',
+        };
+      }
+    }
+    
     // Extract form fields with explicit empty string handling
     const fieldErrors = {};
     const rawUpdates = {
@@ -77,6 +126,70 @@ export async function action({request, context}) {
       // Note: email is intentionally excluded - it's read-only and tied to auth
     };
     
+    // Add image URL if uploaded
+    if (imageUrl) {
+      rawUpdates.profileImageUrl = imageUrl;
+    }
+    
+    // Sanitize and validate all inputs
+    const sanitizeInput = (value, type) => {
+      if (!value || value === '') return null;
+      
+      // Remove leading/trailing whitespace
+      let sanitized = value.trim();
+      
+      // Type-specific sanitization
+      switch (type) {
+        case 'name':
+          // Names: letters, spaces, hyphens, apostrophes only
+          sanitized = sanitized.replace(/[^a-zA-Z\s'-]/g, '');
+          // Limit length
+          if (sanitized.length > 50) {
+            sanitized = sanitized.substring(0, 50);
+          }
+          break;
+        case 'username':
+          // Username: alphanumeric, hyphens, underscores only
+          sanitized = sanitized.replace(/[^a-zA-Z0-9_-]/g, '');
+          // Limit length (already validated elsewhere)
+          break;
+        case 'displayName':
+          // Display name: letters, numbers, spaces, basic punctuation
+          sanitized = sanitized.replace(/[^a-zA-Z0-9\s'.-]/g, '');
+          // Limit length
+          if (sanitized.length > 100) {
+            sanitized = sanitized.substring(0, 100);
+          }
+          break;
+        case 'bio':
+          // Bio: remove potentially dangerous characters
+          // Remove SQL injection patterns: ' OR '1'='1, DROP TABLE, etc.
+          sanitized = sanitized
+            .replace(/['"]/g, '') // Remove quotes
+            .replace(/[<>{}[\]`$\\]/g, '') // Remove dangerous characters
+            .replace(/[\x00-\x1F\x7F]/g, ''); // Remove control characters
+          // Limit length
+          if (sanitized.length > 1000) {
+            sanitized = sanitized.substring(0, 1000);
+          }
+          break;
+        case 'payoutMethod':
+          // Payout method: only allow 'paypal'
+          if (sanitized !== 'paypal') {
+            sanitized = 'paypal';
+          }
+          break;
+        default:
+          // Default: remove control characters and limit length
+          sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, '');
+          if (sanitized.length > 255) {
+            sanitized = sanitized.substring(0, 255);
+          }
+      }
+      
+      return sanitized === '' ? null : sanitized;
+    };
+    
     // Convert empty strings to undefined and validate required fields
     const updates = {};
     Object.keys(rawUpdates).forEach((key) => {
@@ -87,17 +200,73 @@ export async function action({request, context}) {
           fieldErrors[key] = `${key === 'displayName' ? 'Display name' : 'Username'} is required`;
         }
       } else {
-        updates[key] = value;
+        // Sanitize based on field type
+        let sanitized;
+        if (key === 'firstName' || key === 'lastName') {
+          sanitized = sanitizeInput(value, 'name');
+        } else if (key === 'username') {
+          sanitized = sanitizeInput(value, 'username');
+        } else if (key === 'displayName') {
+          sanitized = sanitizeInput(value, 'displayName');
+        } else if (key === 'bio') {
+          sanitized = sanitizeInput(value, 'bio');
+        } else if (key === 'payoutMethod') {
+          sanitized = sanitizeInput(value, 'payoutMethod');
+        } else if (key === 'profileImageUrl') {
+          // Image URL is already validated by upload function, just use as-is
+          sanitized = value;
+        } else {
+          sanitized = sanitizeInput(value, 'default');
+        }
+        
+        if (sanitized !== null) {
+          updates[key] = sanitized;
+        }
       }
     });
     
     // Validate required fields
     if (!updates.displayName) {
       fieldErrors.displayName = 'Display name is required';
+    } else if (updates.displayName.length > 100) {
+      fieldErrors.displayName = 'Display name must be 100 characters or less.';
     }
     
+    // Validate username format (URL-safe: alphanumeric, hyphens, underscores only)
     if (!updates.username) {
       fieldErrors.username = 'Username is required';
+    } else {
+      // Username validation: only alphanumeric characters, hyphens, and underscores
+      // Must start and end with alphanumeric character
+      const usernameRegex = /^[a-zA-Z0-9][a-zA-Z0-9_-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
+      if (!usernameRegex.test(updates.username)) {
+        fieldErrors.username = 'Username can only contain letters, numbers, hyphens, and underscores. It must start and end with a letter or number.';
+      }
+      // Additional length validation
+      if (updates.username.length < 3) {
+        fieldErrors.username = 'Username must be at least 3 characters long.';
+      }
+      if (updates.username.length > 30) {
+        fieldErrors.username = 'Username must be 30 characters or less.';
+      }
+    }
+    
+    // Validate name fields length
+    if (updates.firstName && updates.firstName.length > 50) {
+      fieldErrors.firstName = 'First name must be 50 characters or less.';
+    }
+    if (updates.lastName && updates.lastName.length > 50) {
+      fieldErrors.lastName = 'Last name must be 50 characters or less.';
+    }
+    
+    // Validate bio length
+    if (updates.bio && updates.bio.length > 1000) {
+      fieldErrors.bio = 'Bio must be 1000 characters or less.';
+    }
+    
+    // Validate payout method (should only be 'paypal')
+    if (updates.payoutMethod && updates.payoutMethod !== 'paypal') {
+      updates.payoutMethod = 'paypal'; // Force to paypal for security
     }
     
     // Return field-level errors if any
@@ -110,7 +279,7 @@ export async function action({request, context}) {
     }
     
     // Update creator profile in Supabase
-    await updateCreatorProfile(
+    const updatedProfile = await updateCreatorProfile(
       user.email,
       updates,
       context.env.SUPABASE_URL,
@@ -118,9 +287,16 @@ export async function action({request, context}) {
       session.access_token,
     );
     
+    console.log('Profile updated successfully:', {
+      profileImageUrl: updatedProfile?.profile_image_url,
+      imageUrlFromUpload: imageUrl,
+      allUpdates: updates,
+    });
+    
     return {
       success: true,
       message: 'Profile updated successfully',
+      profileImageUrl: updatedProfile?.profile_image_url || imageUrl || null,
     };
   } catch (error) {
     console.error('Error updating creator profile:', {
@@ -151,6 +327,93 @@ export default function CreatorSettings() {
   const navigation = useNavigation();
   const isSubmitting = navigation.state === 'submitting';
   
+  // Default placeholder image (SVG data URI - account/user icon)
+  // Simple account icon: gray rounded square with user silhouette
+  // Using proper URL encoding for SVG data URI
+  const defaultAvatar = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'%3E%3Crect width='96' height='96' rx='8' fill='%23E5E7EB'/%3E%3Ccircle cx='48' cy='36' r='12' fill='%236B7280'/%3E%3Cpath d='M48 56C38 56 30 62 26 70V80H70V70C66 62 58 56 48 56Z' fill='%236B7280'/%3E%3C/svg%3E";
+  
+  // Use actionData profileImageUrl if available (from successful upload), otherwise use profile data
+  const currentImageUrl = actionData?.profileImageUrl || profile.profileImageUrl;
+  
+  // State for image error handling - reset when profile image URL changes
+  const [imageError, setImageError] = useState(false);
+  
+  // Reset error state when image URL changes (new image uploaded or profile loaded)
+  useEffect(() => {
+    if (currentImageUrl) {
+      setImageError(false);
+    }
+  }, [currentImageUrl]);
+  
+  // Debug logging
+  useEffect(() => {
+    if (actionData?.profileImageUrl) {
+      console.log('Action data image URL:', actionData.profileImageUrl);
+    }
+    if (profile.profileImageUrl) {
+      console.log('Profile image URL:', profile.profileImageUrl);
+    }
+    console.log('Current image URL:', currentImageUrl);
+  }, [actionData?.profileImageUrl, profile.profileImageUrl, currentImageUrl]);
+  
+  // Add cache-busting query parameter to force browser to reload image
+  // This helps when the image URL hasn't changed but the file has been updated
+  // Use useMemo to ensure we only regenerate the cache-bust param when URL changes
+  const imageUrlToDisplay = useMemo(() => {
+    if (!currentImageUrl || imageError) return null;
+    try {
+      const urlObj = new URL(currentImageUrl);
+      // Add timestamp as cache-busting parameter - regenerates only when URL changes
+      urlObj.searchParams.set('t', Date.now().toString());
+      return urlObj.toString();
+    } catch {
+      return currentImageUrl;
+    }
+  }, [currentImageUrl, imageError]);
+  
+  // Input sanitization functions for security
+  
+  // Filter username input to only allow URL-safe characters
+  const handleUsernameInput = (e) => {
+    const input = e.target.value;
+    // Only allow alphanumeric, hyphens, and underscores
+    const filtered = input.replace(/[^a-zA-Z0-9_-]/g, '');
+    if (filtered !== input) {
+      e.target.value = filtered;
+    }
+  };
+  
+  // Filter name inputs (first-name, last-name) - allow letters, spaces, hyphens, apostrophes
+  const handleNameInput = (e) => {
+    const input = e.target.value;
+    // Allow letters, spaces, hyphens, apostrophes (for names like O'Brien, Mary-Jane)
+    const filtered = input.replace(/[^a-zA-Z\s'-]/g, '');
+    if (filtered !== input) {
+      e.target.value = filtered;
+    }
+  };
+  
+  // Filter display name - allow letters, numbers, spaces, basic punctuation
+  const handleDisplayNameInput = (e) => {
+    const input = e.target.value;
+    // Allow letters, numbers, spaces, hyphens, apostrophes, periods
+    const filtered = input.replace(/[^a-zA-Z0-9\s'.-]/g, '');
+    if (filtered !== input) {
+      e.target.value = filtered;
+    }
+  };
+  
+  // Filter bio - allow most characters but remove potentially dangerous ones
+  const handleBioInput = (e) => {
+    const input = e.target.value;
+    // Remove SQL injection patterns and script tags
+    // Allow most characters but block: < > { } [ ] ` $ \ and control characters
+    const filtered = input.replace(/[<>{}[\]`$\\\x00-\x1F\x7F]/g, '');
+    if (filtered !== input) {
+      e.target.value = filtered;
+    }
+  };
+  
   return (
     <main className="bg-white dark:bg-gray-900">
       <h1 className="sr-only">Account Settings</h1>
@@ -166,7 +429,7 @@ export default function CreatorSettings() {
             </p>
           </div>
 
-          <Form method="post" className="md:col-span-2">
+          <Form method="post" encType="multipart/form-data" className="md:col-span-2">
             {/* Success/Error Messages */}
             {actionData?.success && (
               <div className="mb-6 rounded-md bg-green-50 p-4 dark:bg-green-900/20">
@@ -197,19 +460,72 @@ export default function CreatorSettings() {
             
             <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:max-w-xl sm:grid-cols-6">
               <div className="col-span-full flex items-center gap-x-8">
-                <img
-                  alt=""
-                  src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80"
-                  className="size-24 flex-none rounded-lg bg-gray-100 object-cover outline -outline-offset-1 outline-black/5 dark:bg-gray-800 dark:outline-white/10"
-                />
-                <div>
-                  <button
-                    type="button"
-                    className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs inset-ring-1 inset-ring-gray-300 hover:bg-gray-100 dark:bg-white/10 dark:text-white dark:shadow-none dark:inset-ring-white/5 dark:hover:bg-white/20"
+                <div className="relative">
+                  {!currentImageUrl || imageError ? (
+                    <div className="size-24 flex-none rounded-lg bg-gray-100 outline -outline-offset-1 outline-black/5 dark:bg-gray-800 dark:outline-white/10 flex items-center justify-center overflow-hidden">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" className="w-full h-full">
+                        <rect width="96" height="96" rx="8" fill="#E5E7EB" className="dark:fill-gray-700"/>
+                        <circle cx="48" cy="36" r="12" fill="#6B7280" className="dark:fill-gray-400"/>
+                        <path d="M48 56C38 56 30 62 26 70V80H70V70C66 62 58 56 48 56Z" fill="#6B7280" className="dark:fill-gray-400"/>
+                      </svg>
+                    </div>
+                  ) : (
+                    <img
+                      key={currentImageUrl} // Force React to recreate img element when URL changes
+                      alt="Profile"
+                      src={imageUrlToDisplay || currentImageUrl}
+                      onError={(e) => {
+                        // Fallback to default if image fails to load
+                        console.error('Image failed to load:', {
+                          url: currentImageUrl,
+                          displayUrl: imageUrlToDisplay,
+                          src: e.target?.src,
+                          error: e.type,
+                          naturalWidth: e.target?.naturalWidth,
+                          naturalHeight: e.target?.naturalHeight,
+                          complete: e.target?.complete,
+                        });
+                        setImageError(true);
+                      }}
+                      onLoad={(e) => {
+                        console.log('Image loaded successfully:', {
+                          url: currentImageUrl,
+                          displayUrl: imageUrlToDisplay,
+                          naturalWidth: e.target.naturalWidth,
+                          naturalHeight: e.target.naturalHeight,
+                        });
+                        setImageError(false);
+                      }}
+                      className="size-24 flex-none rounded-lg bg-gray-100 object-cover outline -outline-offset-1 outline-black/5 dark:bg-gray-800 dark:outline-white/10"
+                    />
+                  )}
+                </div>
+                <div className="flex flex-col gap-4">
+                  <label
+                    htmlFor="profileImage"
+                    className="cursor-pointer rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs inset-ring-1 inset-ring-gray-300 hover:bg-gray-100 dark:bg-white/10 dark:text-white dark:shadow-none dark:inset-ring-white/5 dark:hover:bg-white/20"
                   >
                     Change avatar
-                  </button>
-                  <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-300">JPG, GIF or PNG. 1MB max.</p>
+                    <input
+                      id="profileImage"
+                      name="profileImage"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="sr-only"
+                      onChange={(e) => {
+                        // Auto-submit form when image is selected
+                        if (e.target.files && e.target.files[0]) {
+                          const form = e.target.closest('form');
+                          if (form) {
+                            form.requestSubmit();
+                          }
+                        }
+                      }}
+                    />
+                  </label>
+                  <p className="text-xs/5 text-gray-500 dark:text-gray-300">
+                    JPG, PNG, WebP or GIF. 5MB max.
+                  </p>
                 </div>
               </div>
 
@@ -224,6 +540,30 @@ export default function CreatorSettings() {
                     type="text"
                     autoComplete="given-name"
                     defaultValue={profile.firstName}
+                    maxLength={50}
+                    onInput={handleNameInput}
+                    onKeyDown={(e) => {
+                      // Prevent typing invalid characters
+                      const key = e.key;
+                      const isValidKey = /^[a-zA-Z\s'-]$/.test(key) || 
+                                        ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 
+                                         'Tab', 'Home', 'End', 'Enter'].includes(key) ||
+                                        (e.ctrlKey || e.metaKey);
+                      if (!isValidKey && !e.shiftKey) {
+                        e.preventDefault();
+                      }
+                    }}
+                    onPaste={(e) => {
+                      e.preventDefault();
+                      const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+                      const filtered = pastedText.replace(/[^a-zA-Z\s'-]/g, '').substring(0, 50);
+                      const input = e.target;
+                      const start = input.selectionStart;
+                      const end = input.selectionEnd;
+                      const currentValue = input.value;
+                      input.value = currentValue.substring(0, start) + filtered + currentValue.substring(end);
+                      input.setSelectionRange(start + filtered.length, start + filtered.length);
+                    }}
                     className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
                   />
                 </div>
@@ -240,6 +580,30 @@ export default function CreatorSettings() {
                     type="text"
                     autoComplete="family-name"
                     defaultValue={profile.lastName}
+                    maxLength={50}
+                    onInput={handleNameInput}
+                    onKeyDown={(e) => {
+                      // Prevent typing invalid characters
+                      const key = e.key;
+                      const isValidKey = /^[a-zA-Z\s'-]$/.test(key) || 
+                                        ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 
+                                         'Tab', 'Home', 'End', 'Enter'].includes(key) ||
+                                        (e.ctrlKey || e.metaKey);
+                      if (!isValidKey && !e.shiftKey) {
+                        e.preventDefault();
+                      }
+                    }}
+                    onPaste={(e) => {
+                      e.preventDefault();
+                      const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+                      const filtered = pastedText.replace(/[^a-zA-Z\s'-]/g, '').substring(0, 50);
+                      const input = e.target;
+                      const start = input.selectionStart;
+                      const end = input.selectionEnd;
+                      const currentValue = input.value;
+                      input.value = currentValue.substring(0, start) + filtered + currentValue.substring(end);
+                      input.setSelectionRange(start + filtered.length, start + filtered.length);
+                    }}
                     className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
                   />
                 </div>
@@ -281,6 +645,34 @@ export default function CreatorSettings() {
                       placeholder="janesmith"
                       defaultValue={profile.username}
                       required
+                      pattern="[a-zA-Z0-9][a-zA-Z0-9_-]*[a-zA-Z0-9]|[a-zA-Z0-9]"
+                      minLength={3}
+                      maxLength={30}
+                      onInput={handleUsernameInput}
+                      onKeyDown={(e) => {
+                        // Prevent typing invalid characters
+                        const key = e.key;
+                        // Allow: letters, numbers, hyphen, underscore, backspace, delete, arrow keys, etc.
+                        const isValidKey = /^[a-zA-Z0-9_-]$/.test(key) || 
+                                          ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 
+                                           'Tab', 'Home', 'End', 'Enter'].includes(key) ||
+                                          (e.ctrlKey || e.metaKey); // Allow Ctrl/Cmd combinations (copy, paste, etc.)
+                        if (!isValidKey && !e.shiftKey) {
+                          e.preventDefault();
+                        }
+                      }}
+                      onPaste={(e) => {
+                        // Filter pasted content
+                        e.preventDefault();
+                        const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+                        const filtered = pastedText.replace(/[^a-zA-Z0-9_-]/g, '');
+                        const input = e.target;
+                        const start = input.selectionStart;
+                        const end = input.selectionEnd;
+                        const currentValue = input.value;
+                        input.value = currentValue.substring(0, start) + filtered + currentValue.substring(end);
+                        input.setSelectionRange(start + filtered.length, start + filtered.length);
+                      }}
                       aria-invalid={actionData?.fieldErrors?.username ? 'true' : 'false'}
                       aria-describedby={actionData?.fieldErrors?.username ? 'username-error' : undefined}
                       className={`block min-w-0 grow bg-transparent py-1.5 pr-3 pl-1 text-base placeholder:text-gray-400 focus:outline-none sm:text-sm/6 dark:placeholder:text-gray-500 ${
@@ -293,6 +685,11 @@ export default function CreatorSettings() {
                   {actionData?.fieldErrors?.username && (
                     <p id="username-error" className="mt-1 text-sm text-red-600 dark:text-red-400">
                       {actionData.fieldErrors.username}
+                    </p>
+                  )}
+                  {!actionData?.fieldErrors?.username && (
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Only letters, numbers, hyphens, and underscores. 3-30 characters.
                     </p>
                   )}
                 </div>
@@ -309,6 +706,30 @@ export default function CreatorSettings() {
                     type="text"
                     defaultValue={profile.displayName}
                     required
+                    maxLength={100}
+                    onInput={handleDisplayNameInput}
+                    onKeyDown={(e) => {
+                      // Prevent typing invalid characters
+                      const key = e.key;
+                      const isValidKey = /^[a-zA-Z0-9\s'.-]$/.test(key) || 
+                                        ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 
+                                         'Tab', 'Home', 'End', 'Enter'].includes(key) ||
+                                        (e.ctrlKey || e.metaKey);
+                      if (!isValidKey && !e.shiftKey) {
+                        e.preventDefault();
+                      }
+                    }}
+                    onPaste={(e) => {
+                      e.preventDefault();
+                      const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+                      const filtered = pastedText.replace(/[^a-zA-Z0-9\s'.-]/g, '').substring(0, 100);
+                      const input = e.target;
+                      const start = input.selectionStart;
+                      const end = input.selectionEnd;
+                      const currentValue = input.value;
+                      input.value = currentValue.substring(0, start) + filtered + currentValue.substring(end);
+                      input.setSelectionRange(start + filtered.length, start + filtered.length);
+                    }}
                     aria-invalid={actionData?.fieldErrors?.displayName ? 'true' : 'false'}
                     aria-describedby={actionData?.fieldErrors?.displayName ? 'displayName-error' : undefined}
                     className={`block w-full rounded-md bg-white px-3 py-1.5 text-base outline-1 -outline-offset-1 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 sm:text-sm/6 dark:bg-white/5 dark:outline-white/10 dark:placeholder:text-gray-500 ${
@@ -335,6 +756,23 @@ export default function CreatorSettings() {
                     name="bio"
                     rows={4}
                     defaultValue={profile.bio}
+                    maxLength={1000}
+                    onInput={handleBioInput}
+                    onPaste={(e) => {
+                      e.preventDefault();
+                      const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+                      // Remove dangerous characters and SQL injection patterns
+                      const filtered = pastedText
+                        .replace(/['"]/g, '')
+                        .replace(/[<>{}[\]`$\\\x00-\x1F\x7F]/g, '')
+                        .substring(0, 1000);
+                      const textarea = e.target;
+                      const start = textarea.selectionStart;
+                      const end = textarea.selectionEnd;
+                      const currentValue = textarea.value;
+                      textarea.value = currentValue.substring(0, start) + filtered + currentValue.substring(end);
+                      textarea.setSelectionRange(start + filtered.length, start + filtered.length);
+                    }}
                     className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
                   />
                 </div>
@@ -344,13 +782,18 @@ export default function CreatorSettings() {
                 <label htmlFor="payoutMethod" className="block text-sm/6 font-medium text-gray-900 dark:text-white">
                   Payout Method
                 </label>
-                <div className="mt-2">
-                  <input
+                <div className="mt-2 grid grid-cols-1">
+                  <select
                     id="payoutMethod"
                     name="payoutMethod"
-                    type="text"
-                    defaultValue={profile.payoutMethod}
-                    className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
+                    defaultValue={profile.payoutMethod || 'paypal'}
+                    className="col-start-1 row-start-1 w-full appearance-none rounded-md bg-white py-1.5 pr-8 pl-3 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:*:bg-gray-800 dark:focus:outline-indigo-500"
+                  >
+                    <option value="paypal">PayPal</option>
+                  </select>
+                  <ChevronDownIcon
+                    aria-hidden="true"
+                    className="pointer-events-none col-start-1 row-start-1 mr-2 size-5 self-center justify-self-end text-gray-400 dark:text-gray-300 sm:size-4"
                   />
                 </div>
               </div>
