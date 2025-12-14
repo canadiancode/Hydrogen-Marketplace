@@ -37,6 +37,16 @@ function validateEnvVars(env) {
       `Missing required environment variables: ${missing.join(', ')}`
     );
   }
+  
+  // Validate Supabase variables if creator/admin features are used
+  // These are conditionally required - validate early but allow graceful degradation
+  // Routes that need Supabase should check explicitly
+  if (env.SUPABASE_URL && !env.SUPABASE_ANON_KEY) {
+    console.warn('SUPABASE_URL is set but SUPABASE_ANON_KEY is missing. Creator authentication will not work.');
+  }
+  if (!env.SUPABASE_URL && env.SUPABASE_ANON_KEY) {
+    console.warn('SUPABASE_ANON_KEY is set but SUPABASE_URL is missing. Creator authentication will not work.');
+  }
 }
 
 export async function createHydrogenRouterContext(

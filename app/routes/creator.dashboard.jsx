@@ -1,5 +1,6 @@
 import {useLoaderData} from 'react-router';
 import CreatorDashboard from '~/components/creator/CreatorDashboard';
+import {CreatorLayout} from '~/components/creator/CreatorLayout';
 import {requireAuth} from '~/lib/auth-helpers';
 
 export const meta = () => {
@@ -22,5 +23,9 @@ export async function loader({context, request}) {
 export default function CreatorDashboardPage() {
   const data = useLoaderData();
   
-  return <CreatorDashboard user={data.user} />;
+  return (
+    <CreatorLayout>
+      <CreatorDashboard user={data.user} />
+    </CreatorLayout>
+  );
 }

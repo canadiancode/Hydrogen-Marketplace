@@ -53,8 +53,27 @@ p {
 }
 
 a {
-  color: #000;
   text-decoration: none;
+}
+
+/* Default anchor color - only applies when no Tailwind text color utility is present */
+/* Tailwind utility classes (class selectors) have higher specificity and will override */
+a:not([class*="text-"]) {
+  color: #000;
+}
+
+/* For anchors with Tailwind color classes, set a base color that Tailwind can override */
+/* This prevents browser default link color (blue) from showing */
+/* Tailwind utility classes (class selectors) have higher specificity and will override this */
+a[class*="text-"] {
+  color: #000;
+}
+
+/* In dark mode, set white as fallback - Tailwind's dark:text-white will override if working */
+@media (prefers-color-scheme: dark) {
+  a[class*="text-"] {
+    color: #fff;
+  }
 }
 
 a:hover {
@@ -79,7 +98,9 @@ body {
 }
 
 body > main {
-  margin: 0 1rem 1rem 1rem;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
 section {

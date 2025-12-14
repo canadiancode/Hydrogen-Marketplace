@@ -399,6 +399,58 @@ export async function verifyMagicLink(token, type, supabaseUrl, anonKey) {
 }
 
 /**
+ * Refreshes an expired or soon-to-expire Supabase session
+ * 
+ * @param {string} refreshToken - The refresh token from the session
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} anonKey - Supabase anon/public key
+ * @returns {Promise<{session: Session | null, user: User | null, error: Error | null}>}
+ */
+export async function refreshSupabaseSession(refreshToken, supabaseUrl, anonKey) {
+  if (!refreshToken || !supabaseUrl || !anonKey) {
+    return {
+      session: null,
+      user: null,
+      error: new Error('Refresh token, Supabase URL, and anon key are required'),
+    };
+  }
+
+  const supabase = createClient(supabaseUrl, anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+
+  try {
+    const {data, error} = await supabase.auth.refreshSession({
+      refresh_token: refreshToken,
+    });
+
+    if (error || !data.session) {
+      return {
+        session: null,
+        user: null,
+        error: error || new Error('Failed to refresh session'),
+      };
+    }
+
+    return {
+      session: data.session,
+      user: data.user,
+      error: null,
+    };
+  } catch (err) {
+    console.error('Error refreshing Supabase session:', err);
+    return {
+      session: null,
+      user: null,
+      error: new Error('Failed to refresh session'),
+    };
+  }
+}
+
+/**
  * Checks if a user is authenticated
  * 
  * @param {Request} request - The incoming request

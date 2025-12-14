@@ -71,6 +71,51 @@ export function addSessionCookie(response, session, supabaseUrl, needsRefresh, i
 }
 
 /**
+ * Refreshes a Supabase session if needed and updates the response cookie
+ * 
+ * @param {Response} response - The response object
+ * @param {object} session - Current Supabase session
+ * @param {string} supabaseUrl - Supabase project URL
+ * @param {string} anonKey - Supabase anon key
+ * @param {boolean} needsRefresh - Whether session needs refresh
+ * @param {boolean} isProduction - Whether in production
+ * @returns {Promise<Response>} - Response with refreshed cookie if refresh was successful
+ */
+export async function refreshSessionIfNeeded(response, session, supabaseUrl, anonKey, needsRefresh, isProduction) {
+  if (!needsRefresh || !session?.refresh_token) {
+    return response;
+  }
+
+  try {
+    const {refreshSupabaseSession} = await import('~/lib/supabase');
+    const {createSessionCookie} = await import('~/lib/supabase');
+    
+    const {session: newSession, error} = await refreshSupabaseSession(
+      session.refresh_token,
+      supabaseUrl,
+      anonKey,
+    );
+
+    if (error || !newSession) {
+      // Refresh failed - session may be expired, but don't break the response
+      console.warn('Session refresh failed:', error);
+      return response;
+    }
+
+    // Update cookie with refreshed session
+    const cookieHeader = createSessionCookie(newSession, supabaseUrl, isProduction);
+    if (cookieHeader) {
+      response.headers.set('Set-Cookie', cookieHeader);
+    }
+
+    return response;
+  } catch (error) {
+    console.error('Error refreshing session:', error);
+    return response;
+  }
+}
+
+/**
  * Generates a cryptographically secure CSRF token
  * 
  * 2025 Best Practice: Use cryptographically secure random tokens with expiration
