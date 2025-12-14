@@ -30,7 +30,7 @@ export default defineConfig({
        * Include 'example-dep' in the array below.
        * @see https://vitejs.dev/config/dep-optimization-options
        */
-      include: ['set-cookie-parser', 'cookie', 'react-router', '@headlessui/react', '@heroicons/react'],
+      include: ['set-cookie-parser', 'cookie', 'react-router', '@headlessui/react', '@heroicons/react', '@supabase/supabase-js'],
     },
   },
   server: {
