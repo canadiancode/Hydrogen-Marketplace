@@ -62,63 +62,78 @@ function loadDeferredData({context}) {
 export default function Homepage() {
   /** @type {LoaderReturnData} */
   const data = useLoaderData();
+  
   return (
-    <div className="home">
-      <FeaturedCollection collection={data.featuredCollection} />
-      <RecommendedProducts products={data.recommendedProducts} />
-    </div>
-  );
-}
-
-/**
- * @param {{
- *   collection: FeaturedCollectionFragment;
- * }}
- */
-function FeaturedCollection({collection}) {
-  if (!collection) return null;
-  const image = collection?.image;
-  return (
-    <Link
-      className="featured-collection"
-      to={`/collections/${collection.handle}`}
-    >
-      {image && (
-        <div className="featured-collection-image">
-          <Image data={image} sizes="100vw" />
+    <div className="min-h-screen bg-white">
+      {/* Hero statement */}
+      <section className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          <h1 className="text-5xl font-bold mb-4">WornVault</h1>
+          <p className="text-xl mb-8">Verified creators, discreet fulfillment</p>
+          <p className="text-lg text-indigo-100 max-w-2xl mx-auto">
+            Establish brand positioning, build immediate trust, and drive exploration of unique items with authentic stories.
+          </p>
         </div>
-      )}
-      <h1>{collection.title}</h1>
-    </Link>
-  );
-}
-
-/**
- * @param {{
- *   products: Promise<RecommendedProductsQuery | null>;
- * }}
- */
-function RecommendedProducts({products}) {
-  return (
-    <div className="recommended-products">
-      <h2>Recommended Products</h2>
-      <Suspense fallback={<div>Loading...</div>}>
-        <Await resolve={products}>
-          {(response) => (
-            <div className="recommended-products-grid">
-              {response
-                ? response.products.nodes.map((product) => (
+      </section>
+      
+      {/* Value propositions */}
+      <section className="py-16 bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <h2 className="text-3xl font-bold text-gray-900 mb-4 text-center">Why WornVault?</h2>
+          <p className="text-lg text-gray-600 text-center max-w-2xl mx-auto">
+            Value propositions highlighting verified creators and discreet fulfillment process.
+          </p>
+          {/* Add value proposition content */}
+        </div>
+      </section>
+      
+      {/* Featured listings */}
+      <section className="py-16">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">Featured Listings</h2>
+          <p className="text-lg text-gray-600 mb-8 text-center">
+            Manually curated listings from verified creators
+          </p>
+          <Suspense fallback={<div className="text-center py-12">Loading...</div>}>
+            <Await resolve={data.recommendedProducts}>
+              {(products) => (
+                <div className="recommended-products-grid">
+                  {products?.nodes?.map((product) => (
                     <ProductItem key={product.id} product={product} />
-                  ))
-                : null}
-            </div>
-          )}
-        </Await>
-      </Suspense>
-      <br />
+                  ))}
+                </div>
+              )}
+            </Await>
+          </Suspense>
+        </div>
+      </section>
+      
+      {/* How it works (buyer-side) */}
+      <section className="py-16 bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <h2 className="text-3xl font-bold text-gray-900 mb-4 text-center">How It Works</h2>
+          <p className="text-lg text-gray-600 text-center max-w-2xl mx-auto">
+            Learn how to browse, purchase, and receive items from verified creators with complete discretion.
+          </p>
+          {/* Add how it works content */}
+        </div>
+      </section>
+      
+      {/* Primary CTA */}
+      <section className="py-16">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          <Link
+            to="/shop"
+            className="inline-flex items-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          >
+            Explore / Shop
+          </Link>
+        </div>
+      </section>
     </div>
   );
 }
+
 
 const FEATURED_COLLECTION_QUERY = `#graphql
   fragment FeaturedCollection on Collection {
