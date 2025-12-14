@@ -40,6 +40,66 @@ export async function uploadProfileImage(file, userEmail, supabaseUrl, anonKey, 
     };
   }
 
+  // Validate file content using magic bytes (file signature)
+  // This prevents MIME type spoofing attacks
+  try {
+    const buffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(buffer.slice(0, 12)); // Read first 12 bytes for all formats
+    
+    // Check magic bytes for different image formats
+    const magicBytes = Array.from(bytes.slice(0, 4))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('')
+      .toUpperCase();
+    
+    const magicBytes12 = Array.from(bytes.slice(0, 12))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('')
+      .toUpperCase();
+    
+    // Magic byte signatures:
+    // JPEG: FF D8 FF
+    // PNG: 89 50 4E 47
+    // GIF: 47 49 46 38 (GIF89a or GIF87a)
+    // WebP: RIFF...WEBP (starts with RIFF at bytes 0-3, WEBP at bytes 8-11)
+    const isValidImage = 
+      magicBytes.startsWith('FFD8FF') || // JPEG
+      magicBytes.startsWith('89504E47') || // PNG
+      magicBytes.startsWith('47494638') || // GIF
+      (magicBytes.startsWith('52494646') && magicBytes12.includes('57454250')); // WebP (RIFF...WEBP)
+    
+    if (!isValidImage) {
+      return {
+        url: null,
+        error: new Error('File content does not match file type. The file may be corrupted or malicious.'),
+      };
+    }
+    
+    // Additional validation: ensure MIME type matches magic bytes
+    const expectedMimeType = 
+      magicBytes.startsWith('FFD8FF') ? 'image/jpeg' :
+      magicBytes.startsWith('89504E47') ? 'image/png' :
+      magicBytes.startsWith('47494638') ? 'image/gif' :
+      'image/webp';
+    
+    if (file.type !== expectedMimeType && 
+        !(file.type === 'image/jpeg' && magicBytes.startsWith('FFD8FF')) && // Allow jpeg/jpg
+        !(file.type === 'image/png' && magicBytes.startsWith('89504E47')) &&
+        !(file.type === 'image/gif' && magicBytes.startsWith('47494638')) &&
+        !(file.type === 'image/webp' && magicBytes.startsWith('52494646'))) {
+      return {
+        url: null,
+        error: new Error('File type mismatch. The file extension does not match the file content.'),
+      };
+    }
+  } catch (magicByteError) {
+    console.error('Error validating file magic bytes:', magicByteError);
+    return {
+      url: null,
+      error: new Error('Unable to validate file. Please try a different image.'),
+    };
+  }
+
   try {
     // Import Supabase client creation function
     const {createUserSupabaseClient} = await import('~/lib/supabase');
@@ -60,13 +120,30 @@ export async function uploadProfileImage(file, userEmail, supabaseUrl, anonKey, 
 
     // Generate file path: {user-email}/profile.{ext}
     // Sanitize email for use in file path (replace @ and . with safe characters)
-    const sanitizedEmail = userEmail.replace(/[@.]/g, '_');
-    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-    // Ensure valid extension
-    const validExts = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
-    const finalExt = validExts.includes(fileExt) ? fileExt : 'jpg';
+    // Also remove any path traversal attempts
+    const sanitizedEmail = userEmail
+      .replace(/[@.]/g, '_')
+      .replace(/[^a-zA-Z0-9_-]/g, '') // Remove any other unsafe characters
+      .substring(0, 100); // Limit length
+    
+    // Determine extension from validated file type (not filename to prevent spoofing)
+    let finalExt = 'jpg';
+    if (file.type === 'image/png') finalExt = 'png';
+    else if (file.type === 'image/gif') finalExt = 'gif';
+    else if (file.type === 'image/webp') finalExt = 'webp';
+    else if (file.type === 'image/jpeg' || file.type === 'image/jpg') finalExt = 'jpg';
+    
+    // Use fixed filename to prevent path traversal
     const fileName = `profile.${finalExt}`;
     const filePath = `${sanitizedEmail}/${fileName}`;
+    
+    // Final security check: ensure no path traversal in final path
+    if (filePath.includes('..') || filePath.includes('//') || filePath.startsWith('/')) {
+      return {
+        url: null,
+        error: new Error('Invalid file path. Please try again.'),
+      };
+    }
 
     // Upload file to Supabase Storage
     const {data, error} = await supabase.storage
@@ -168,7 +245,10 @@ export async function deleteProfileImage(userEmail, supabaseUrl, anonKey, access
     const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
 
     // Sanitize email for use in file path (same as upload function)
-    const sanitizedEmail = userEmail.replace(/[@.]/g, '_');
+    const sanitizedEmail = userEmail
+      .replace(/[@.]/g, '_')
+      .replace(/[^a-zA-Z0-9_-]/g, '') // Remove any other unsafe characters
+      .substring(0, 100); // Limit length
     
     // List files in user's folder
     const {data: files, error: listError} = await supabase.storage
@@ -183,7 +263,14 @@ export async function deleteProfileImage(userEmail, supabaseUrl, anonKey, access
     }
 
     // Delete all files in user's folder (usually just one profile image)
-    const filePaths = files.map((file) => `${sanitizedEmail}/${file.name}`);
+    const filePaths = files.map((file) => {
+      const filePath = `${sanitizedEmail}/${file.name}`;
+      // Security check: ensure no path traversal
+      if (filePath.includes('..') || filePath.includes('//') || filePath.startsWith('/')) {
+        return null;
+      }
+      return filePath;
+    }).filter(Boolean);
     
     if (filePaths.length > 0) {
       const {error: deleteError} = await supabase.storage

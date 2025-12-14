@@ -1,7 +1,8 @@
 import {useState, useEffect, useMemo} from 'react';
 import {Form, useLoaderData, useActionData, useNavigation} from 'react-router';
-import {requireAuth} from '~/lib/auth-helpers';
+import {requireAuth, generateCSRFToken, validateCSRFToken, getClientIP} from '~/lib/auth-helpers';
 import {fetchCreatorProfile, updateCreatorProfile} from '~/lib/supabase';
+import {rateLimitMiddleware} from '~/lib/rate-limit';
 import {ChevronDownIcon} from '@heroicons/react/16/solid';
 
 export const meta = () => {
@@ -29,20 +30,21 @@ export async function loader({context, request}) {
         context.env.SUPABASE_ANON_KEY,
         session.access_token,
       );
-      console.log('Fetched profile in loader:', {
-        email: user.email,
-        profileImageUrl: profile?.profile_image_url,
-        fullProfile: profile,
-      });
     } catch (error) {
       console.error('Error fetching creator profile:', error);
       // Continue with null profile - will use defaults
     }
   }
   
+  // Generate CSRF token for form protection and store in session
+  const csrfToken = await generateCSRFToken(request, context.env.SESSION_SECRET);
+  context.session.set('csrf_token', csrfToken);
+  // Note: Session will be committed automatically by React Router when isPending is true
+  
   // Map database fields to form field names
   return {
     user,
+    csrfToken,
     profile: profile
       ? {
           firstName: profile.first_name || '',
@@ -78,7 +80,37 @@ export async function action({request, context}) {
     };
   }
   
+  // Rate limiting: max 10 requests per minute per user
+  const clientIP = getClientIP(request);
+  const rateLimitKey = `settings:${user.email}:${clientIP}`;
+  const rateLimit = await rateLimitMiddleware(request, rateLimitKey, {
+    maxRequests: 10,
+    windowMs: 60000, // 1 minute
+  });
+  
+  if (!rateLimit.allowed) {
+    return {
+      success: false,
+      error: 'Too many requests. Please wait a moment before trying again.',
+    };
+  }
+  
   const formData = await request.formData();
+  
+  // Validate CSRF token
+  const csrfToken = formData.get('csrf_token');
+  // Get CSRF token from session (stored during loader)
+  const storedCSRFToken = context.session.get('csrf_token');
+  
+  if (!csrfToken || !storedCSRFToken || csrfToken !== storedCSRFToken) {
+    return {
+      success: false,
+      error: 'Invalid security token. Please refresh the page and try again.',
+    };
+  }
+  
+  // Clear CSRF token after use (one-time use for better security)
+  context.session.unset('csrf_token');
   
   try {
     // Handle image upload if provided
@@ -104,7 +136,6 @@ export async function action({request, context}) {
         }
         
         imageUrl = uploadResult.url;
-        console.log('Image uploaded successfully, URL:', imageUrl);
       } catch (error) {
         console.error('Error uploading image:', error);
         return {
@@ -213,8 +244,27 @@ export async function action({request, context}) {
         } else if (key === 'payoutMethod') {
           sanitized = sanitizeInput(value, 'payoutMethod');
         } else if (key === 'profileImageUrl') {
-          // Image URL is already validated by upload function, just use as-is
-          sanitized = value;
+          // Validate image URL format and origin
+          try {
+            const url = new URL(value);
+            // Ensure it's from Supabase Storage
+            if (!url.hostname.includes('supabase.co') && !url.hostname.includes('supabase.in')) {
+              throw new Error('Invalid image URL origin');
+            }
+            // Ensure it's HTTPS
+            if (url.protocol !== 'https:') {
+              throw new Error('Image URL must use HTTPS');
+            }
+            // Ensure it's a valid image path
+            if (!url.pathname.match(/\.(jpg|jpeg|png|webp|gif)$/i)) {
+              throw new Error('Invalid image URL format');
+            }
+            sanitized = value;
+          } catch (urlError) {
+            console.error('Invalid image URL:', urlError);
+            fieldErrors.profileImageUrl = 'Invalid image URL. Please upload a new image.';
+            sanitized = null;
+          }
         } else {
           sanitized = sanitizeInput(value, 'default');
         }
@@ -232,15 +282,15 @@ export async function action({request, context}) {
       fieldErrors.displayName = 'Display name must be 100 characters or less.';
     }
     
-    // Validate username format (URL-safe: alphanumeric, hyphens, underscores only)
+    // Validate username format (alphanumeric and hyphens only - no underscores)
     if (!updates.username) {
       fieldErrors.username = 'Username is required';
     } else {
-      // Username validation: only alphanumeric characters, hyphens, and underscores
+      // Username validation: only alphanumeric characters and hyphens (no underscores)
       // Must start and end with alphanumeric character
-      const usernameRegex = /^[a-zA-Z0-9][a-zA-Z0-9_-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
+      const usernameRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
       if (!usernameRegex.test(updates.username)) {
-        fieldErrors.username = 'Username can only contain letters, numbers, hyphens, and underscores. It must start and end with a letter or number.';
+        fieldErrors.username = 'Username can only contain letters, numbers, and hyphens. It must start and end with a letter or number.';
       }
       // Additional length validation
       if (updates.username.length < 3) {
@@ -299,30 +349,41 @@ export async function action({request, context}) {
       profileImageUrl: updatedProfile?.profile_image_url || imageUrl || null,
     };
   } catch (error) {
+    // Log full error details server-side only
     console.error('Error updating creator profile:', {
-      error,
+      error: error.message,
+      errorCode: error.code,
       userEmail: user.email,
       timestamp: new Date().toISOString(),
     });
     
-    // Check if error is a unique constraint violation for username
-    const errorMessage = error.message || 'Failed to update profile. Please try again.';
+    // Sanitize error messages for client - don't expose internal details
     const fieldErrors = {};
+    let userFriendlyError = 'Failed to update profile. Please try again.';
     
+    // Only expose specific, safe error messages
+    const errorMessage = error.message || '';
     if (errorMessage.includes('Username is already taken')) {
       fieldErrors.username = 'Username is already taken. Please choose a different username.';
+      userFriendlyError = 'Please fix the errors below';
+    } else if (errorMessage.includes('Display name is required')) {
+      fieldErrors.displayName = 'Display name is required';
+      userFriendlyError = 'Please fix the errors below';
+    } else if (errorMessage.includes('Username is required')) {
+      fieldErrors.username = 'Username is required';
+      userFriendlyError = 'Please fix the errors below';
     }
     
     return {
       success: false,
-      error: fieldErrors.username ? 'Please fix the errors below' : errorMessage,
+      error: userFriendlyError,
       fieldErrors: Object.keys(fieldErrors).length > 0 ? fieldErrors : undefined,
     };
   }
 }
 
 export default function CreatorSettings() {
-  const {profile, user} = useLoaderData();
+  const {profile, user, csrfToken} = useLoaderData();
   const actionData = useActionData();
   const navigation = useNavigation();
   const isSubmitting = navigation.state === 'submitting';
@@ -345,17 +406,6 @@ export default function CreatorSettings() {
     }
   }, [currentImageUrl]);
   
-  // Debug logging
-  useEffect(() => {
-    if (actionData?.profileImageUrl) {
-      console.log('Action data image URL:', actionData.profileImageUrl);
-    }
-    if (profile.profileImageUrl) {
-      console.log('Profile image URL:', profile.profileImageUrl);
-    }
-    console.log('Current image URL:', currentImageUrl);
-  }, [actionData?.profileImageUrl, profile.profileImageUrl, currentImageUrl]);
-  
   // Add cache-busting query parameter to force browser to reload image
   // This helps when the image URL hasn't changed but the file has been updated
   // Use useMemo to ensure we only regenerate the cache-bust param when URL changes
@@ -373,11 +423,11 @@ export default function CreatorSettings() {
   
   // Input sanitization functions for security
   
-  // Filter username input to only allow URL-safe characters
+  // Filter username input to only allow letters, numbers, and hyphens (no underscores)
   const handleUsernameInput = (e) => {
     const input = e.target.value;
-    // Only allow alphanumeric, hyphens, and underscores
-    const filtered = input.replace(/[^a-zA-Z0-9_-]/g, '');
+    // Only allow alphanumeric and hyphens (no underscores)
+    const filtered = input.replace(/[^a-zA-Z0-9-]/g, '');
     if (filtered !== input) {
       e.target.value = filtered;
     }
@@ -430,6 +480,7 @@ export default function CreatorSettings() {
           </div>
 
           <Form method="post" encType="multipart/form-data" className="md:col-span-2">
+            <input type="hidden" name="csrf_token" value={csrfToken} />
             {/* Success/Error Messages */}
             {actionData?.success && (
               <div className="mb-6 rounded-md bg-green-50 p-4 dark:bg-green-900/20">
@@ -474,26 +525,11 @@ export default function CreatorSettings() {
                       key={currentImageUrl} // Force React to recreate img element when URL changes
                       alt="Profile"
                       src={imageUrlToDisplay || currentImageUrl}
-                      onError={(e) => {
+                      onError={() => {
                         // Fallback to default if image fails to load
-                        console.error('Image failed to load:', {
-                          url: currentImageUrl,
-                          displayUrl: imageUrlToDisplay,
-                          src: e.target?.src,
-                          error: e.type,
-                          naturalWidth: e.target?.naturalWidth,
-                          naturalHeight: e.target?.naturalHeight,
-                          complete: e.target?.complete,
-                        });
                         setImageError(true);
                       }}
-                      onLoad={(e) => {
-                        console.log('Image loaded successfully:', {
-                          url: currentImageUrl,
-                          displayUrl: imageUrlToDisplay,
-                          naturalWidth: e.target.naturalWidth,
-                          naturalHeight: e.target.naturalHeight,
-                        });
+                      onLoad={() => {
                         setImageError(false);
                       }}
                       className="size-24 flex-none rounded-lg bg-gray-100 object-cover outline -outline-offset-1 outline-black/5 dark:bg-gray-800 dark:outline-white/10"
