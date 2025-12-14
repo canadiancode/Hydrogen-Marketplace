@@ -9,9 +9,14 @@
 // In production, this should be replaced with Redis or similar
 const rateLimitStore = new Map();
 
+// Track last cleanup time to avoid cleaning too frequently
+let lastCleanup = 0;
+const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
 /**
  * Cleans up expired entries from the rate limit store
  * Should be called periodically to prevent memory leaks
+ * Note: In Cloudflare Workers, we can't use setInterval, so cleanup happens lazily
  */
 function cleanupExpiredEntries() {
   const now = Date.now();
@@ -20,11 +25,6 @@ function cleanupExpiredEntries() {
       rateLimitStore.delete(key);
     }
   }
-}
-
-// Cleanup every 5 minutes
-if (typeof setInterval !== 'undefined') {
-  setInterval(cleanupExpiredEntries, 5 * 60 * 1000);
 }
 
 /**
@@ -37,6 +37,13 @@ if (typeof setInterval !== 'undefined') {
  */
 export async function checkRateLimit(identifier, maxRequests = 10, windowMs = 60000) {
   const now = Date.now();
+  
+  // Lazy cleanup: clean up expired entries periodically (but not on every request)
+  if (now - lastCleanup > CLEANUP_INTERVAL) {
+    cleanupExpiredEntries();
+    lastCleanup = now;
+  }
+  
   const key = identifier;
   const data = rateLimitStore.get(key);
 
