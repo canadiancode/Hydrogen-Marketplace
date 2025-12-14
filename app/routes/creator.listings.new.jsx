@@ -1,5 +1,5 @@
 import {useState, useRef, useEffect} from 'react';
-import {Form, redirect} from 'react-router';
+import {Form, redirect, useSubmit} from 'react-router';
 import {requireAuth} from '~/lib/auth-helpers';
 import {ChevronDownIcon, ChevronUpIcon, XMarkIcon} from '@heroicons/react/16/solid';
 import {PhotoIcon} from '@heroicons/react/24/solid';
@@ -16,23 +16,463 @@ export async function loader({context, request}) {
 }
 
 export async function action({request, context}) {
-  // Require authentication
-  const {user} = await requireAuth(request, context.env);
-  
-  const formData = await request.formData();
-  
-  // Create listing in Supabase
-  // const listing = await createListing(context, {
-  //   category: formData.get('category'),
-  //   description: formData.get('description'),
-  //   price: formData.get('price'),
-  //   // reference photos
-  // });
-  
-  // Listing status → pending_approval
-  // Not publicly visible
-  
-  return redirect('/creator/listings');
+  try {
+    // Require authentication
+    const {user, session} = await requireAuth(request, context.env);
+    
+    if (!user?.email) {
+      console.error('Action: User not authenticated');
+      throw new Response('Unauthorized', {status: 401});
+    }
+
+    const formData = await request.formData();
+    
+    // Log all form data keys to see what we're receiving
+    const formDataKeys = [];
+    for (const [key, value] of formData.entries()) {
+      const entry = {
+        key,
+        valueType: typeof value,
+        isFile: value instanceof File,
+        isBlob: typeof Blob !== 'undefined' && value instanceof Blob,
+        isString: typeof value === 'string',
+        stringValue: typeof value === 'string' ? value.substring(0, 50) : null,
+        constructor: value?.constructor?.name,
+      };
+      
+      if (key === 'photos') {
+        entry.size = value?.size;
+        entry.type = value?.type;
+        entry.name = value?.name;
+        entry.hasArrayBuffer = typeof value?.arrayBuffer === 'function';
+        entry.rawValue = value;
+      }
+      
+      formDataKeys.push(entry);
+    }
+    console.log('Action: All FormData entries', JSON.stringify(formDataKeys, null, 2));
+    
+    // Extract form data
+    const title = formData.get('title')?.toString().trim();
+    const category = formData.get('category')?.toString().trim();
+    const story = formData.get('description')?.toString().trim();
+    const price = formData.get('price')?.toString();
+    const photos = formData.getAll('photos');
+    
+    console.log('Action: Extracted photos from FormData', {
+      photosLength: photos.length,
+      photos,
+    });
+
+    console.log('Action: Form data received', {
+      hasTitle: !!title,
+      hasCategory: !!category,
+      hasStory: !!story,
+      hasPrice: !!price,
+      photoCount: photos.length,
+      photoTypes: photos.map(p => typeof p),
+    });
+
+    // Validate required fields
+    if (!title || !category || !story || !price) {
+      console.error('Action: Missing required fields', {title, category, story, price});
+      return new Response('Missing required fields', {status: 400});
+    }
+
+    // Validate price
+    const priceFloat = parseFloat(price);
+    if (isNaN(priceFloat) || priceFloat <= 0) {
+      console.error('Action: Invalid price', {price});
+      return new Response('Invalid price', {status: 400});
+    }
+
+    // Convert price to cents
+    const priceCents = Math.round(priceFloat * 100);
+
+    // Validate photos - filter out empty strings and non-File objects
+    // Note: Files are now submitted manually from client state, so we might get empty strings
+    // Log the raw structure first with full details
+    const rawPhotoDetails = photos.map((p, i) => {
+      const detail = {
+        index: i,
+        value: p,
+        type: typeof p,
+        isNull: p === null,
+        isUndefined: p === undefined,
+        isString: typeof p === 'string',
+        stringValue: typeof p === 'string' ? p : null,
+        isObject: typeof p === 'object' && p !== null,
+        constructor: p?.constructor?.name,
+        isFile: p instanceof File,
+        isBlob: typeof Blob !== 'undefined' && p instanceof Blob,
+      };
+      
+      if (p && typeof p === 'object') {
+        detail.keys = Object.keys(p);
+        detail.size = p.size;
+        detail.type = p.type;
+        detail.name = p.name;
+        detail.hasArrayBuffer = typeof p.arrayBuffer === 'function';
+      }
+      
+      return detail;
+    });
+    
+    console.log('Action: Raw photos array', JSON.stringify({
+      length: photos.length,
+      photos: rawPhotoDetails,
+    }, null, 2));
+    
+    // Log the structure of photos for debugging
+    const photoDetails = photos.map((photo, idx) => {
+      // First check if photo exists
+      if (!photo) {
+        return {
+          index: idx,
+          value: photo,
+          valueType: typeof photo,
+          isNull: photo === null,
+          isUndefined: photo === undefined,
+          isFalsy: !photo,
+        };
+      }
+      
+      const details = {
+        index: idx,
+        valueType: typeof photo,
+        isFile: photo instanceof File,
+        constructor: photo?.constructor?.name,
+        hasSize: typeof photo?.size === 'number',
+        hasType: typeof photo?.type === 'string',
+        hasName: typeof photo?.name === 'string',
+        hasArrayBuffer: typeof photo?.arrayBuffer === 'function',
+        hasStream: typeof photo?.stream === 'function',
+        hasText: typeof photo?.text === 'function',
+        hasBytes: typeof photo?.bytes === 'function',
+        size: photo?.size,
+        mimeType: photo?.type,
+        fileName: photo?.name,
+      };
+      
+      if (photo && typeof photo === 'object') {
+        details.keys = Object.keys(photo);
+        details.entries = Object.entries(photo).slice(0, 10); // First 10 entries
+      }
+      
+      return details;
+    });
+    
+    console.log('Action: Inspecting photos', {
+      count: photos.length,
+      photos: photoDetails,
+    });
+
+    const validPhotos = photos.filter((photo, idx) => {
+      // Very lenient validation - accept any non-empty value from FormData
+      // Files are submitted manually from client, so we should get File objects
+      if (!photo) {
+        console.log(`Action: Photo ${idx} is falsy`);
+        return false;
+      }
+      
+      // Reject empty strings (these come from the file input which we don't use anymore)
+      if (typeof photo === 'string') {
+        if (photo.trim() === '') {
+          console.log(`Action: Photo ${idx} is empty string - skipping`);
+          return false;
+        }
+        // If it's a non-empty string, it's not a file - reject it
+        console.log(`Action: Photo ${idx} is non-empty string (not a file) - skipping`);
+        return false;
+      }
+      
+      // Accept File instances
+      if (photo instanceof File) {
+        console.log(`Action: Photo ${idx} is File instance`);
+        return true;
+      }
+      
+      // Accept Blob instances
+      if (typeof Blob !== 'undefined' && photo instanceof Blob) {
+        console.log(`Action: Photo ${idx} is Blob instance`);
+        return true;
+      }
+      
+      // Accept any object (FormData files are objects)
+      if (typeof photo === 'object') {
+        console.log(`Action: Photo ${idx} is object, accepting`, {
+          constructor: photo.constructor?.name,
+          hasSize: typeof photo.size === 'number',
+          hasType: typeof photo.type === 'string',
+          hasName: typeof photo.name === 'string',
+        });
+        return true;
+      }
+      
+      console.log(`Action: Photo ${idx} rejected - type: ${typeof photo}`);
+      return false;
+    });
+
+    if (validPhotos.length === 0) {
+      console.error('Action: No valid photos after filtering', {
+        photosCount: photos.length,
+        photos: photos.map((p, i) => ({
+          index: i,
+          type: typeof p,
+          isFile: p instanceof File,
+          keys: p && typeof p === 'object' ? Object.keys(p) : null,
+        })),
+      });
+      return new Response('At least one photo is required', {status: 400});
+    }
+
+    console.log('Action: Valid photos found', {count: validPhotos.length});
+
+    const {createUserSupabaseClient} = await import('~/lib/supabase');
+    const {fetchCreatorProfile} = await import('~/lib/supabase');
+    
+    const supabaseUrl = context.env.SUPABASE_URL;
+    const anonKey = context.env.SUPABASE_ANON_KEY;
+    const accessToken = session.access_token;
+
+    if (!supabaseUrl || !anonKey || !accessToken) {
+      console.error('Action: Missing Supabase configuration', {
+        hasUrl: !!supabaseUrl,
+        hasKey: !!anonKey,
+        hasToken: !!accessToken,
+      });
+      return new Response('Server configuration error', {status: 500});
+    }
+
+    // Create Supabase client
+    const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+
+    // Get creator_id from email
+    console.log('Action: Fetching creator profile for', user.email);
+    const creatorProfile = await fetchCreatorProfile(user.email, supabaseUrl, anonKey, accessToken);
+    if (!creatorProfile || !creatorProfile.id) {
+      console.error('Action: Creator profile not found', {email: user.email});
+      return new Response('Creator profile not found. Please complete your profile first.', {status: 404});
+    }
+
+    const creatorId = creatorProfile.id;
+    console.log('Action: Creator ID found', {creatorId});
+
+    // Create listing record
+    console.log('Action: Creating listing', {
+      creatorId,
+      title,
+      category,
+      storyLength: story.length,
+      priceCents,
+    });
+
+    const {data: listing, error: listingError} = await supabase
+      .from('listings')
+      .insert({
+        creator_id: creatorId,
+        title: title,
+        category: category,
+        story: story,
+        price_cents: priceCents,
+        currency: 'USD',
+        status: 'pending_approval',
+      })
+      .select()
+      .single();
+
+    if (listingError) {
+      console.error('Action: Error creating listing:', listingError);
+      return new Response(`Failed to create listing: ${listingError.message}`, {status: 500});
+    }
+
+    if (!listing || !listing.id) {
+      console.error('Action: Listing created but no ID returned', {listing});
+      return new Response('Failed to create listing', {status: 500});
+    }
+
+    const listingId = listing.id;
+    console.log('Action: Listing created successfully', {listingId});
+
+    // Upload photos and create listing_photos records
+    const uploadedPhotos = [];
+    const errors = [];
+
+    for (let i = 0; i < validPhotos.length; i++) {
+      const photo = validPhotos[i];
+      
+      try {
+        console.log(`Action: Processing photo ${i + 1}/${validPhotos.length}`, {
+          name: photo.name,
+          type: photo.type,
+          size: photo.size,
+        });
+
+        // Upload photo to Supabase Storage
+        const sanitizedEmail = user.email
+          .replace(/[@.]/g, '_')
+          .replace(/[^a-zA-Z0-9_-]/g, '')
+          .substring(0, 100);
+        
+        // Generate unique filename
+        const timestamp = Date.now();
+        const random = Math.random().toString(36).substring(2, 9);
+        
+        // Extract file extension safely
+        let fileExt = 'jpg'; // default
+        if (photo.name && typeof photo.name === 'string') {
+          const nameParts = photo.name.split('.');
+          if (nameParts.length > 1) {
+            fileExt = nameParts.pop().toLowerCase();
+            // Validate extension
+            const validExts = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+            if (!validExts.includes(fileExt)) {
+              fileExt = 'jpg'; // fallback to jpg
+            }
+          }
+        } else if (photo.type && typeof photo.type === 'string') {
+          // Try to get extension from MIME type
+          const mimeToExt = {
+            'image/jpeg': 'jpg',
+            'image/jpg': 'jpg',
+            'image/png': 'png',
+            'image/gif': 'gif',
+            'image/webp': 'webp',
+          };
+          fileExt = mimeToExt[photo.type] || 'jpg';
+        }
+        
+        const fileName = `${timestamp}-${random}.${fileExt}`;
+        const filePath = `listings/${sanitizedEmail}/${listingId}/${fileName}`;
+
+        console.log(`Action: Uploading photo ${i + 1} to`, filePath);
+
+        // Try to upload directly first (Supabase might accept File/Blob objects)
+        // If that fails, convert to ArrayBuffer
+        let uploadPayload;
+        let contentType = photo.type || 
+                         (photo.name ? `image/${photo.name.split('.').pop()}` : 'image/jpeg');
+
+        // Try to use the photo directly if it's a File or Blob
+        if (photo instanceof File || (typeof Blob !== 'undefined' && photo instanceof Blob)) {
+          console.log(`Action: Using photo ${i + 1} directly as File/Blob`);
+          uploadPayload = photo;
+        } else if (typeof photo.arrayBuffer === 'function') {
+          console.log(`Action: Converting photo ${i + 1} using arrayBuffer()`);
+          uploadPayload = await photo.arrayBuffer();
+        } else if (typeof photo.stream === 'function') {
+          console.log(`Action: Converting photo ${i + 1} using stream()`);
+          // Convert stream to ArrayBuffer
+          const stream = photo.stream();
+          const chunks = [];
+          const reader = stream.getReader();
+          while (true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            chunks.push(value);
+          }
+          // Combine chunks into single ArrayBuffer
+          const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+          const buffer = new Uint8Array(totalLength);
+          let offset = 0;
+          for (const chunk of chunks) {
+            buffer.set(chunk, offset);
+            offset += chunk.length;
+          }
+          uploadPayload = buffer.buffer;
+        } else if (typeof photo.bytes === 'function') {
+          console.log(`Action: Converting photo ${i + 1} using bytes()`);
+          uploadPayload = await photo.bytes();
+        } else {
+          // Last resort: try to convert to Blob
+          console.log(`Action: Converting photo ${i + 1} to Blob`);
+          try {
+            const blob = typeof Blob !== 'undefined' && photo instanceof Blob 
+              ? photo 
+              : new Blob([photo], { type: contentType });
+            uploadPayload = await blob.arrayBuffer();
+          } catch (blobError) {
+            console.error(`Action: Failed to convert photo ${i + 1} to Blob:`, blobError);
+            // Try passing the object directly - Supabase might handle it
+            uploadPayload = photo;
+          }
+        }
+
+        // Upload to storage bucket
+        const {data: uploadData, error: uploadError} = await supabase.storage
+          .from('listing-photos')
+          .upload(filePath, uploadPayload, {
+            cacheControl: '3600',
+            upsert: false,
+            contentType: contentType,
+          });
+
+        if (uploadError) {
+          console.error(`Action: Error uploading photo ${i + 1}:`, uploadError);
+          errors.push(`Photo ${i + 1}: ${uploadError.message}`);
+          continue;
+        }
+
+        console.log(`Action: Photo ${i + 1} uploaded successfully`, uploadData);
+
+        // Create listing_photo record
+        const {data: photoRecord, error: photoError} = await supabase
+          .from('listing_photos')
+          .insert({
+            listing_id: listingId,
+            storage_path: filePath,
+            photo_type: 'reference',
+          })
+          .select()
+          .single();
+
+        if (photoError) {
+          console.error(`Action: Error creating photo record ${i + 1}:`, photoError);
+          errors.push(`Photo ${i + 1}: Failed to save photo record: ${photoError.message}`);
+          // Try to delete uploaded file if record creation failed
+          await supabase.storage.from('listing-photos').remove([filePath]);
+          continue;
+        }
+
+        console.log(`Action: Photo record ${i + 1} created successfully`, photoRecord);
+        uploadedPhotos.push(photoRecord);
+      } catch (err) {
+        console.error(`Action: Unexpected error processing photo ${i + 1}:`, err);
+        errors.push(`Photo ${i + 1}: ${err.message || 'Unexpected error'}`);
+      }
+    }
+
+    // If no photos were successfully uploaded, delete the listing
+    if (uploadedPhotos.length === 0) {
+      console.error('Action: No photos uploaded, deleting listing', {listingId, errors});
+      await supabase.from('listings').delete().eq('id', listingId);
+      return new Response(
+        `Failed to upload photos: ${errors.join('; ')}`,
+        {status: 500}
+      );
+    }
+
+    // If some photos failed but at least one succeeded, log warnings but continue
+    if (errors.length > 0) {
+      console.warn('Action: Some photos failed to upload:', errors);
+    }
+
+    console.log('Action: Listing submission successful', {
+      listingId,
+      photosUploaded: uploadedPhotos.length,
+      totalPhotos: validPhotos.length,
+    });
+
+    // Success - redirect to listings page
+    return redirect('/creator/listings');
+  } catch (error) {
+    console.error('Action: Unexpected error creating listing:', error);
+    console.error('Action: Error stack:', error.stack);
+    return new Response(
+      `An unexpected error occurred: ${error.message || 'Unknown error'}`,
+      {status: 500}
+    );
+  }
 }
 
 // Category options organized by type
@@ -82,6 +522,7 @@ export default function CreateListing() {
   const [price, setPrice] = useState('');
   const [imageErrors, setImageErrors] = useState(new Set());
   const [isDragging, setIsDragging] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const categoryRef = useRef(null);
   const dropdownRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -251,10 +692,72 @@ export default function CreateListing() {
     }
   };
 
+  const submit = useSubmit();
+
+  // Handle form submission with files from state
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    
+    // Validate required fields
+    if (!selectedCategory) {
+      alert('Please select a category');
+      return;
+    }
+    
+    if (!price || parseFloat(price) <= 0) {
+      alert('Please enter a valid price');
+      return;
+    }
+    
+    // Validate that we have photos
+    if (selectedPhotos.length === 0) {
+      alert('Please select at least one photo');
+      return;
+    }
+
+    // Set loading state
+    setIsSubmitting(true);
+
+    // Manually construct FormData with files from state
+    const formData = new FormData();
+    
+    // Add form fields - use form elements or state values
+    const form = e.target;
+    const titleInput = form.querySelector('[name="title"]');
+    const descriptionInput = form.querySelector('[name="description"]');
+    const priceInput = form.querySelector('[name="price"]');
+    
+    if (titleInput) formData.append('title', titleInput.value);
+    formData.append('category', selectedCategory);
+    if (descriptionInput) formData.append('description', descriptionInput.value);
+    if (priceInput) formData.append('price', priceInput.value);
+    
+    // Add files from selectedPhotos state
+    selectedPhotos.forEach((photo) => {
+      if (photo.file) {
+        formData.append('photos', photo.file);
+      }
+    });
+
+    console.log('Submitting form with', {
+      title: titleInput?.value,
+      category: selectedCategory,
+      description: descriptionInput?.value,
+      price: priceInput?.value,
+      photoCount: selectedPhotos.length,
+    });
+
+    // Submit the form with our FormData
+    submit(formData, {
+      method: 'post',
+      encType: 'multipart/form-data',
+    });
+  };
+
   return (
     <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Form method="post" encType="multipart/form-data">
+        <Form method="post" encType="multipart/form-data" onSubmit={handleSubmit}>
           <div className="space-y-12">
             <div className="border-b border-gray-900/10 pb-12 dark:border-white/10">
               <h2 className="text-base/7 font-semibold text-gray-900 dark:text-white">Listing Details</h2>
@@ -264,6 +767,24 @@ export default function CreateListing() {
               </p>
 
               <div className="mt-10 grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-6">
+                {/* Title Field */}
+                <div className="col-span-full">
+                  <label htmlFor="title" className="block text-sm/6 font-medium text-gray-900 dark:text-white">
+                    Title *
+                  </label>
+                  <div className="mt-2">
+                    <input
+                      type="text"
+                      id="title"
+                      name="title"
+                      required
+                      placeholder="Enter a title for your listing..."
+                      className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
+                    />
+                  </div>
+                  <p className="mt-3 text-sm/6 text-gray-600 dark:text-gray-400">A short, descriptive title for your item.</p>
+                </div>
+
                 {/* Category Dropdown */}
                 <div className="col-span-full">
                   <label htmlFor="category" className="block text-sm/6 font-medium text-gray-900 dark:text-white">
@@ -538,9 +1059,20 @@ export default function CreateListing() {
             </button>
             <button
               type="submit"
-              className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:focus-visible:outline-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isSubmitting}
+              className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:focus-visible:outline-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              Submit for Approval
+              {isSubmitting ? (
+                <>
+                  <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Submitting...
+                </>
+              ) : (
+                'Submit for Approval'
+              )}
             </button>
           </div>
         </Form>
