@@ -8,6 +8,7 @@ import {
   BanknotesIcon,
   Cog6ToothIcon,
   XMarkIcon,
+  ShieldCheckIcon,
 } from '@heroicons/react/24/outline'
 import { Bars3Icon, MagnifyingGlassIcon } from '@heroicons/react/20/solid'
 
@@ -22,6 +23,10 @@ const settingsNavigation = [
   { name: 'Account Settings', href: '/creator/settings', icon: Cog6ToothIcon },
 ]
 
+const adminNavigation = [
+  { name: 'Admin', href: '/admin', icon: ShieldCheckIcon },
+]
+
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
 }
@@ -29,8 +34,9 @@ function classNames(...classes) {
 /**
  * Creator Navigation Component
  * Displays primary sidebar navigation and secondary navigation header
+ * @param {{isAdmin?: boolean}} props
  */
-export function CreatorNavigation() {
+export function CreatorNavigation({isAdmin = false}) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   return (
@@ -108,6 +114,40 @@ export function CreatorNavigation() {
                   </li>
                   <li className="-mx-6 mt-auto">
                     <ul role="list" className="-mx-2 space-y-1 px-6">
+                      {isAdmin === true ? (
+                        <>
+                          {adminNavigation.map((item) => (
+                            <li key={item.name}>
+                                <NavLink
+                                  to={item.href}
+                                  className={({ isActive }) =>
+                                    classNames(
+                                      isActive
+                                        ? 'bg-gray-100 text-indigo-600 dark:bg-white/5 dark:text-white'
+                                        : 'text-gray-700 hover:bg-gray-100 hover:text-indigo-600 dark:text-white dark:hover:bg-white/5 dark:hover:text-white',
+                                      'group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold',
+                                    )
+                                  }
+                                >
+                                  {({ isActive }) => (
+                                    <>
+                                      <item.icon
+                                        aria-hidden="true"
+                                        className={classNames(
+                                          isActive
+                                            ? 'text-indigo-600 dark:text-white'
+                                            : 'text-gray-400 group-hover:text-indigo-600 dark:text-white dark:group-hover:text-white',
+                                          'size-6 shrink-0',
+                                        )}
+                                      />
+                                      {item.name}
+                                    </>
+                                  )}
+                                </NavLink>
+                            </li>
+                          ))}
+                        </>
+                      ) : null}
                       {settingsNavigation.map((item) => (
                         <li key={item.name}>
                           <NavLink
@@ -201,6 +241,40 @@ export function CreatorNavigation() {
               </li>
               <li className="-mx-6 mt-auto">
                 <ul role="list" className="-mx-2 space-y-1 px-6">
+                  {isAdmin === true ? (
+                    <>
+                      {adminNavigation.map((item) => (
+                        <li key={item.name}>
+                            <NavLink
+                              to={item.href}
+                              className={({ isActive }) =>
+                                classNames(
+                                  isActive
+                                    ? 'bg-gray-100 text-indigo-600 dark:bg-white/5 dark:!text-white'
+                                    : 'text-gray-700 hover:bg-gray-100 hover:text-indigo-600 dark:!text-white dark:hover:bg-white/5 dark:hover:!text-white',
+                                  'group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold',
+                                )
+                              }
+                            >
+                              {({ isActive }) => (
+                                <>
+                                  <item.icon
+                                    aria-hidden="true"
+                                    className={classNames(
+                                      isActive
+                                        ? 'text-indigo-600 dark:!text-white'
+                                        : 'text-gray-400 group-hover:text-indigo-600 dark:!text-white dark:group-hover:!text-white',
+                                      'size-6 shrink-0',
+                                    )}
+                                  />
+                                  {item.name}
+                                </>
+                              )}
+                            </NavLink>
+                        </li>
+                      ))}
+                    </>
+                  ) : null}
                   {settingsNavigation.map((item) => (
                     <li key={item.name}>
                       <NavLink

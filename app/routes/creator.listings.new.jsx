@@ -659,7 +659,7 @@ export default function CreateListing() {
 
   return (
     <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="pb-32 max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Form method="post" encType="multipart/form-data" onSubmit={handleSubmit}>
           <div className="space-y-12">
             <div className="border-b border-gray-900/10 pb-12 dark:border-white/10">

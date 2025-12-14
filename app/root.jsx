@@ -15,6 +15,7 @@ import resetStyles from '~/styles/reset.css?url';
 import appStyles from '~/styles/app.css?url';
 import tailwindCss from './styles/tailwind.css?url';
 import {PageLayout} from './components/PageLayout';
+import {checkAdminAuth} from '~/lib/supabase';
 
 /**
  * This is important to avoid re-fetching root queries on sub-navigations
@@ -117,7 +118,7 @@ async function loadCriticalData({context}) {
  * Make sure to not throw any errors here, as it will cause the page to 500.
  * @param {Route.LoaderArgs}
  */
-function loadDeferredData({context}) {
+function loadDeferredData({context, request}) {
   const {storefront, customerAccount, cart} = context;
 
   // defer the footer query (below the fold)
@@ -133,9 +134,17 @@ function loadDeferredData({context}) {
       console.error(error);
       return null;
     });
+  
+  // Check admin status (non-blocking, deferred)
+  // This won't block page load if admin check fails
+  const isAdmin = checkAdminAuth(request, context.env)
+    .then(({isAdmin}) => isAdmin)
+    .catch(() => false);
+  
   return {
     cart: cart.get(),
     isLoggedIn: customerAccount.isLoggedIn(),
+    isAdmin,
     footer,
   };
 }

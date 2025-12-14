@@ -429,7 +429,7 @@ export default function EditListing() {
   if (!listing) {
     return (
       <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="pb-32 max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6">
             <h2 className="text-lg font-semibold text-red-800 dark:text-red-200 mb-2">
               Error Loading Listing
@@ -712,7 +712,7 @@ export default function EditListing() {
 
   return (
     <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="pb-32 max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">Edit Listing</h1>
           <p className="text-lg text-gray-600 dark:text-gray-400">

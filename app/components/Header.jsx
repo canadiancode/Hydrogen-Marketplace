@@ -6,7 +6,7 @@ import {useAside} from '~/components/Aside';
 /**
  * @param {HeaderProps}
  */
-export function Header({header, isLoggedIn, cart, publicStoreDomain}) {
+export function Header({header, isLoggedIn, isAdmin, cart, publicStoreDomain}) {
   const {shop, menu} = header;
   return (
     <header className="header">
@@ -19,7 +19,7 @@ export function Header({header, isLoggedIn, cart, publicStoreDomain}) {
         primaryDomainUrl={header.shop.primaryDomain.url}
         publicStoreDomain={publicStoreDomain}
       />
-      <HeaderCtas isLoggedIn={isLoggedIn} cart={cart} />
+      <HeaderCtas isLoggedIn={isLoggedIn} isAdmin={isAdmin} cart={cart} />
     </header>
   );
 }
@@ -83,21 +83,36 @@ export function HeaderMenu({
 }
 
 /**
- * @param {Pick<HeaderProps, 'isLoggedIn' | 'cart'>}
+ * @param {Pick<HeaderProps, 'isLoggedIn' | 'isAdmin' | 'cart'>}
  */
-function HeaderCtas({isLoggedIn, cart}) {
+function HeaderCtas({isLoggedIn, isAdmin, cart}) {
   return (
     <nav className="header-ctas" role="navigation">
       <HeaderMenuMobileToggle />
       <Suspense fallback={<NavLink prefetch="intent" to="/creator/login" style={activeLinkStyle}>Sign in</NavLink>}>
         <Await resolve={isLoggedIn} errorElement={<NavLink prefetch="intent" to="/creator/login" style={activeLinkStyle}>Sign in</NavLink>}>
-          {(isLoggedIn) => 
-            isLoggedIn ? (
-              <NavLink prefetch="intent" to="/account" style={activeLinkStyle}>Account</NavLink>
-            ) : (
-              <NavLink prefetch="intent" to="/creator/login" style={activeLinkStyle}>Sign in</NavLink>
-            )
-          }
+          {(isLoggedIn) => (
+            <>
+              {isLoggedIn && (
+                <Suspense fallback={null}>
+                  <Await resolve={isAdmin}>
+                    {(isAdmin) => 
+                      isAdmin && (
+                        <NavLink prefetch="intent" to="/admin" style={activeLinkStyle}>
+                          Admin
+                        </NavLink>
+                      )
+                    }
+                  </Await>
+                </Suspense>
+              )}
+              {isLoggedIn ? (
+                <NavLink prefetch="intent" to="/account" style={activeLinkStyle}>Account</NavLink>
+              ) : (
+                <NavLink prefetch="intent" to="/creator/login" style={activeLinkStyle}>Sign in</NavLink>
+              )}
+            </>
+          )}
         </Await>
       </Suspense>
       <SearchToggle />
@@ -233,6 +248,7 @@ function activeLinkStyle({isActive, isPending}) {
  * @property {HeaderQuery} header
  * @property {Promise<CartApiQueryFragment|null>} cart
  * @property {Promise<boolean>} isLoggedIn
+ * @property {Promise<boolean>} isAdmin
  * @property {string} publicStoreDomain
  */
 

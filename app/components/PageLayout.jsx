@@ -45,6 +45,7 @@ export function PageLayout({
   footer,
   header,
   isLoggedIn,
+  isAdmin,
   publicStoreDomain,
 }) {
   const hideHeaderFooter = shouldHideHeaderFooter();
@@ -59,10 +60,11 @@ export function PageLayout({
           header={header}
           cart={cart}
           isLoggedIn={isLoggedIn}
+          isAdmin={isAdmin}
           publicStoreDomain={publicStoreDomain}
         />
       )}
-      <main>{children}</main>
+      <main className="pb-32 sm:pb-12">{children}</main>
       {!hideHeaderFooter && (
         <Footer
           footer={footer}
@@ -201,6 +203,7 @@ function MobileMenuAside({header, publicStoreDomain}) {
  * @property {Promise<FooterQuery|null>} footer
  * @property {HeaderQuery} header
  * @property {Promise<boolean>} isLoggedIn
+ * @property {Promise<boolean>} isAdmin
  * @property {string} publicStoreDomain
  * @property {React.ReactNode} [children]
  */
