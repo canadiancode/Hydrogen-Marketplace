@@ -108,39 +108,39 @@ export default function AdminListingReview() {
   const {listing, csrfToken} = useLoaderData();
   
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">Review Listing</h1>
-          <p className="text-lg text-gray-600">
+          <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">Review Listing</h1>
+          <p className="text-lg text-gray-600 dark:text-gray-400">
             Review listing details, reference photos, and creator information. Approve or reject listings with internal notes.
           </p>
         </div>
         
         <div className="space-y-6">
-          <section className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-2xl font-semibold text-gray-900 mb-4">Listing Details</h2>
+          <section className="bg-white dark:bg-white/5 rounded-lg shadow-sm p-6 border border-gray-200 dark:border-white/10">
+            <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Listing Details</h2>
             <div className="space-y-2">
-              <p className="text-gray-700"><span className="font-medium">ID:</span> {listing.id}</p>
-              <p className="text-gray-700"><span className="font-medium">Title:</span> {listing.title}</p>
+              <p className="text-gray-700 dark:text-gray-300"><span className="font-medium">ID:</span> {listing.id}</p>
+              <p className="text-gray-700 dark:text-gray-300"><span className="font-medium">Title:</span> {listing.title}</p>
             </div>
           </section>
           
-          <section className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-2xl font-semibold text-gray-900 mb-4">Reference Photos</h2>
+          <section className="bg-white dark:bg-white/5 rounded-lg shadow-sm p-6 border border-gray-200 dark:border-white/10">
+            <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Reference Photos</h2>
             {/* Display reference photos */}
           </section>
           
-          <section className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-2xl font-semibold text-gray-900 mb-4">Creator Info</h2>
+          <section className="bg-white dark:bg-white/5 rounded-lg shadow-sm p-6 border border-gray-200 dark:border-white/10">
+            <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Creator Info</h2>
             {/* Display creator information */}
           </section>
           
-          <section className="bg-white rounded-lg shadow-sm p-6">
+          <section className="bg-white dark:bg-white/5 rounded-lg shadow-sm p-6 border border-gray-200 dark:border-white/10">
             <Form method="post" className="space-y-6">
               <input type="hidden" name="csrf_token" value={csrfToken} />
               <div>
-                <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Internal Notes
                 </label>
                 <textarea
@@ -148,7 +148,7 @@ export default function AdminListingReview() {
                   name="notes"
                   rows={4}
                   maxLength={1000}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-white/10 rounded-md shadow-sm bg-white dark:bg-white/5 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:border-indigo-500 dark:focus:border-indigo-400"
                 />
               </div>
               
@@ -157,7 +157,7 @@ export default function AdminListingReview() {
                   type="submit"
                   name="action"
                   value="approve"
-                  className="flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                  className="flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 dark:focus:ring-offset-gray-900 dark:focus:ring-green-400"
                 >
                   Approve
                 </button>
@@ -165,7 +165,7 @@ export default function AdminListingReview() {
                   type="submit"
                   name="action"
                   value="reject"
-                  className="flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                  className="flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 dark:focus:ring-offset-gray-900 dark:focus:ring-red-400"
                 >
                   Reject
                 </button>

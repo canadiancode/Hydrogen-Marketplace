@@ -1,6 +1,14 @@
 import {Outlet, NavLink, redirect} from 'react-router';
 import {checkAdminAuth} from '~/lib/supabase';
 
+/**
+ * Route handle to mark admin routes that should hide header/footer
+ * This can be accessed via useMatches() in parent layouts
+ */
+export const handle = {
+  hideHeaderFooter: true,
+};
+
 export async function loader({request, context}) {
   // Require admin authentication
   const {isAdmin, user} = await checkAdminAuth(request, context.env);
@@ -21,6 +29,7 @@ export default function AdminLayout() {
           <div className="flex space-x-8">
             <NavLink
               to="/admin"
+              end
               className={({isActive}) =>
                 `border-b-2 py-4 px-1 text-sm font-medium ${
                   isActive
@@ -30,6 +39,18 @@ export default function AdminLayout() {
               }
             >
               Dashboard
+            </NavLink>
+            <NavLink
+              to="/admin/listings"
+              className={({isActive}) =>
+                `border-b-2 py-4 px-1 text-sm font-medium ${
+                  isActive
+                    ? 'border-indigo-500 dark:border-indigo-400 text-indigo-600 dark:text-white'
+                    : 'border-transparent text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-white hover:border-gray-300 dark:hover:border-white/20'
+                }`
+              }
+            >
+              Listings
             </NavLink>
             <NavLink
               to="/admin/logistics"
