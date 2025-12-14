@@ -8,6 +8,26 @@
   --color-light: #fff;
 }
 
+/* Prevent white background on overscroll */
+html,
+body {
+  background-color: #f9fafb; /* gray-50 */
+  min-height: 100vh;
+}
+
+@media (prefers-color-scheme: dark) {
+  html,
+  body {
+    background-color: #111827; /* gray-900 */
+  }
+}
+
+html.dark,
+html.dark body,
+body.dark {
+  background-color: #111827; /* gray-900 */
+}
+
 img {
   border-radius: 4px;
 }

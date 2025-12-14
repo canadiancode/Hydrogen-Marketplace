@@ -77,6 +77,7 @@ export function CreatorNavigation() {
                         <li key={item.name}>
                           <NavLink
                             to={item.href}
+                            end={item.href === '/creator/listings'}
                             className={({ isActive }) =>
                               classNames(
                                 isActive
@@ -169,6 +170,7 @@ export function CreatorNavigation() {
                     <li key={item.name}>
                       <NavLink
                         to={item.href}
+                        end={item.href === '/creator/listings'}
                         className={({ isActive }) =>
                           classNames(
                             isActive
