@@ -250,17 +250,16 @@ export function CreatorNavigation() {
           </button>
 
           <div className="flex flex-1 gap-x-4 self-stretch lg:gap-x-6">
-            <form action="#" method="GET" className="grid flex-1 grid-cols-1">
-              <input
-                name="search"
-                placeholder="Search"
-                aria-label="Search"
-                className="col-start-1 row-start-1 block size-full bg-transparent pl-8 text-base text-gray-900 outline-hidden placeholder:text-gray-400 sm:text-sm/6 dark:text-white dark:placeholder:text-gray-500"
-              />
-              <MagnifyingGlassIcon
-                aria-hidden="true"
-                className="pointer-events-none col-start-1 row-start-1 size-5 self-center text-gray-400 dark:text-gray-500"
-              />
+            <form action="#" method="GET" className="relative flex-1 max-w-lg mt-2">
+              <div className="relative">
+                <input
+                  name="search"
+                  type="search"
+                  placeholder="Search..."
+                  aria-label="Search"
+                  className="block w-full rounded-lg border-0 bg-gray-100 py-2 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-0 dark:bg-gray-800 dark:text-white dark:placeholder:text-gray-400 dark:focus:bg-gray-700 dark:focus:ring-indigo-400"
+                />
+              </div>
             </form>
           </div>
         </div>
