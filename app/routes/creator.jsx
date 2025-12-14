@@ -1,9 +1,18 @@
-import {Outlet, NavLink} from 'react-router';
+import {Outlet} from 'react-router';
+import {CreatorLayout} from '~/components/creator/CreatorLayout';
 
-export default function CreatorLayout() {
+/**
+ * Route handle to mark creator routes that should hide header/footer
+ * This can be accessed via useMatches() in parent layouts
+ */
+export const handle = {
+  hideHeaderFooter: true,
+};
+
+export default function CreatorRoute() {
   return (
-    <div className="min-h-screen bg-gray-50">
+    <CreatorLayout>
       <Outlet />
-    </div>
+    </CreatorLayout>
   );
 }

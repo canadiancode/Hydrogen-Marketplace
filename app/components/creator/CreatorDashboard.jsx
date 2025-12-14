@@ -1,280 +1,159 @@
-import { ChevronDownIcon } from '@heroicons/react/16/solid'
+import {Link} from 'react-router';
 
 /**
  * Creator Dashboard Component
+ * Displays overview and stats for the creator
  * @param {{user?: {id?: string, email?: string}}} props - Component props
  */
 export default function CreatorDashboard({user = null}) {
-  // User data is available via props but component can work without it
-  // This maintains backward compatibility while allowing data from loader
-
   return (
-    <main className="bg-white dark:bg-gray-900">
-      <h1 className="sr-only">Account Settings</h1>
-
-      {/* Settings forms */}
-      <div className="divide-y divide-gray-200 dark:divide-white/10 bg-white dark:bg-gray-900">
-        <div className="grid max-w-7xl grid-cols-1 gap-x-8 gap-y-10 px-4 py-16 sm:px-6 md:grid-cols-3 lg:px-8 bg-white dark:bg-gray-900">
-          <div>
-            <h2 className="text-base/7 font-semibold text-gray-900 dark:text-white">Personal Information</h2>
-            <p className="mt-1 text-sm/6 text-gray-500 dark:text-gray-300">
-              Use a permanent address where you can receive mail.
-            </p>
-          </div>
-
-          <form className="md:col-span-2">
-            <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:max-w-xl sm:grid-cols-6">
-              <div className="col-span-full flex items-center gap-x-8">
-                <img
-                  alt=""
-                  src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80"
-                  className="size-24 flex-none rounded-lg bg-gray-100 object-cover outline -outline-offset-1 outline-black/5 dark:bg-gray-800 dark:outline-white/10"
-                />
-                <div>
-                  <button
-                    type="button"
-                    className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs inset-ring-1 inset-ring-gray-300 hover:bg-gray-100 dark:bg-white/10 dark:text-white dark:shadow-none dark:inset-ring-white/5 dark:hover:bg-white/20"
-                  >
-                    Change avatar
-                  </button>
-                  <p className="mt-2 text-xs/5 text-gray-500 dark:text-gray-300">JPG, GIF or PNG. 1MB max.</p>
-                </div>
-              </div>
-
-              <div className="sm:col-span-3">
-                <label htmlFor="first-name" className="block text-sm/6 font-medium text-gray-900 dark:text-white">
-                  First name
-                </label>
-                <div className="mt-2">
-                  <input
-                    id="first-name"
-                    name="first-name"
-                    type="text"
-                    autoComplete="given-name"
-                    className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div className="sm:col-span-3">
-                <label htmlFor="last-name" className="block text-sm/6 font-medium text-gray-900 dark:text-white">
-                  Last name
-                </label>
-                <div className="mt-2">
-                  <input
-                    id="last-name"
-                    name="last-name"
-                    type="text"
-                    autoComplete="family-name"
-                    className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div className="col-span-full">
-                <label htmlFor="email" className="block text-sm/6 font-medium text-gray-900 dark:text-white">
-                  Email address
-                </label>
-                <div className="mt-2">
-                  <input
-                    id="email"
-                    name="email"
-                    type="email"
-                    autoComplete="email"
-                    className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div className="col-span-full">
-                <label htmlFor="username" className="block text-sm/6 font-medium text-gray-900 dark:text-white">
-                  Username
-                </label>
-                <div className="mt-2">
-                  <div className="flex items-center rounded-md bg-white pl-3 outline-1 -outline-offset-1 outline-gray-300 focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:outline-white/10 dark:focus-within:outline-indigo-500">
-                    <div className="shrink-0 text-base text-gray-500 select-none sm:text-sm/6 dark:text-gray-300">
-                      example.com/
-                    </div>
-                    <input
-                      id="username"
-                      name="username"
-                      type="text"
-                      placeholder="janesmith"
-                      className="block min-w-0 grow bg-transparent py-1.5 pr-3 pl-1 text-base text-gray-900 placeholder:text-gray-400 focus:outline-none sm:text-sm/6 dark:text-white dark:placeholder:text-gray-500"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="col-span-full">
-                <label htmlFor="timezone" className="block text-sm/6 font-medium text-gray-900 dark:text-white">
-                  Timezone
-                </label>
-                <div className="mt-2 grid grid-cols-1">
-                  <select
-                    id="timezone"
-                    name="timezone"
-                    className="col-start-1 row-start-1 w-full appearance-none rounded-md bg-white py-1.5 pr-8 pl-3 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:*:bg-gray-800 dark:focus:outline-indigo-500"
-                  >
-                    <option>Pacific Standard Time</option>
-                    <option>Eastern Standard Time</option>
-                    <option>Greenwich Mean Time</option>
-                  </select>
-                  <ChevronDownIcon
-                    aria-hidden="true"
-                    className="pointer-events-none col-start-1 row-start-1 mr-2 size-5 self-center justify-self-end text-gray-400 dark:text-gray-300 sm:size-4"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-8 flex">
-              <button
-                type="submit"
-                className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
-              >
-                Save
-              </button>
-            </div>
-          </form>
+    <div className="bg-gray-50 dark:bg-gray-900">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">Creator Dashboard</h1>
+          <p className="text-lg text-gray-600 dark:text-gray-400">
+            Welcome back! Here's an overview of your account activity and listings.
+          </p>
         </div>
 
-        <div className="grid max-w-7xl grid-cols-1 gap-x-8 gap-y-10 px-4 py-16 sm:px-6 md:grid-cols-3 lg:px-8 bg-white dark:bg-gray-900">
-          <div>
-            <h2 className="text-base/7 font-semibold text-gray-900 dark:text-white">Change password</h2>
-            <p className="mt-1 text-sm/6 text-gray-500 dark:text-gray-300">
-              Update your password associated with your account.
-            </p>
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <div className="flex items-center justify-center h-12 w-12 rounded-md bg-indigo-500 text-white">
+                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                  </svg>
+                </div>
+              </div>
+              <div className="ml-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Total Listings</dt>
+                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">0</dd>
+                </dl>
+              </div>
+            </div>
           </div>
 
-          <form className="md:col-span-2">
-            <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:max-w-xl sm:grid-cols-6">
-              <div className="col-span-full">
-                <label
-                  htmlFor="current-password"
-                  className="block text-sm/6 font-medium text-gray-900 dark:text-white"
-                >
-                  Current password
-                </label>
-                <div className="mt-2">
-                  <input
-                    id="current-password"
-                    name="current_password"
-                    type="password"
-                    autoComplete="current-password"
-                    className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
-                  />
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <div className="flex items-center justify-center h-12 w-12 rounded-md bg-green-500 text-white">
+                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
                 </div>
               </div>
-
-              <div className="col-span-full">
-                <label
-                  htmlFor="new-password"
-                  className="block text-sm/6 font-medium text-gray-900 dark:text-white"
-                >
-                  New password
-                </label>
-                <div className="mt-2">
-                  <input
-                    id="new-password"
-                    name="new_password"
-                    type="password"
-                    autoComplete="new-password"
-                    className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div className="col-span-full">
-                <label
-                  htmlFor="confirm-password"
-                  className="block text-sm/6 font-medium text-gray-900 dark:text-white"
-                >
-                  Confirm password
-                </label>
-                <div className="mt-2">
-                  <input
-                    id="confirm-password"
-                    name="confirm_password"
-                    type="password"
-                    autoComplete="new-password"
-                    className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
-                  />
-                </div>
+              <div className="ml-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Active Listings</dt>
+                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">0</dd>
+                </dl>
               </div>
             </div>
+          </div>
 
-            <div className="mt-8 flex">
-              <button
-                type="submit"
-                className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
-              >
-                Save
-              </button>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <div className="flex items-center justify-center h-12 w-12 rounded-md bg-yellow-500 text-white">
+                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+              </div>
+              <div className="ml-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Pending Approval</dt>
+                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">0</dd>
+                </dl>
+              </div>
             </div>
-          </form>
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <div className="flex items-center justify-center h-12 w-12 rounded-md bg-blue-500 text-white">
+                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+              </div>
+              <div className="ml-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Total Earnings</dt>
+                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">$0.00</dd>
+                </dl>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="grid max-w-7xl grid-cols-1 gap-x-8 gap-y-10 px-4 py-16 sm:px-6 md:grid-cols-3 lg:px-8 bg-white dark:bg-gray-900">
-          <div>
-            <h2 className="text-base/7 font-semibold text-gray-900 dark:text-white">Log out other sessions</h2>
-            <p className="mt-1 text-sm/6 text-gray-500 dark:text-gray-300">
-              Please enter your password to confirm you would like to log out of your other sessions across all of
-              your devices.
-            </p>
-          </div>
-
-          <form className="md:col-span-2">
-            <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:max-w-xl sm:grid-cols-6">
-              <div className="col-span-full">
-                <label
-                  htmlFor="logout-password"
-                  className="block text-sm/6 font-medium text-gray-900 dark:text-white"
-                >
-                  Your password
-                </label>
-                <div className="mt-2">
-                  <input
-                    id="logout-password"
-                    name="password"
-                    type="password"
-                    autoComplete="current-password"
-                    className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-8 flex">
-              <button
-                type="submit"
-                className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
-              >
-                Log out other sessions
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <div className="grid max-w-7xl grid-cols-1 gap-x-8 gap-y-10 px-4 py-16 sm:px-6 md:grid-cols-3 lg:px-8 bg-white dark:bg-gray-900">
-          <div>
-            <h2 className="text-base/7 font-semibold text-gray-900 dark:text-white">Delete account</h2>
-            <p className="mt-1 text-sm/6 text-gray-500 dark:text-gray-300">
-              No longer want to use our service? You can delete your account here. This action is not reversible.
-              All information related to this account will be deleted permanently.
-            </p>
-          </div>
-
-          <form className="flex items-start md:col-span-2">
-            <button
-              type="submit"
-              className="rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-red-500 dark:bg-red-500 dark:shadow-none dark:hover:bg-red-400"
+        {/* Quick Actions */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-8">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Quick Actions</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <Link
+              to="/creator/listings/new"
+              className="flex items-center p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
             >
-              Yes, delete my account
-            </button>
-          </form>
+              <div className="flex-shrink-0">
+                <svg className="h-6 w-6 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </div>
+              <div className="ml-4">
+                <h3 className="text-sm font-medium text-gray-900 dark:text-white">Create New Listing</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Add a new item to your inventory</p>
+              </div>
+            </Link>
+
+            <Link
+              to="/creator/listings"
+              className="flex items-center p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+              <div className="flex-shrink-0">
+                <svg className="h-6 w-6 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                </svg>
+              </div>
+              <div className="ml-4">
+                <h3 className="text-sm font-medium text-gray-900 dark:text-white">Manage Listings</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">View and edit your listings</p>
+              </div>
+            </Link>
+
+            <Link
+              to="/creator/payouts"
+              className="flex items-center p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+              <div className="flex-shrink-0">
+                <svg className="h-6 w-6 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="ml-4">
+                <h3 className="text-sm font-medium text-gray-900 dark:text-white">View Payouts</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Check your earnings and payouts</p>
+              </div>
+            </Link>
+          </div>
+        </div>
+
+        {/* Recent Activity */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Recent Activity</h2>
+          <div className="text-center py-12">
+            <svg className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No recent activity</h3>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Get started by creating your first listing.</p>
+          </div>
         </div>
       </div>
-    </main>
+    </div>
   )
 }

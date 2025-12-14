@@ -1,4 +1,4 @@
-import {Await, Link, useLocation} from 'react-router';
+import {Await, Link, useMatches} from 'react-router';
 import {Suspense, useId} from 'react';
 import {Aside} from '~/components/Aside';
 import {Footer} from '~/components/Footer';
@@ -11,6 +11,32 @@ import {
 import {SearchResultsPredictive} from '~/components/SearchResultsPredictive';
 
 /**
+ * Check if current route should hide header/footer based on route handles
+ * This is more maintainable than pathname string matching
+ */
+function shouldHideHeaderFooter() {
+  const matches = useMatches();
+  
+  // Check if any route in the tree has hideHeaderFooter: true
+  // But allow explicit override (hideHeaderFooter: false) to show footer
+  let shouldHide = false;
+  
+  for (const match of matches) {
+    const handle = match.handle;
+    if (handle?.hideHeaderFooter === true) {
+      shouldHide = true;
+    }
+    // Explicit override to show footer (e.g., login page)
+    if (handle?.hideHeaderFooter === false) {
+      shouldHide = false;
+      break;
+    }
+  }
+  
+  return shouldHide;
+}
+
+/**
  * @param {PageLayoutProps}
  */
 export function PageLayout({
@@ -21,15 +47,14 @@ export function PageLayout({
   isLoggedIn,
   publicStoreDomain,
 }) {
-  const location = useLocation();
-  const isCreatorRoute = location.pathname.startsWith('/creator');
+  const hideHeaderFooter = shouldHideHeaderFooter();
   
   return (
     <Aside.Provider>
       <CartAside cart={cart} />
       <SearchAside />
       <MobileMenuAside header={header} publicStoreDomain={publicStoreDomain} />
-      {header && !isCreatorRoute && (
+      {header && !hideHeaderFooter && (
         <Header
           header={header}
           cart={cart}
@@ -38,11 +63,13 @@ export function PageLayout({
         />
       )}
       <main>{children}</main>
-      <Footer
-        footer={footer}
-        header={header}
-        publicStoreDomain={publicStoreDomain}
-      />
+      {!hideHeaderFooter && (
+        <Footer
+          footer={footer}
+          header={header}
+          publicStoreDomain={publicStoreDomain}
+        />
+      )}
     </Aside.Provider>
   );
 }

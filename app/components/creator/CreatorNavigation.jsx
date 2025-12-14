@@ -1,35 +1,25 @@
 import { useState } from 'react'
+import { NavLink } from 'react-router'
 import { Dialog, DialogBackdrop, DialogPanel, TransitionChild } from '@headlessui/react'
 import {
-  ChartBarSquareIcon,
+  Squares2X2Icon,
+  RectangleStackIcon,
+  PlusCircleIcon,
+  BanknotesIcon,
   Cog6ToothIcon,
-  FolderIcon,
-  GlobeAltIcon,
-  ServerIcon,
-  SignalIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { Bars3Icon, MagnifyingGlassIcon } from '@heroicons/react/20/solid'
 
 const navigation = [
-  { name: 'Projects', href: '#', icon: FolderIcon, current: false },
-  { name: 'Deployments', href: '#', icon: ServerIcon, current: false },
-  { name: 'Activity', href: '#', icon: SignalIcon, current: false },
-  { name: 'Domains', href: '#', icon: GlobeAltIcon, current: false },
-  { name: 'Usage', href: '#', icon: ChartBarSquareIcon, current: false },
-  { name: 'Settings', href: '#', icon: Cog6ToothIcon, current: true },
+  { name: 'Creator Dashboard', href: '/creator/dashboard', icon: Squares2X2Icon },
+  { name: 'Manage Listings', href: '/creator/listings', icon: RectangleStackIcon },
+  { name: 'Create Listing', href: '/creator/listings/new', icon: PlusCircleIcon },
+  { name: 'Payouts', href: '/creator/payouts', icon: BanknotesIcon },
 ]
-const teams = [
-  { id: 1, name: 'Planetaria', href: '#', initial: 'P', current: false },
-  { id: 2, name: 'Protocol', href: '#', initial: 'P', current: false },
-  { id: 3, name: 'Tailwind Labs', href: '#', initial: 'T', current: false },
-]
-const secondaryNavigation = [
-  { name: 'Account', href: '#', current: true },
-  { name: 'Notifications', href: '#', current: false },
-  { name: 'Billing', href: '#', current: false },
-  { name: 'Teams', href: '#', current: false },
-  { name: 'Integrations', href: '#', current: false },
+
+const settingsNavigation = [
+  { name: 'Account Settings', href: '/creator/settings', icon: Cog6ToothIcon },
 ]
 
 function classNames(...classes) {
@@ -85,73 +75,69 @@ export function CreatorNavigation() {
                     <ul role="list" className="-mx-2 space-y-1">
                       {navigation.map((item) => (
                         <li key={item.name}>
-                          <a
-                            href={item.href}
-                            className={classNames(
-                              item.current
-                                ? 'bg-gray-100 text-indigo-600 dark:bg-white/5 dark:text-white'
-                                : 'text-gray-700 hover:bg-gray-100 hover:text-indigo-600 dark:text-white dark:hover:bg-white/5 dark:hover:text-white',
-                              'group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold',
-                            )}
+                          <NavLink
+                            to={item.href}
+                            className={({ isActive }) =>
+                              classNames(
+                                isActive
+                                  ? 'bg-gray-100 text-indigo-600 dark:bg-white/5 dark:text-white'
+                                  : 'text-gray-700 hover:bg-gray-100 hover:text-indigo-600 dark:text-white dark:hover:bg-white/5 dark:hover:text-white',
+                                'group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold',
+                              )
+                            }
                           >
-                            <item.icon
-                              aria-hidden="true"
-                              className={classNames(
-                                item.current
-                                  ? 'text-indigo-600 dark:text-white'
-                                  : 'text-gray-400 group-hover:text-indigo-600 dark:text-white dark:group-hover:text-white',
-                                'size-6 shrink-0',
-                              )}
-                            />
-                            {item.name}
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
-                  </li>
-                  <li>
-                    <div className="text-xs/6 font-semibold text-gray-400 dark:text-gray-300">Your teams</div>
-                    <ul role="list" className="-mx-2 mt-2 space-y-1">
-                      {teams.map((team) => (
-                        <li key={team.name}>
-                          <a
-                            href={team.href}
-                            className={classNames(
-                              team.current
-                                ? 'bg-gray-100 text-indigo-600 dark:bg-white/5 dark:!text-white'
-                                : 'text-gray-700 hover:bg-gray-100 hover:text-indigo-600 dark:!text-white dark:hover:bg-white/5 dark:hover:!text-white',
-                              'group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold',
+                            {({ isActive }) => (
+                              <>
+                                <item.icon
+                                  aria-hidden="true"
+                                  className={classNames(
+                                    isActive
+                                      ? 'text-indigo-600 dark:text-white'
+                                      : 'text-gray-400 group-hover:text-indigo-600 dark:text-white dark:group-hover:text-white',
+                                    'size-6 shrink-0',
+                                  )}
+                                />
+                                {item.name}
+                              </>
                             )}
-                          >
-                            <span
-                              className={classNames(
-                                team.current
-                                  ? 'border-indigo-600 text-indigo-600 dark:border-white/20 dark:text-white'
-                                  : 'border-gray-200 text-gray-400 group-hover:border-indigo-600 group-hover:text-indigo-600 dark:border-white/10 dark:group-hover:border-white/20 dark:group-hover:text-white',
-                                'flex size-6 shrink-0 items-center justify-center rounded-lg border bg-white text-[0.625rem] font-medium dark:bg-white/5',
-                              )}
-                            >
-                              {team.initial}
-                            </span>
-                            <span className="truncate dark:text-white">{team.name}</span>
-                          </a>
+                          </NavLink>
                         </li>
                       ))}
                     </ul>
                   </li>
                   <li className="-mx-6 mt-auto">
-                    <a
-                      href="#"
-                      className="flex items-center gap-x-4 px-6 py-3 text-sm/6 font-semibold text-gray-900 hover:bg-gray-100 dark:text-white dark:hover:bg-white/5"
-                    >
-                      <img
-                        alt=""
-                        src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80"
-                        className="size-8 rounded-full bg-gray-100 outline -outline-offset-1 outline-black/5 dark:bg-gray-800 dark:outline-white/10"
-                      />
-                      <span className="sr-only">Your profile</span>
-                      <span aria-hidden="true">Tom Cook</span>
-                    </a>
+                    <ul role="list" className="-mx-2 space-y-1 px-6">
+                      {settingsNavigation.map((item) => (
+                        <li key={item.name}>
+                          <NavLink
+                            to={item.href}
+                            className={({ isActive }) =>
+                              classNames(
+                                isActive
+                                  ? 'bg-gray-100 text-indigo-600 dark:bg-white/5 dark:text-white'
+                                  : 'text-gray-700 hover:bg-gray-100 hover:text-indigo-600 dark:text-white dark:hover:bg-white/5 dark:hover:text-white',
+                                'group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold',
+                              )
+                            }
+                          >
+                            {({ isActive }) => (
+                              <>
+                                <item.icon
+                                  aria-hidden="true"
+                                  className={classNames(
+                                    isActive
+                                      ? 'text-indigo-600 dark:text-white'
+                                      : 'text-gray-400 group-hover:text-indigo-600 dark:text-white dark:group-hover:text-white',
+                                    'size-6 shrink-0',
+                                  )}
+                                />
+                                {item.name}
+                              </>
+                            )}
+                          </NavLink>
+                        </li>
+                      ))}
+                    </ul>
                   </li>
                 </ul>
               </nav>
@@ -181,73 +167,69 @@ export function CreatorNavigation() {
                 <ul role="list" className="-mx-2 space-y-1">
                   {navigation.map((item) => (
                     <li key={item.name}>
-                      <a
-                        href={item.href}
-                        className={classNames(
-                          item.current
-                            ? 'bg-gray-100 text-indigo-600 dark:bg-white/5 dark:!text-white'
-                            : 'text-gray-700 hover:bg-gray-100 hover:text-indigo-600 dark:!text-white dark:hover:bg-white/5 dark:hover:!text-white',
-                          'group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold',
-                        )}
+                      <NavLink
+                        to={item.href}
+                        className={({ isActive }) =>
+                          classNames(
+                            isActive
+                              ? 'bg-gray-100 text-indigo-600 dark:bg-white/5 dark:!text-white'
+                              : 'text-gray-700 hover:bg-gray-100 hover:text-indigo-600 dark:!text-white dark:hover:bg-white/5 dark:hover:!text-white',
+                            'group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold',
+                          )
+                        }
                       >
-                        <item.icon
-                          aria-hidden="true"
-                          className={classNames(
-                            item.current
-                              ? 'text-indigo-600 dark:!text-white'
-                              : 'text-gray-400 group-hover:text-indigo-600 dark:!text-white dark:group-hover:!text-white',
-                            'size-6 shrink-0',
-                          )}
-                        />
-                        {item.name}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </li>
-              <li>
-                <div className="text-xs/6 font-semibold text-gray-500 dark:text-gray-300">Your teams</div>
-                <ul role="list" className="-mx-2 mt-2 space-y-1">
-                  {teams.map((team) => (
-                    <li key={team.name}>
-                      <a
-                        href={team.href}
-                        className={classNames(
-                          team.current
-                            ? 'bg-gray-100 text-indigo-600 dark:bg-white/5 dark:!text-white'
-                            : 'text-gray-700 hover:bg-gray-100 hover:text-indigo-600 dark:!text-white dark:hover:bg-white/5 dark:hover:!text-white',
-                          'group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold',
+                        {({ isActive }) => (
+                          <>
+                            <item.icon
+                              aria-hidden="true"
+                              className={classNames(
+                                isActive
+                                  ? 'text-indigo-600 dark:!text-white'
+                                  : 'text-gray-400 group-hover:text-indigo-600 dark:!text-white dark:group-hover:!text-white',
+                                'size-6 shrink-0',
+                              )}
+                            />
+                            {item.name}
+                          </>
                         )}
-                      >
-                        <span
-                          className={classNames(
-                            team.current
-                              ? 'border-indigo-600 text-indigo-600 dark:border-white/20 dark:!text-white'
-                              : 'border-gray-200 text-gray-400 group-hover:border-indigo-600 group-hover:text-indigo-600 dark:border-white/10 dark:group-hover:border-white/20 dark:group-hover:!text-white',
-                            'flex size-6 shrink-0 items-center justify-center rounded-lg border bg-white text-[0.625rem] font-medium dark:bg-white/5',
-                          )}
-                        >
-                          {team.initial}
-                        </span>
-                        <span className="truncate dark:text-white">{team.name}</span>
-                      </a>
+                      </NavLink>
                     </li>
                   ))}
                 </ul>
               </li>
               <li className="-mx-6 mt-auto">
-                <a
-                  href="#"
-                  className="flex items-center gap-x-4 px-6 py-3 text-sm/6 font-semibold text-gray-900 hover:bg-gray-100 dark:text-white dark:hover:bg-white/5"
-                >
-                  <img
-                    alt=""
-                    src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80"
-                    className="size-8 rounded-full bg-gray-100 outline -outline-offset-1 outline-black/5 dark:bg-gray-800 dark:outline-white/10"
-                  />
-                  <span className="sr-only">Your profile</span>
-                  <span aria-hidden="true">Tom Cook</span>
-                </a>
+                <ul role="list" className="-mx-2 space-y-1 px-6">
+                  {settingsNavigation.map((item) => (
+                    <li key={item.name}>
+                      <NavLink
+                        to={item.href}
+                        className={({ isActive }) =>
+                          classNames(
+                            isActive
+                              ? 'bg-gray-100 text-indigo-600 dark:bg-white/5 dark:!text-white'
+                              : 'text-gray-700 hover:bg-gray-100 hover:text-indigo-600 dark:!text-white dark:hover:bg-white/5 dark:hover:!text-white',
+                            'group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold',
+                          )
+                        }
+                      >
+                        {({ isActive }) => (
+                          <>
+                            <item.icon
+                              aria-hidden="true"
+                              className={classNames(
+                                isActive
+                                  ? 'text-indigo-600 dark:!text-white'
+                                  : 'text-gray-400 group-hover:text-indigo-600 dark:!text-white dark:group-hover:!text-white',
+                                'size-6 shrink-0',
+                              )}
+                            />
+                            {item.name}
+                          </>
+                        )}
+                      </NavLink>
+                    </li>
+                  ))}
+                </ul>
               </li>
             </ul>
           </nav>
@@ -283,23 +265,6 @@ export function CreatorNavigation() {
           </div>
         </div>
 
-        {/* Secondary Navigation */}
-        <header className="border-b border-gray-200 dark:border-white/5 bg-white dark:bg-gray-900">
-          <nav className="flex overflow-x-auto py-4">
-            <ul
-              role="list"
-              className="flex min-w-full flex-none gap-x-6 px-4 text-sm/6 font-semibold sm:px-6 lg:px-8"
-            >
-              {secondaryNavigation.map((item) => (
-                <li key={item.name}>
-                  <a href={item.href} className={item.current ? 'text-indigo-600 dark:text-white' : 'text-gray-500 dark:text-white'}>
-                    {item.name}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        </header>
       </div>
     </>
   )

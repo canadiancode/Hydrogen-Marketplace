@@ -8,6 +8,13 @@ export const meta = () => {
   return [{title: 'WornVault | Creator Login'}];
 };
 
+/**
+ * Route handle - login page should show footer (override parent route)
+ */
+export const handle = {
+  hideHeaderFooter: false,
+};
+
 export async function loader({context, request}) {
   // Check if already authenticated via Supabase
   const {isAuthenticated} = await checkCreatorAuth(request, context.env);
