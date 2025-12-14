@@ -1,5 +1,6 @@
 import {redirect, useLoaderData} from 'react-router';
 import {useEffect, useState} from 'react';
+import {exchangeOAuthCode} from '~/lib/supabase';
 
 /**
  * Callback route for Supabase Auth
@@ -28,7 +29,53 @@ export async function loader({request, context}) {
   
   // Handle OAuth callback (Google, etc.)
   if (code) {
-    return {mode: 'oauth', code};
+    // Validate environment variables
+    if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) {
+      console.error('Missing Supabase environment variables');
+      return redirect('/creator/login?error=config_error');
+    }
+
+    // Exchange OAuth code for session
+    const {session, user, error} = await exchangeOAuthCode(
+      code,
+      env.SUPABASE_URL,
+      env.SUPABASE_ANON_KEY,
+    );
+    
+    if (error || !session || !user) {
+      console.error('OAuth code exchange error:', error);
+      return redirect('/creator/login?error=oauth_failed');
+    }
+    
+    // Set session cookie
+    const urlMatch = env.SUPABASE_URL.match(/https?:\/\/([^.]+)\.supabase\.co/);
+    const projectRef = urlMatch ? urlMatch[1] : null;
+    
+    if (!projectRef) {
+      return redirect('/creator/login?error=config_error');
+    }
+    
+    const cookieName = `sb-${projectRef}-auth-token`;
+    const cookieValue = JSON.stringify({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+      expires_at: session.expires_at,
+      expires_in: session.expires_in,
+      token_type: session.token_type || 'bearer',
+      user: {
+        id: user.id,
+        email: user.email,
+      },
+    });
+    
+    // Redirect to dashboard
+    const response = redirect('/creator/dashboard');
+    response.headers.set(
+      'Set-Cookie',
+      `${cookieName}=${encodeURIComponent(cookieValue)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${session.expires_in || 3600}${request.url.startsWith('https://') ? '; Secure' : ''}`
+    );
+    
+    return response;
   }
   
   // Default: client-side hash fragment handling
@@ -98,8 +145,20 @@ export default function AuthCallback() {
   const [error, setError] = useState(null);
   
   useEffect(() => {
-    // Handle client-side hash fragment (Supabase magic links)
+    // Handle client-side hash fragment (Supabase magic links and OAuth)
     if (mode === 'client') {
+      // First check query params for OAuth code (server-side exchange)
+      const urlParams = new URLSearchParams(window.location.search);
+      const code = urlParams.get('code');
+      
+      if (code) {
+        // OAuth code - reload page to trigger server-side exchange in loader
+        // Remove hash to avoid double processing
+        window.location.href = window.location.pathname + '?code=' + code;
+        return;
+      }
+      
+      // Check hash fragments for tokens (magic links or OAuth tokens)
       const hash = window.location.hash.substring(1); // Remove #
       const params = new URLSearchParams(hash);
       
@@ -110,12 +169,17 @@ export default function AuthCallback() {
       const tokenType = params.get('token_type');
       const type = params.get('type');
       
-      if (accessToken && type === 'magiclink') {
+      // Handle both magic links and OAuth (both can have access_token in hash)
+      if (accessToken) {
         // Extract user info from token (basic JWT decode)
         try {
           const payload = JSON.parse(atob(accessToken.split('.')[1]));
           const userEmail = payload.email;
           const userId = payload.sub;
+          
+          if (!userEmail || !userId) {
+            throw new Error('Missing email or user ID in token payload');
+          }
           
           // Submit form to set session cookie
           const form = document.createElement('form');
@@ -134,12 +198,18 @@ export default function AuthCallback() {
           form.submit();
         } catch (err) {
           console.error('Error processing auth callback:', err);
+          console.error('Hash:', hash);
+          console.error('Access token present:', !!accessToken);
           setError('Failed to process authentication. Please try again.');
           setTimeout(() => {
             window.location.href = '/creator/login?error=token_parse_error';
           }, 2000);
         }
       } else {
+        // No tokens found - log for debugging
+        console.error('No access token found in hash or query params');
+        console.error('Hash:', hash);
+        console.error('Query params:', window.location.search);
         setError('Invalid authentication token.');
         setTimeout(() => {
           window.location.href = '/creator/login?error=invalid_token';

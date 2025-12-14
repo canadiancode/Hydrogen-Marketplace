@@ -265,6 +265,53 @@ export async function initiateGoogleOAuth(supabaseUrl, anonKey, redirectTo) {
 }
 
 /**
+ * Exchanges OAuth code for a session
+ * Used when OAuth provider redirects back with a code parameter
+ * 
+ * @param {string} code - OAuth authorization code
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} anonKey - Supabase anon/public key
+ * @returns {Promise<{session: Session | null, user: User | null, error: Error | null}>}
+ */
+export async function exchangeOAuthCode(code, supabaseUrl, anonKey) {
+  if (!code || !supabaseUrl || !anonKey) {
+    return {
+      session: null,
+      user: null,
+      error: new Error('Code, Supabase URL, and anon key are required'),
+    };
+  }
+
+  const supabase = createClient(supabaseUrl, anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+  
+  try {
+    const {data, error} = await supabase.auth.exchangeCodeForSession(code);
+    
+    if (error) {
+      return {session: null, user: null, error};
+    }
+    
+    return {
+      session: data.session,
+      user: data.user,
+      error: null,
+    };
+  } catch (err) {
+    console.error('Error exchanging OAuth code:', err);
+    return {
+      session: null,
+      user: null,
+      error: new Error('Failed to exchange OAuth code'),
+    };
+  }
+}
+
+/**
  * Verifies a magic link token and creates a session
  * This is typically called from a callback route after user clicks magic link
  * 
