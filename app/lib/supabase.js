@@ -827,6 +827,71 @@ export async function fetchCreatorListings(creatorId, supabaseUrl, anonKey, acce
 }
 
 /**
+ * Fetches a single listing by ID for a creator
+ * Verifies that the listing belongs to the authenticated creator
+ * Includes listing photos and formats data for display
+ * 
+ * @param {string} listingId - Listing UUID
+ * @param {string} creatorId - Creator's UUID (for verification)
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} anonKey - Supabase anon/public key
+ * @param {string} accessToken - User's access token
+ * @returns {Promise<object | null>} Listing object with photos or null if not found/not authorized
+ */
+export async function fetchCreatorListingById(listingId, creatorId, supabaseUrl, anonKey, accessToken) {
+  if (!listingId || !creatorId || !supabaseUrl || !anonKey || !accessToken) {
+    return null;
+  }
+
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  
+  // Fetch the listing - RLS will ensure user can only access their own listings
+  const {data: listing, error: listingError} = await supabase
+    .from('listings')
+    .select('*')
+    .eq('id', listingId)
+    .eq('creator_id', creatorId) // Verify ownership
+    .single();
+
+  if (listingError || !listing) {
+    console.error('Error fetching listing:', listingError);
+    return null;
+  }
+
+  // Fetch photos for this listing
+  const {data: photos, error: photosError} = await supabase
+    .from('listing_photos')
+    .select('*')
+    .eq('listing_id', listingId)
+    .eq('photo_type', 'reference')
+    .order('created_at', {ascending: true});
+
+  if (photosError) {
+    console.error('Error fetching listing photos:', photosError);
+    // Continue without photos rather than failing completely
+  }
+
+  // Get public URLs for photos
+  const photosWithUrls = (photos || []).map(photo => {
+    const {data} = supabase.storage
+      .from('listing-photos')
+      .getPublicUrl(photo.storage_path);
+    
+    return {
+      ...photo,
+      publicUrl: data?.publicUrl || null,
+    };
+  });
+
+  // Format listing data for display
+  return {
+    ...listing,
+    photos: photosWithUrls,
+    price: (listing.price_cents / 100).toFixed(2),
+  };
+}
+
+/**
  * Creates a session cookie string for Supabase authentication
  * 
  * @param {object} session - Supabase session object

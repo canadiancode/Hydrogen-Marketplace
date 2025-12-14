@@ -1,21 +1,64 @@
 import {useState, useRef, useEffect} from 'react';
-import {Form, redirect, useSubmit} from 'react-router';
+import {Form, redirect, useSubmit, useLoaderData, useNavigate, useActionData, useNavigation, data} from 'react-router';
 import {requireAuth} from '~/lib/auth-helpers';
 import {ChevronDownIcon, ChevronUpIcon, XMarkIcon} from '@heroicons/react/16/solid';
 import {PhotoIcon} from '@heroicons/react/24/solid';
+import {fetchCreatorProfile, fetchCreatorListingById, createUserSupabaseClient} from '~/lib/supabase';
 
-export const meta = () => {
-  return [{title: 'WornVault | Create Listing'}];
+export const meta = ({data}) => {
+  return [{title: `WornVault | Edit Listing ${data?.listing?.title ?? ''}`}];
 };
 
-export async function loader({context, request}) {
-  // Require authentication
-  const {user} = await requireAuth(request, context.env);
+export async function loader({params, context, request}) {
+  console.log('[EDIT ROUTE] Loader called for listing edit page', {params});
   
-  return {user};
+  // Require authentication
+  const {user, session} = await requireAuth(request, context.env);
+  
+  if (!user?.email || !session?.access_token) {
+    throw new Response('Unauthorized', {status: 401});
+  }
+
+  const {id} = params;
+  if (!id) {
+    throw new Response('Listing ID required', {status: 400});
+  }
+
+  const supabaseUrl = context.env.SUPABASE_URL;
+  const anonKey = context.env.SUPABASE_ANON_KEY;
+  const accessToken = session.access_token;
+
+  if (!supabaseUrl || !anonKey || !accessToken) {
+    console.error('Loader: Missing Supabase configuration');
+    throw new Response('Server configuration error', {status: 500});
+  }
+
+  // Fetch creator profile to get creator_id
+  const creatorProfile = await fetchCreatorProfile(user.email, supabaseUrl, anonKey, accessToken);
+  
+  if (!creatorProfile || !creatorProfile.id) {
+    throw new Response('Creator profile not found', {status: 404});
+  }
+
+  // Fetch listing by ID
+  const listing = await fetchCreatorListingById(id, creatorProfile.id, supabaseUrl, anonKey, accessToken);
+  
+  if (!listing) {
+    throw new Response('Listing not found', {status: 404});
+  }
+
+  // Check if listing can be edited (only draft or pending_approval)
+  const editableStatuses = ['draft', 'pending_approval'];
+  const canEdit = editableStatuses.includes(listing.status);
+
+  return {
+    user,
+    listing,
+    canEdit,
+  };
 }
 
-export async function action({request, context}) {
+export async function action({request, context, params}) {
   try {
     // Require authentication
     const {user, session} = await requireAuth(request, context.env);
@@ -25,168 +68,43 @@ export async function action({request, context}) {
       throw new Response('Unauthorized', {status: 401});
     }
 
-    const formData = await request.formData();
-    
-    // Log all form data keys to see what we're receiving
-    const formDataKeys = [];
-    for (const [key, value] of formData.entries()) {
-      const entry = {
-        key,
-        valueType: typeof value,
-        isFile: value instanceof File,
-        isBlob: typeof Blob !== 'undefined' && value instanceof Blob,
-        isString: typeof value === 'string',
-        stringValue: typeof value === 'string' ? value.substring(0, 50) : null,
-        constructor: value?.constructor?.name,
-      };
-      
-      if (key === 'photos') {
-        entry.size = value?.size;
-        entry.type = value?.type;
-        entry.name = value?.name;
-        entry.hasArrayBuffer = typeof value?.arrayBuffer === 'function';
-        entry.rawValue = value;
-      }
-      
-      formDataKeys.push(entry);
+    const {id} = params;
+    if (!id) {
+      throw new Response('Listing ID required', {status: 400});
     }
+
+    const formData = await request.formData();
     
     // Extract form data
     const title = formData.get('title')?.toString().trim();
     const category = formData.get('category')?.toString().trim();
     const story = formData.get('description')?.toString().trim();
     const price = formData.get('price')?.toString();
-    const photos = formData.getAll('photos');
+    
+    // Photo handling
+    const existingPhotoIds = formData.get('existingPhotoIds')?.toString().split(',').filter(Boolean) || [];
+    const deletedPhotoIds = formData.get('deletedPhotoIds')?.toString().split(',').filter(Boolean) || [];
+    const newPhotos = formData.getAll('photos').filter(photo => photo instanceof File && photo.size > 0);
 
     // Validate required fields
     if (!title || !category || !story || !price) {
       console.error('Action: Missing required fields', {title, category, story, price});
-      return new Response('Missing required fields', {status: 400});
+      return data({error: 'Missing required fields'}, {status: 400});
     }
 
     // Validate price
     const priceFloat = parseFloat(price);
     if (isNaN(priceFloat) || priceFloat <= 0) {
       console.error('Action: Invalid price', {price});
-      return new Response('Invalid price', {status: 400});
+      return data({error: 'Invalid price'}, {status: 400});
     }
 
     // Convert price to cents
     const priceCents = Math.round(priceFloat * 100);
 
-    // Validate photos - filter out empty strings and non-File objects
-    // Note: Files are now submitted manually from client state, so we might get empty strings
-    // Log the raw structure first with full details
-    const rawPhotoDetails = photos.map((p, i) => {
-      const detail = {
-        index: i,
-        value: p,
-        type: typeof p,
-        isNull: p === null,
-        isUndefined: p === undefined,
-        isString: typeof p === 'string',
-        stringValue: typeof p === 'string' ? p : null,
-        isObject: typeof p === 'object' && p !== null,
-        constructor: p?.constructor?.name,
-        isFile: p instanceof File,
-        isBlob: typeof Blob !== 'undefined' && p instanceof Blob,
-      };
-      
-      if (p && typeof p === 'object') {
-        detail.keys = Object.keys(p);
-        detail.size = p.size;
-        detail.type = p.type;
-        detail.name = p.name;
-        detail.hasArrayBuffer = typeof p.arrayBuffer === 'function';
-      }
-      
-      return detail;
-    });
-    
-    // Log the structure of photos for debugging
-    const photoDetails = photos.map((photo, idx) => {
-      // First check if photo exists
-      if (!photo) {
-        return {
-          index: idx,
-          value: photo,
-          valueType: typeof photo,
-          isNull: photo === null,
-          isUndefined: photo === undefined,
-          isFalsy: !photo,
-        };
-      }
-      
-      const details = {
-        index: idx,
-        valueType: typeof photo,
-        isFile: photo instanceof File,
-        constructor: photo?.constructor?.name,
-        hasSize: typeof photo?.size === 'number',
-        hasType: typeof photo?.type === 'string',
-        hasName: typeof photo?.name === 'string',
-        hasArrayBuffer: typeof photo?.arrayBuffer === 'function',
-        hasStream: typeof photo?.stream === 'function',
-        hasText: typeof photo?.text === 'function',
-        hasBytes: typeof photo?.bytes === 'function',
-        size: photo?.size,
-        mimeType: photo?.type,
-        fileName: photo?.name,
-      };
-      
-      if (photo && typeof photo === 'object') {
-        details.keys = Object.keys(photo);
-        details.entries = Object.entries(photo).slice(0, 10); // First 10 entries
-      }
-      
-      return details;
-    });
-
-    const validPhotos = photos.filter((photo, idx) => {
-      // Very lenient validation - accept any non-empty value from FormData
-      // Files are submitted manually from client, so we should get File objects
-      if (!photo) {
-        return false;
-      }
-      
-      // Reject empty strings (these come from the file input which we don't use anymore)
-      if (typeof photo === 'string') {
-        if (photo.trim() === '') {
-          return false;
-        }
-        // If it's a non-empty string, it's not a file - reject it
-        return false;
-      }
-      
-      // Accept File instances
-      if (photo instanceof File) {
-        return true;
-      }
-      
-      // Accept Blob instances
-      if (typeof Blob !== 'undefined' && photo instanceof Blob) {
-        return true;
-      }
-      
-      // Accept any object (FormData files are objects)
-      if (typeof photo === 'object') {
-        return true;
-      }
-      
-      return false;
-    });
-
-    if (validPhotos.length === 0) {
-      console.error('Action: No valid photos after filtering', {
-        photosCount: photos.length,
-        photos: photos.map((p, i) => ({
-          index: i,
-          type: typeof p,
-          isFile: p instanceof File,
-          keys: p && typeof p === 'object' ? Object.keys(p) : null,
-        })),
-      });
-      return new Response('At least one photo is required', {status: 400});
+    // Validate that we have at least one photo (existing or new)
+    if (existingPhotoIds.length === 0 && newPhotos.length === 0) {
+      return data({error: 'At least one photo is required'}, {status: 400});
     }
 
     const {createUserSupabaseClient} = await import('~/lib/supabase');
@@ -197,12 +115,8 @@ export async function action({request, context}) {
     const accessToken = session.access_token;
 
     if (!supabaseUrl || !anonKey || !accessToken) {
-      console.error('Action: Missing Supabase configuration', {
-        hasUrl: !!supabaseUrl,
-        hasKey: !!anonKey,
-        hasToken: !!accessToken,
-      });
-      return new Response('Server configuration error', {status: 500});
+      console.error('Action: Missing Supabase configuration');
+      return data({error: 'Server configuration error'}, {status: 500});
     }
 
     // Create Supabase client
@@ -212,44 +126,103 @@ export async function action({request, context}) {
     const creatorProfile = await fetchCreatorProfile(user.email, supabaseUrl, anonKey, accessToken);
     if (!creatorProfile || !creatorProfile.id) {
       console.error('Action: Creator profile not found', {email: user.email});
-      return new Response('Creator profile not found. Please complete your profile first.', {status: 404});
+      return data({error: 'Creator profile not found. Please complete your profile first.'}, {status: 404});
     }
 
     const creatorId = creatorProfile.id;
 
-    // Create listing record
-    const {data: listing, error: listingError} = await supabase
+    // Verify listing ownership
+    const {data: existingListing, error: listingCheckError} = await supabase
       .from('listings')
-      .insert({
-        creator_id: creatorId,
+      .select('id, status')
+      .eq('id', id)
+      .eq('creator_id', creatorId)
+      .single();
+
+    if (listingCheckError || !existingListing) {
+      console.error('Action: Listing not found or unauthorized', listingCheckError);
+      return data({error: 'Listing not found or unauthorized'}, {status: 404});
+    }
+
+    // Check if listing can be edited
+    const editableStatuses = ['draft', 'pending_approval'];
+    if (!editableStatuses.includes(existingListing.status)) {
+      return data({error: 'This listing cannot be edited in its current status'}, {status: 403});
+    }
+
+    // Update listing record and set status to pending_approval for re-review
+    console.log('Action: Updating listing with data:', {
+      id,
+      title,
+      category,
+      story,
+      price_cents: priceCents,
+      status: 'pending_approval',
+    });
+    
+    const {error: updateError, data: updatedListing} = await supabase
+      .from('listings')
+      .update({
         title: title,
         category: category,
         story: story,
         price_cents: priceCents,
-        currency: 'USD',
         status: 'pending_approval',
       })
-      .select()
-      .single();
+      .eq('id', id)
+      .eq('creator_id', creatorId)
+      .select();
 
-    if (listingError) {
-      console.error('Action: Error creating listing:', listingError);
-      return new Response(`Failed to create listing: ${listingError.message}`, {status: 500});
+    if (updateError) {
+      console.error('Action: Error updating listing:', updateError);
+      return data({error: `Failed to update listing: ${updateError.message}`}, {status: 500});
+    }
+    
+    console.log('Action: Listing updated successfully:', updatedListing);
+
+    // Handle photo deletions
+    if (deletedPhotoIds.length > 0) {
+      // Fetch photo records to get storage paths
+      const {data: photosToDelete, error: fetchPhotosError} = await supabase
+        .from('listing_photos')
+        .select('id, storage_path')
+        .in('id', deletedPhotoIds)
+        .eq('listing_id', id);
+
+      if (!fetchPhotosError && photosToDelete) {
+        // Delete from storage
+        const storagePaths = photosToDelete.map(p => p.storage_path).filter(Boolean);
+        if (storagePaths.length > 0) {
+          const {error: storageDeleteError} = await supabase.storage
+            .from('listing-photos')
+            .remove(storagePaths);
+
+          if (storageDeleteError) {
+            console.error('Action: Error deleting photos from storage:', storageDeleteError);
+            // Continue even if storage deletion fails
+          }
+        }
+
+        // Delete photo records from database
+        const {error: photoDeleteError} = await supabase
+          .from('listing_photos')
+          .delete()
+          .in('id', deletedPhotoIds)
+          .eq('listing_id', id);
+
+        if (photoDeleteError) {
+          console.error('Action: Error deleting photo records:', photoDeleteError);
+          // Continue even if DB deletion fails
+        }
+      }
     }
 
-    if (!listing || !listing.id) {
-      console.error('Action: Listing created but no ID returned', {listing});
-      return new Response('Failed to create listing', {status: 500});
-    }
-
-    const listingId = listing.id;
-
-    // Upload photos and create listing_photos records
+    // Handle new photo uploads
     const uploadedPhotos = [];
     const errors = [];
 
-    for (let i = 0; i < validPhotos.length; i++) {
-      const photo = validPhotos[i];
+    for (let i = 0; i < newPhotos.length; i++) {
+      const photo = newPhotos[i];
       
       try {
         // Upload photo to Supabase Storage
@@ -287,21 +260,18 @@ export async function action({request, context}) {
         }
         
         const fileName = `${timestamp}-${random}.${fileExt}`;
-        const filePath = `listings/${sanitizedEmail}/${listingId}/${fileName}`;
+        const filePath = `listings/${sanitizedEmail}/${id}/${fileName}`;
 
-        // Try to upload directly first (Supabase might accept File/Blob objects)
-        // If that fails, convert to ArrayBuffer
+        // Prepare upload payload
         let uploadPayload;
         let contentType = photo.type || 
                          (photo.name ? `image/${photo.name.split('.').pop()}` : 'image/jpeg');
 
-        // Try to use the photo directly if it's a File or Blob
         if (photo instanceof File || (typeof Blob !== 'undefined' && photo instanceof Blob)) {
           uploadPayload = photo;
         } else if (typeof photo.arrayBuffer === 'function') {
           uploadPayload = await photo.arrayBuffer();
         } else if (typeof photo.stream === 'function') {
-          // Convert stream to ArrayBuffer
           const stream = photo.stream();
           const chunks = [];
           const reader = stream.getReader();
@@ -310,7 +280,6 @@ export async function action({request, context}) {
             if (done) break;
             chunks.push(value);
           }
-          // Combine chunks into single ArrayBuffer
           const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
           const buffer = new Uint8Array(totalLength);
           let offset = 0;
@@ -322,7 +291,6 @@ export async function action({request, context}) {
         } else if (typeof photo.bytes === 'function') {
           uploadPayload = await photo.bytes();
         } else {
-          // Last resort: try to convert to Blob
           try {
             const blob = typeof Blob !== 'undefined' && photo instanceof Blob 
               ? photo 
@@ -330,7 +298,6 @@ export async function action({request, context}) {
             uploadPayload = await blob.arrayBuffer();
           } catch (blobError) {
             console.error(`Action: Failed to convert photo ${i + 1} to Blob:`, blobError);
-            // Try passing the object directly - Supabase might handle it
             uploadPayload = photo;
           }
         }
@@ -354,7 +321,7 @@ export async function action({request, context}) {
         const {data: photoRecord, error: photoError} = await supabase
           .from('listing_photos')
           .insert({
-            listing_id: listingId,
+            listing_id: id,
             storage_path: filePath,
             photo_type: 'reference',
           })
@@ -376,34 +343,25 @@ export async function action({request, context}) {
       }
     }
 
-    // If no photos were successfully uploaded, delete the listing
-    if (uploadedPhotos.length === 0) {
-      console.error('Action: No photos uploaded, deleting listing', {listingId, errors});
-      await supabase.from('listings').delete().eq('id', listingId);
-      return new Response(
-        `Failed to upload photos: ${errors.join('; ')}`,
-        {status: 500}
-      );
-    }
-
     // If some photos failed but at least one succeeded, log warnings but continue
     if (errors.length > 0) {
       console.warn('Action: Some photos failed to upload:', errors);
     }
 
+    console.log('Action: Listing updated successfully, redirecting...');
     // Success - redirect to listings page with success parameter
-    return redirect('/creator/listings?submitted=true');
+    return redirect('/creator/listings?updated=true');
   } catch (error) {
-    console.error('Action: Unexpected error creating listing:', error);
+    console.error('Action: Unexpected error updating listing:', error);
     console.error('Action: Error stack:', error.stack);
-    return new Response(
-      `An unexpected error occurred: ${error.message || 'Unknown error'}`,
+    return data(
+      {error: `An unexpected error occurred: ${error.message || 'Unknown error'}`},
       {status: 500}
     );
   }
 }
 
-// Category options organized by type
+// Category options organized by type (same as create page)
 const CATEGORIES = {
   clothing: [
     'Tops & Blouses',
@@ -442,15 +400,74 @@ const ALL_CATEGORIES = [
   ...CATEGORIES.marketplace.map(cat => ({value: cat, type: 'marketplace'})),
 ];
 
-export default function CreateListing() {
-  const [selectedCategory, setSelectedCategory] = useState('');
+export default function EditListing() {
+  const loaderData = useLoaderData();
+  const {listing, canEdit} = loaderData || {};
+  const navigate = useNavigate();
+  const actionData = useActionData();
+  const navigation = useNavigation();
+  
+  console.log('[EDIT ROUTE] Component rendered', {hasListing: !!listing, canEdit, loaderData});
+  
+  // Debug: Log to verify this component is rendering
+  useEffect(() => {
+    console.log('[EDIT ROUTE] EditListing component mounted - this confirms the edit route is working!');
+  }, []);
+  
+  // Track submission state from navigation
+  const isSubmitting = navigation.state === 'submitting';
+  
+  // Debug: Log action data and navigation state
+  useEffect(() => {
+    if (actionData) {
+      console.log('[EDIT ROUTE] Action data received:', actionData);
+    }
+    console.log('[EDIT ROUTE] Navigation state:', navigation.state);
+  }, [actionData, navigation.state]);
+  
+  // Handle case where listing data might not be loaded
+  if (!listing) {
+    return (
+      <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6">
+            <h2 className="text-lg font-semibold text-red-800 dark:text-red-200 mb-2">
+              Error Loading Listing
+            </h2>
+            <p className="text-sm text-red-700 dark:text-red-300 mb-4">
+              Unable to load listing data. Please try again or contact support.
+            </p>
+            <button
+              onClick={() => navigate('/creator/listings')}
+              className="text-sm font-medium text-red-800 dark:text-red-200 hover:underline"
+            >
+              Back to Listings →
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  const [selectedCategory, setSelectedCategory] = useState(listing.category || '');
   const [categorySearch, setCategorySearch] = useState('');
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
-  const [selectedPhotos, setSelectedPhotos] = useState([]);
-  const [price, setPrice] = useState('');
+  
+  // Photo state: combine existing photos (with URLs) and new photos (File objects)
+  const [existingPhotos, setExistingPhotos] = useState(
+    listing.photos?.map(photo => ({
+      id: photo.id,
+      url: photo.publicUrl,
+      storagePath: photo.storage_path,
+      isExisting: true,
+    })) || []
+  );
+  const [newPhotos, setNewPhotos] = useState([]);
+  const [deletedPhotoIds, setDeletedPhotoIds] = useState(new Set());
+  
+  const [price, setPrice] = useState(listing.price || '');
   const [imageErrors, setImageErrors] = useState(new Set());
   const [isDragging, setIsDragging] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const categoryRef = useRef(null);
   const dropdownRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -488,30 +505,27 @@ export default function CreateListing() {
     const fileArray = Array.from(files || []);
     if (fileArray.length === 0) return;
     
-    
     // Filter to only image files
     const imageFiles = fileArray.filter(file => file.type.startsWith('image/'));
     
     // Create preview URLs for all new files
-    const newPhotos = imageFiles.map((file) => {
+    const newPhotoItems = imageFiles.map((file) => {
       try {
         const preview = URL.createObjectURL(file);
         return {
           file,
           preview,
-          id: `${Date.now()}-${Math.random().toString(36).substring(7)}`,
+          id: `new-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+          isExisting: false,
         };
       } catch (error) {
         console.error('Error creating preview URL:', error);
         return null;
       }
-    }).filter(Boolean); // Remove any null entries
+    }).filter(Boolean);
     
-    if (newPhotos.length > 0) {
-      setSelectedPhotos((prev) => {
-        const updated = [...prev, ...newPhotos];
-        return updated;
-      });
+    if (newPhotoItems.length > 0) {
+      setNewPhotos((prev) => [...prev, ...newPhotoItems]);
     }
   };
 
@@ -547,33 +561,27 @@ export default function CreateListing() {
     processFiles(files);
   };
 
-  // Remove photo from selection
-  const handleRemovePhoto = (photoId) => {
-    setSelectedPhotos((prev) => {
-      const photo = prev.find((p) => p.id === photoId);
+  // Remove photo from selection (existing or new)
+  const handleRemovePhoto = (photoId, isExisting) => {
+    if (isExisting) {
+      // Mark existing photo for deletion
+      setDeletedPhotoIds(prev => new Set([...prev, photoId]));
+      setExistingPhotos(prev => prev.filter(p => p.id !== photoId));
+    } else {
+      // Remove new photo and revoke URL
+      const photo = newPhotos.find(p => p.id === photoId);
       if (photo && photo.preview) {
         URL.revokeObjectURL(photo.preview);
       }
-      const updated = prev.filter((p) => p.id !== photoId);
-      
-      // Update the file input to reflect remaining files
-      if (fileInputRef.current) {
-        const dataTransfer = new DataTransfer();
-        updated.forEach((p) => dataTransfer.items.add(p.file));
-        fileInputRef.current.files = dataTransfer.files;
-      }
-      
-      return updated;
-    });
+      setNewPhotos(prev => prev.filter(p => p.id !== photoId));
+    }
   };
 
-
   // Cleanup object URLs on unmount
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     return () => {
       // Clean up all blob URLs when component unmounts
-      selectedPhotos.forEach((photo) => {
+      newPhotos.forEach((photo) => {
         if (photo.preview && photo.preview.startsWith('blob:')) {
           URL.revokeObjectURL(photo.preview);
         }
@@ -605,9 +613,14 @@ export default function CreateListing() {
 
   const submit = useSubmit();
 
-  // Handle form submission with files from state
+  // Handle form submission
   const handleSubmit = (e) => {
     e.preventDefault();
+    
+    if (!canEdit) {
+      alert('This listing cannot be edited in its current status');
+      return;
+    }
     
     // Validate required fields
     if (!selectedCategory) {
@@ -620,19 +633,17 @@ export default function CreateListing() {
       return;
     }
     
-    // Validate that we have photos
-    if (selectedPhotos.length === 0) {
-      alert('Please select at least one photo');
+    // Validate that we have at least one photo (existing or new)
+    const remainingExistingPhotos = existingPhotos.filter(p => !deletedPhotoIds.has(p.id));
+    if (remainingExistingPhotos.length === 0 && newPhotos.length === 0) {
+      alert('Please keep at least one photo or add a new one');
       return;
     }
 
-    // Set loading state
-    setIsSubmitting(true);
-
-    // Manually construct FormData with files from state
+    // Manually construct FormData
     const formData = new FormData();
     
-    // Add form fields - use form elements or state values
+    // Add form fields
     const form = e.target;
     const titleInput = form.querySelector('[name="title"]');
     const descriptionInput = form.querySelector('[name="description"]');
@@ -643,30 +654,86 @@ export default function CreateListing() {
     if (descriptionInput) formData.append('description', descriptionInput.value);
     if (priceInput) formData.append('price', priceInput.value);
     
-    // Add files from selectedPhotos state
-    selectedPhotos.forEach((photo) => {
+    // Add existing photo IDs (to keep)
+    const remainingPhotoIds = existingPhotos
+      .filter(p => !deletedPhotoIds.has(p.id))
+      .map(p => p.id);
+    formData.append('existingPhotoIds', remainingPhotoIds.join(','));
+    
+    // Add deleted photo IDs
+    if (deletedPhotoIds.size > 0) {
+      formData.append('deletedPhotoIds', Array.from(deletedPhotoIds).join(','));
+    }
+    
+    // Add new photo files
+    newPhotos.forEach((photo) => {
       if (photo.file) {
         formData.append('photos', photo.file);
       }
     });
 
-    // Submit the form with our FormData
+    // Submit the form
     submit(formData, {
       method: 'post',
       encType: 'multipart/form-data',
     });
   };
 
+  // If listing cannot be edited, show message
+  if (!canEdit) {
+    return (
+      <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-6">
+            <h2 className="text-lg font-semibold text-yellow-800 dark:text-yellow-200 mb-2">
+              Listing Cannot Be Edited
+            </h2>
+            <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-4">
+              This listing cannot be edited because it is in "{listing.status}" status. 
+              Only listings with "draft" or "pending_approval" status can be edited.
+            </p>
+            <button
+              onClick={() => navigate(`/creator/listings/${listing.id}`)}
+              className="text-sm font-medium text-yellow-800 dark:text-yellow-200 hover:underline"
+            >
+              View Listing Details →
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Combine all photos for display
+  const allPhotos = [
+    ...existingPhotos.map(p => ({...p, isExisting: true})),
+    ...newPhotos.map(p => ({...p, isExisting: false})),
+  ];
+
   return (
     <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">Edit Listing</h1>
+          <p className="text-lg text-gray-600 dark:text-gray-400">
+            Update your listing details. Changes will be saved immediately.
+          </p>
+        </div>
+
+        {actionData?.error && (
+          <div className="mb-6 rounded-md bg-red-50 dark:bg-red-900/20 p-4 border border-red-200 dark:border-red-800">
+            <p className="text-sm font-medium text-red-800 dark:text-red-200">
+              {actionData.error}
+            </p>
+          </div>
+        )}
+
         <Form method="post" encType="multipart/form-data" onSubmit={handleSubmit}>
           <div className="space-y-12">
             <div className="border-b border-gray-900/10 pb-12 dark:border-white/10">
               <h2 className="text-base/7 font-semibold text-gray-900 dark:text-white">Listing Details</h2>
               <p className="mt-1 text-sm/6 text-gray-600 dark:text-gray-400">
-                Provide information about your item. After submission, your listing will be set to pending
-                approval and won't be publicly visible until approved.
+                Update information about your item.
               </p>
 
               <div className="mt-10 grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-6">
@@ -681,6 +748,7 @@ export default function CreateListing() {
                       id="title"
                       name="title"
                       required
+                      defaultValue={listing.title}
                       placeholder="Enter a title for your listing..."
                       className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
                     />
@@ -775,6 +843,7 @@ export default function CreateListing() {
                       name="description"
                       required
                       rows={6}
+                      defaultValue={listing.story}
                       placeholder="Describe your item..."
                       className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
                     />
@@ -865,13 +934,13 @@ export default function CreateListing() {
                   </div>
 
                   {/* Photo Preview Grid */}
-                  {selectedPhotos.length > 0 && (
+                  {allPhotos.length > 0 && (
                     <div className="mt-6">
                       <h3 className="text-sm/6 font-medium text-gray-900 dark:text-white mb-4">
-                        Selected Photos ({selectedPhotos.length})
+                        Selected Photos ({allPhotos.length})
                       </h3>
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                        {selectedPhotos.map((photo, index) => {
+                        {allPhotos.map((photo, index) => {
                           return (
                             <div
                               key={photo.id || `photo-${index}`}
@@ -882,27 +951,22 @@ export default function CreateListing() {
                                 position: 'relative'
                               }}
                             >
-                              {photo.preview && !imageErrors.has(photo.id) ? (
+                              {(photo.url || photo.preview) && !imageErrors.has(photo.id) ? (
                                 <img
-                                  src={photo.preview}
-                                  alt={`Preview ${index + 1}: ${photo.file?.name || 'image'}`}
+                                  src={photo.url || photo.preview}
+                                  alt={`Preview ${index + 1}`}
                                   className="absolute inset-0 w-full h-full object-cover"
                                   style={{
                                     display: 'block'
                                   }}
                                   onError={(e) => {
                                     console.error('Failed to load image preview:', {
-                                      preview: photo.preview,
+                                      preview: photo.url || photo.preview,
                                       id: photo.id,
-                                      fileName: photo.file?.name,
-                                      error: e
                                     });
-                                    // Mark this image as having an error
                                     setImageErrors(prev => new Set(prev).add(photo.id));
                                   }}
                                   onLoad={(e) => {
-                                    // Image loaded successfully
-                                    // Remove from errors if it was there
                                     setImageErrors(prev => {
                                       const next = new Set(prev);
                                       next.delete(photo.id);
@@ -910,11 +974,10 @@ export default function CreateListing() {
                                     });
                                   }}
                                 />
-                              ) : photo.preview && imageErrors.has(photo.id) ? (
-                                // Error fallback - shown when image fails to load
+                              ) : (photo.url || photo.preview) && imageErrors.has(photo.id) ? (
                                 <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-gray-200 dark:bg-white/5 text-gray-500 dark:text-gray-400 text-xs p-2">
                                   <div className="text-center">
-                                    <p>{photo.file?.name || 'Image'}</p>
+                                    <p>Image</p>
                                     <p className="text-red-500 mt-1">Preview unavailable</p>
                                   </div>
                                 </div>
@@ -922,13 +985,17 @@ export default function CreateListing() {
                                 <div className="absolute inset-0 w-full h-full flex items-center justify-center text-gray-400 dark:text-gray-500 text-xs">
                                   <div className="text-center">
                                     <p>No preview</p>
-                                    <p className="text-xs mt-1">{photo.file?.name || ''}</p>
                                   </div>
+                                </div>
+                              )}
+                              {photo.isExisting && (
+                                <div className="absolute top-2 left-2 px-2 py-1 bg-blue-500 text-white text-xs rounded">
+                                  Existing
                                 </div>
                               )}
                               <button
                                 type="button"
-                                onClick={() => handleRemovePhoto(photo.id)}
+                                onClick={() => handleRemovePhoto(photo.id, photo.isExisting)}
                                 className="absolute top-2 right-2 p-1.5 bg-red-500 hover:bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-lg"
                                 aria-label="Remove photo"
                               >
@@ -949,7 +1016,7 @@ export default function CreateListing() {
           <div className="mt-6 flex items-center justify-end gap-x-6">
             <button
               type="button"
-              onClick={() => window.history.back()}
+              onClick={() => navigate(`/creator/listings/${listing.id}`)}
               className="text-sm/6 font-semibold text-gray-900 dark:text-white"
             >
               Cancel
@@ -968,7 +1035,7 @@ export default function CreateListing() {
                   Submitting...
                 </>
               ) : (
-                'Submit for Approval'
+                'Submit for Review'
               )}
             </button>
           </div>
@@ -978,4 +1045,4 @@ export default function CreateListing() {
   );
 }
 
-/** @typedef {import('./+types/creator.listings.new').Route} Route */
+/** @typedef {import('./+types/creator.listings.$id.edit').Route} Route */

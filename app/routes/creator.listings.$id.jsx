@@ -1,4 +1,4 @@
-import {useLoaderData} from 'react-router';
+import {useLoaderData, Outlet, useMatches} from 'react-router';
 import {requireAuth} from '~/lib/auth-helpers';
 
 export const meta = ({data}) => {
@@ -21,7 +21,19 @@ export async function loader({params, context, request}) {
 
 export default function CreatorListingDetail() {
   const {listing} = useLoaderData();
+  const matches = useMatches();
   
+  // Check if we're on a child route (like edit)
+  const isChildRoute = matches.some(match => 
+    match.id === 'routes/creator.listings.$id.edit'
+  );
+  
+  // If we're on a child route (like edit), render the Outlet for the child route
+  if (isChildRoute) {
+    return <Outlet />;
+  }
+  
+  // Otherwise, render the detail view
   return (
     <div className="bg-gray-50 dark:bg-gray-900">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

@@ -74,15 +74,33 @@ export default function CreatorListings() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [showSuccessBanner, setShowSuccessBanner] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   // Check for success parameter and show banner
   useEffect(() => {
     const submitted = searchParams.get('submitted');
+    const updated = searchParams.get('updated');
+    
     if (submitted === 'true') {
+      setSuccessMessage('Listing submitted successfully! Your listing has been submitted and is now pending approval. It will be visible to buyers once approved.');
       setShowSuccessBanner(true);
       // Remove the parameter from URL without reloading
       const newSearchParams = new URLSearchParams(searchParams);
       newSearchParams.delete('submitted');
+      navigate(`/creator/listings?${newSearchParams.toString()}`, {replace: true});
+      
+      // Auto-dismiss banner after 5 seconds
+      const timer = setTimeout(() => {
+        setShowSuccessBanner(false);
+      }, 5000);
+      
+      return () => clearTimeout(timer);
+    } else if (updated === 'true') {
+      setSuccessMessage('Listing updated successfully! Your changes have been saved.');
+      setShowSuccessBanner(true);
+      // Remove the parameter from URL without reloading
+      const newSearchParams = new URLSearchParams(searchParams);
+      newSearchParams.delete('updated');
       navigate(`/creator/listings?${newSearchParams.toString()}`, {replace: true});
       
       // Auto-dismiss banner after 5 seconds
@@ -110,11 +128,13 @@ export default function CreatorListings() {
               </div>
               <div className="ml-3 flex-1">
                 <p className="text-sm font-medium text-green-800 dark:text-green-200">
-                  Listing submitted successfully!
+                  {successMessage.split('.')[0]}.
                 </p>
-                <p className="mt-1 text-sm text-green-700 dark:text-green-300">
-                  Your listing has been submitted and is now pending approval. It will be visible to buyers once approved.
-                </p>
+                {successMessage.includes('.') && successMessage.split('.').length > 1 && (
+                  <p className="mt-1 text-sm text-green-700 dark:text-green-300">
+                    {successMessage.split('.').slice(1).join('.').trim()}
+                  </p>
+                )}
               </div>
               <div className="ml-auto pl-3">
                 <button
