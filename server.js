@@ -52,6 +52,25 @@ export default {
       response.headers.set('X-XSS-Protection', '1; mode=block');
       response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
       
+      // Add HSTS header for HTTPS enforcement (only on HTTPS requests)
+      // Check headers first (cheaper operation), then URL if needed
+      const forwardedProto = request.headers.get('x-forwarded-proto');
+      const isHttps = forwardedProto === 'https' || 
+                      (() => {
+                        try {
+                          return new URL(request.url).protocol === 'https:';
+                        } catch {
+                          return false;
+                        }
+                      })();
+      
+      if (isHttps) {
+        response.headers.set(
+          'Strict-Transport-Security',
+          'max-age=31536000; includeSubDomains; preload'
+        );
+      }
+      
       // Only add Permissions-Policy if not already set by Hydrogen
       if (!response.headers.has('Permissions-Policy')) {
         response.headers.set(

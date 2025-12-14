@@ -3,10 +3,15 @@ import {createClient} from '@supabase/supabase-js';
 import {generateCSRFToken, validateCSRFToken} from '~/lib/auth-helpers';
 
 export async function loader({request, context}) {
-  const {env} = context;
+  const {env, session} = context;
   
   // Generate CSRF token for logout form
   const csrfToken = await generateCSRFToken(request, env.SESSION_SECRET);
+  
+  // Store CSRF token in session for validation in action
+  // Note: session.set() marks session as pending, and server.js will commit it automatically
+  // when session.isPending is true (see server.js line 72-76)
+  session.set('csrf_token', csrfToken);
   
   return data({csrfToken}, {
     headers: {
@@ -16,32 +21,31 @@ export async function loader({request, context}) {
 }
 
 export async function action({request, context}) {
-  const {env} = context;
+  const {env, session} = context;
   
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) {
     return redirect('/creator/login');
   }
   
-  // CSRF protection: Validate CSRF token
+  // CSRF protection: Validate CSRF token from session
   const formData = await request.formData();
   const receivedToken = formData.get('csrf_token');
+  const storedToken = session.get('csrf_token');
   
-  // Get expected token from session (stored during loader)
-  // For logout, we can also check the session for a stored CSRF token
-  // For simplicity, we'll validate against a newly generated token using the session secret
-  const expectedToken = await generateCSRFToken(request, env.SESSION_SECRET);
-  
-  // Since we're regenerating, we need to store the token in session during loader
-  // For now, we'll use a simpler approach: validate the token format and presence
-  // In production, store CSRF token in session during loader and validate here
-  if (!receivedToken || typeof receivedToken !== 'string' || receivedToken.length < 32) {
-    // Invalid CSRF token - redirect to login with error
+  // Validate CSRF token
+  if (!receivedToken || !storedToken) {
     return redirect('/creator/login?error=csrf_validation_failed');
   }
   
-  // Note: Full CSRF validation requires storing token in session
-  // For now, we validate token presence and format
-  // TODO: Implement full CSRF token storage/validation using session
+  // Use proper CSRF validation with signature verification
+  const isValid = await validateCSRFToken(request, storedToken, env.SESSION_SECRET);
+  
+  if (!isValid) {
+    return redirect('/creator/login?error=csrf_validation_failed');
+  }
+  
+  // Clear CSRF token from session after successful validation
+  session.unset('csrf_token');
   
   // Clear the session cookie
   const projectRef = env.SUPABASE_URL.split('//')[1]?.split('.')[0];
@@ -87,7 +91,8 @@ export async function action({request, context}) {
         await supabase.auth.signOut();
       }
     } catch (err) {
-      console.error('Error during logout:', err);
+      // Log error without exposing sensitive session data
+      console.error('Error during logout:', err.message || 'Unknown error');
     }
   }
   

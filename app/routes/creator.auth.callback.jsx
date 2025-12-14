@@ -45,7 +45,8 @@ export async function loader({request, context}) {
     );
     
     if (error || !session || !user) {
-      console.error('OAuth code exchange error:', error);
+      // Log error without exposing sensitive token information
+      console.error('OAuth code exchange error:', error?.message || 'Unknown error');
       return redirect('/creator/login?error=oauth_failed');
     }
     
@@ -116,7 +117,8 @@ export async function action({request, context}) {
   const {data: {user}, error: userError} = await userClient.auth.getUser();
   
   if (userError || !user) {
-    console.error('Token validation failed:', userError);
+    // Log error without exposing sensitive token information
+    console.error('Token validation failed:', userError?.message || 'Unknown error');
     return redirect('/creator/login?error=invalid_token');
   }
   
@@ -205,17 +207,17 @@ export default function AuthCallback() {
           document.body.appendChild(form);
           form.submit();
         } catch (err) {
-          console.error('Error processing auth callback:', err);
+          // Log error without exposing sensitive token information
+          console.error('Error processing auth callback:', err.message || 'Unknown error');
           setError('Failed to process authentication. Please try again.');
           setTimeout(() => {
             window.location.href = '/creator/login?error=token_parse_error';
           }, 2000);
         }
       } else {
-        // No tokens found - log for debugging
+        // No tokens found - log for debugging without exposing sensitive data
         console.error('No access token found in hash or query params');
-        console.error('Hash:', hash);
-        console.error('Query params:', window.location.search);
+        // Don't log hash or query params as they may contain sensitive tokens
         setError('Invalid authentication token.');
         setTimeout(() => {
           window.location.href = '/creator/login?error=invalid_token';

@@ -1,4 +1,17 @@
-import {Outlet, NavLink} from 'react-router';
+import {Outlet, NavLink, redirect} from 'react-router';
+import {checkAdminAuth} from '~/lib/supabase';
+
+export async function loader({request, context}) {
+  // Require admin authentication
+  const {isAdmin, user} = await checkAdminAuth(request, context.env);
+  
+  if (!isAdmin || !user) {
+    // Redirect to login if not authenticated or not admin
+    throw redirect('/creator/login?error=admin_access_required');
+  }
+  
+  return {user};
+}
 
 export default function AdminLayout() {
   return (

@@ -39,6 +39,9 @@ export async function action({request, context}) {
   }
   
   // Rate limiting: 5 requests per 15 minutes per IP
+  // ⚠️ PRODUCTION NOTE: This uses in-memory rate limiting which doesn't work
+  // in distributed environments (Cloudflare Workers). For production, use:
+  // rateLimitWithKV(env.RATE_LIMIT_KV, rateLimitKey, 5, 15 * 60 * 1000)
   const clientIP = getClientIP(request);
   const rateLimitKey = `auth:${clientIP}`;
   if (!rateLimit(rateLimitKey, 5, 15 * 60 * 1000)) {
@@ -67,9 +70,10 @@ export async function action({request, context}) {
     );
     
     if (error) {
-      console.error('Magic link error:', error);
-      // Return user-friendly error message
-      return {error: error.message || 'Failed to send magic link. Please try again.'};
+      // Log error without exposing sensitive details
+      console.error('Magic link error:', error.message || 'Unknown error');
+      // Return user-friendly error message (don't expose internal error details)
+      return {error: 'Failed to send magic link. Please try again.'};
     }
     
     // Success - magic link sent
@@ -91,8 +95,9 @@ export async function action({request, context}) {
       );
       
       if (error) {
-        console.error('Google OAuth error:', error);
-        return {error: error.message || 'Failed to initiate Google sign-in'};
+        // Log error without exposing sensitive details
+        console.error('Google OAuth error:', error.message || 'Unknown error');
+        return {error: 'Failed to initiate Google sign-in'};
       }
       
       if (url) {
@@ -102,8 +107,9 @@ export async function action({request, context}) {
       console.error('Google OAuth returned no URL');
       return {error: 'Failed to initiate Google OAuth. Please try again.'};
     } catch (err) {
-      console.error('Google OAuth exception:', err);
-      return {error: err.message || 'An unexpected error occurred'};
+      // Log error without exposing sensitive details
+      console.error('Google OAuth exception:', err.message || 'Unknown error');
+      return {error: 'An unexpected error occurred'};
     }
   }
   

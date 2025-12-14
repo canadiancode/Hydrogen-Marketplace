@@ -526,32 +526,59 @@ export async function checkCreatorProfileExists(email, supabaseUrl, anonKey, acc
  * @returns {Promise<{isAdmin: boolean, user: User | null}>}
  */
 export async function checkAdminAuth(request, env) {
-  // const {isAuthenticated, user} = await checkCreatorAuth(request, env);
+  try {
+    // First check if user is authenticated
+    const {isAuthenticated, user} = await checkCreatorAuth(request, env);
+    
+    if (!isAuthenticated || !user || !user.email) {
+      return {isAdmin: false, user: null};
+    }
+    
+    // Option 1: Check admin emails from environment variable (comma-separated)
+    // This is a simple approach - can be enhanced with database check later
+    const adminEmails = env.ADMIN_EMAILS 
+      ? env.ADMIN_EMAILS.split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
+      : [];
+    
+    if (adminEmails.length > 0 && adminEmails.includes(user.email.toLowerCase())) {
+      return {isAdmin: true, user};
+    }
+  } catch (error) {
+    // Log error without exposing sensitive details
+    console.error('Error checking admin auth:', error.message || 'Unknown error');
+    return {isAdmin: false, user: null};
+  }
   
-  // if (!isAuthenticated || !user) {
-  //   return {isAdmin: false, user: null};
-  // }
+  // Option 2: Check database for is_admin flag (if implemented)
+  // Uncomment when database has is_admin column:
+  /*
+  try {
+    const {isAuthenticated, user} = await checkCreatorAuth(request, env);
+    if (!isAuthenticated || !user) {
+      return {isAdmin: false, user: null};
+    }
+    
+    const supabase = createUserSupabaseClient(
+      env.SUPABASE_URL,
+      env.SUPABASE_ANON_KEY,
+      user.access_token || '',
+    );
+    
+    const {data, error} = await supabase
+      .from('creators')
+      .select('is_admin')
+      .eq('email', user.email)
+      .single();
+    
+    if (!error && data?.is_admin === true) {
+      return {isAdmin: true, user};
+    }
+  } catch (err) {
+    console.error('Error checking admin status:', err.message || 'Unknown error');
+  }
+  */
   
-  // // TODO: Implement admin check based on chosen method
-  // // Option 1: Check is_admin flag in creators table (if added)
-  // // Option 2: Check separate admins table
-  // // Option 3: Check if email is in admin list
-  // // Option 4: Check user metadata/claims
-  
-  // // Example for Option 1 (if is_admin column is added):
-  // // const supabase = createUserSupabaseClient(
-  // //   env.SUPABASE_URL,
-  // //   env.SUPABASE_ANON_KEY,
-  // //   user.access_token,
-  // // );
-  // // const {data} = await supabase
-  // //   .from('creators')
-  // //   .select('is_admin')
-  // //   .eq('email', user.email)
-  // //   .single();
-  // // return {isAdmin: data?.is_admin === true, user};
-  
-  // Placeholder - uncomment when Supabase is installed and admin method is determined
+  // Not an admin
   return {isAdmin: false, user: null};
 }
 

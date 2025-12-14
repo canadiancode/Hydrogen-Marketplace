@@ -1,10 +1,19 @@
-import {useLoaderData} from 'react-router';
+import {useLoaderData, redirect} from 'react-router';
+import {checkAdminAuth} from '~/lib/supabase';
 
 export const meta = () => {
   return [{title: 'WornVault | Admin Logistics'}];
 };
 
-export async function loader({context}) {
+export async function loader({request, context}) {
+  // Defense in depth: Verify admin auth even though parent route checks it
+  // This ensures child routes are protected even if parent route is bypassed
+  const {isAdmin, user} = await checkAdminAuth(request, context.env);
+  
+  if (!isAdmin || !user) {
+    throw redirect('/creator/login?error=admin_access_required');
+  }
+  
   // Fetch logistics data from Supabase
   // const logisticsData = await fetchLogisticsData(context);
   
