@@ -1,5 +1,5 @@
 import {useLoaderData, Link, redirect, Form, useActionData, useNavigation, useSearchParams} from 'react-router';
-import {useState, useEffect, useMemo} from 'react';
+import {useState, useEffect, useMemo, useRef} from 'react';
 import {checkAdminAuth, fetchAllListings, createServerSupabaseClient} from '~/lib/supabase';
 import {PhotoIcon} from '@heroicons/react/24/outline';
 import {ChevronDownIcon, FunnelIcon} from '@heroicons/react/20/solid';
@@ -577,39 +577,25 @@ export default function AdminListings() {
                   <legend className="block font-medium text-gray-900 dark:text-white">Status</legend>
                   <div className="space-y-6 pt-6 sm:space-y-4 sm:pt-4">
                     {statusOptions.map((option, optionIdx) => (
-                      <div key={option.value} className="flex gap-3">
-                        <div className="flex h-5 shrink-0 items-center">
-                          <div className="group grid size-4 grid-cols-1">
-                            <input
-                              id={`status-${optionIdx}`}
-                              name="status[]"
-                              type="checkbox"
-                              checked={statusFilters.includes(option.value)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setStatusFilters([...statusFilters, option.value]);
-                                } else {
-                                  setStatusFilters(statusFilters.filter(s => s !== option.value));
-                                }
-                              }}
-                              className="col-start-1 row-start-1 appearance-none rounded-sm border border-gray-300 dark:border-white/20 bg-white dark:bg-white/5 checked:border-indigo-600 dark:checked:border-indigo-400 checked:bg-indigo-600 dark:checked:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-400"
-                            />
-                            <svg
-                              fill="none"
-                              viewBox="0 0 14 14"
-                              className="pointer-events-none col-start-1 row-start-1 size-3.5 self-center justify-self-center stroke-white"
-                            >
-                              <path
-                                d="M3 8L6 11L11 3.5"
-                                strokeWidth={2}
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className={statusFilters.includes(option.value) ? 'opacity-100' : 'opacity-0'}
-                              />
-                            </svg>
-                          </div>
-                        </div>
-                        <label htmlFor={`status-${optionIdx}`} className="text-base text-gray-600 dark:text-gray-400 sm:text-sm">
+                      <div key={option.value} className="flex items-center gap-3">
+                        <Checkbox
+                          id={`status-${optionIdx}`}
+                          name="status[]"
+                          checked={statusFilters.includes(option.value)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setStatusFilters([...statusFilters, option.value]);
+                            } else {
+                              setStatusFilters(statusFilters.filter(s => s !== option.value));
+                            }
+                          }}
+                          aria-labelledby={`status-label-${optionIdx}`}
+                        />
+                        <label
+                          id={`status-label-${optionIdx}`}
+                          htmlFor={`status-${optionIdx}`}
+                          className="text-base text-gray-600 dark:text-gray-400 sm:text-sm cursor-pointer"
+                        >
                           {option.label}
                         </label>
                       </div>
@@ -781,32 +767,19 @@ export default function AdminListings() {
               {/* Select All Checkbox */}
               <li className="px-6 py-3 border-b border-gray-200 dark:border-white/10">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-5 shrink-0 items-center">
-                    <div className="group grid size-4 grid-cols-1">
-                      <input
-                        type="checkbox"
-                        checked={selectAll && filteredListings.length > 0}
-                        onChange={(e) => handleSelectAll(e.target.checked)}
-                        className="col-start-1 row-start-1 appearance-none rounded-sm border border-gray-300 dark:border-white/20 bg-white dark:bg-white/5 checked:border-indigo-600 dark:checked:border-indigo-400 checked:bg-indigo-600 dark:checked:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-400"
-                      />
-                      <svg
-                        fill="none"
-                        viewBox="0 0 14 14"
-                        className="pointer-events-none col-start-1 row-start-1 size-3.5 self-center justify-self-center stroke-white"
-                      >
-                        <path
-                          d="M3 8L6 11L11 3.5"
-                          strokeWidth={2}
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className={selectAll && filteredListings.length > 0 ? 'opacity-100' : 'opacity-0'}
-                        />
-                      </svg>
-                    </div>
-                  </div>
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <Checkbox
+                    id="select-all-checkbox"
+                    checked={selectAll && filteredListings.length > 0}
+                    onChange={(e) => handleSelectAll(e.target.checked)}
+                    indeterminate={!selectAll && selectedListings.size > 0 && selectedListings.size < filteredListings.length}
+                    aria-label={`Select all ${filteredListings.length} listings`}
+                  />
+                  <label
+                    htmlFor="select-all-checkbox"
+                    className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer"
+                  >
                     Select all ({filteredListings.length})
-                  </span>
+                  </label>
                 </div>
               </li>
               
@@ -821,6 +794,71 @@ export default function AdminListings() {
             </ul>
           </section>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Reusable Checkbox Component
+ * Follows best practices: larger size for easier clicking, proper accessibility, consistent styling
+ */
+function Checkbox({
+  id,
+  name,
+  checked = false,
+  onChange,
+  disabled = false,
+  indeterminate = false,
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledBy,
+  className = '',
+}) {
+  const checkboxRef = useRef(null);
+  
+  // Handle indeterminate state
+  useEffect(() => {
+    if (checkboxRef.current) {
+      checkboxRef.current.indeterminate = indeterminate;
+    }
+  }, [indeterminate]);
+  
+  return (
+    <div className="flex shrink-0 items-center -mt-0.5">
+      <div className="group grid size-5 grid-cols-1">
+        <input
+          ref={checkboxRef}
+          id={id}
+          name={name}
+          type="checkbox"
+          checked={checked}
+          onChange={onChange}
+          disabled={disabled}
+          aria-label={ariaLabel}
+          aria-labelledby={ariaLabelledBy}
+          className={`col-start-1 row-start-1 appearance-none rounded-sm border border-gray-300 dark:border-white/20 bg-white dark:bg-white/5 checked:border-indigo-600 dark:checked:border-indigo-400 checked:bg-indigo-600 dark:checked:bg-indigo-500 indeterminate:border-indigo-600 dark:indeterminate:border-indigo-400 indeterminate:bg-indigo-600 dark:indeterminate:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-400 disabled:border-gray-300 dark:disabled:border-white/10 disabled:bg-gray-100 dark:disabled:bg-white/5 disabled:checked:bg-gray-100 dark:disabled:checked:bg-white/5 forced-colors:appearance-auto cursor-pointer disabled:cursor-not-allowed ${className}`}
+        />
+        <svg
+          fill="none"
+          viewBox="0 0 14 14"
+          aria-hidden="true"
+          className="pointer-events-none col-start-1 row-start-1 size-4 self-center justify-self-center stroke-white group-has-disabled:stroke-gray-950/25 dark:group-has-disabled:stroke-gray-400/25"
+        >
+          <path
+            d="M3 8L6 11L11 3.5"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="opacity-0 group-has-checked:opacity-100"
+          />
+          <path
+            d="M3 7H11"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="opacity-0 group-has-indeterminate:opacity-100"
+          />
+        </svg>
       </div>
     </div>
   );
@@ -925,29 +963,12 @@ function ListingItem({listing, isSelected, onSelect}) {
     <li className="flex items-center justify-between gap-x-6 py-5 px-6 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
       {/* Checkbox for selection */}
       <div className="flex-shrink-0">
-        <div className="flex h-5 shrink-0 items-center">
-          <div className="group grid size-4 grid-cols-1">
-            <input
-              type="checkbox"
-              checked={isSelected}
-              onChange={(e) => onSelect(e.target.checked)}
-              className="col-start-1 row-start-1 appearance-none rounded-sm border border-gray-300 dark:border-white/20 bg-white dark:bg-white/5 checked:border-indigo-600 dark:checked:border-indigo-400 checked:bg-indigo-600 dark:checked:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-400"
-            />
-            <svg
-              fill="none"
-              viewBox="0 0 14 14"
-              className="pointer-events-none col-start-1 row-start-1 size-3.5 self-center justify-self-center stroke-white"
-            >
-              <path
-                d="M3 8L6 11L11 3.5"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className={isSelected ? 'opacity-100' : 'opacity-0'}
-              />
-            </svg>
-          </div>
-        </div>
+        <Checkbox
+          id={`listing-checkbox-${listing.id}`}
+          checked={isSelected}
+          onChange={(e) => onSelect(e.target.checked)}
+          aria-label={`Select listing: ${listing.title}`}
+        />
       </div>
       
       {/* Photo thumbnail */}
