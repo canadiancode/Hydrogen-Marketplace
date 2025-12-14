@@ -75,11 +75,12 @@ export function createUserSupabaseClient(supabaseUrl, anonKey, accessToken) {
  * @param {Request} request - The incoming request
  * @param {string} supabaseUrl - Your Supabase project URL
  * @param {string} anonKey - Supabase anon/public key
- * @returns {Promise<{session: Session | null, user: User | null}>}
+ * @param {boolean} isProduction - Whether in production environment
+ * @returns {Promise<{session: Session | null, user: User | null, needsRefresh: boolean}>}
  */
-export async function getSupabaseSession(request, supabaseUrl, anonKey) {
+export async function getSupabaseSession(request, supabaseUrl, anonKey, isProduction = false) {
   if (!supabaseUrl || !anonKey) {
-    return {session: null, user: null};
+    return {session: null, user: null, needsRefresh: false};
   }
 
   // Create Supabase client
@@ -100,28 +101,39 @@ export async function getSupabaseSession(request, supabaseUrl, anonKey) {
   
   if (!projectRef) {
     console.warn('Could not extract project reference from Supabase URL');
-    return {session: null, user: null};
+    return {session: null, user: null, needsRefresh: false};
   }
 
   // Supabase stores session in cookie: sb-<project-ref>-auth-token
   const cookieName = `sb-${projectRef}-auth-token`;
   
-  // Parse cookies
-  const cookies = cookieHeader
-    .split(';')
-    .map(c => c.trim())
-    .reduce((acc, cookie) => {
-      const [key, ...valueParts] = cookie.split('=');
-      if (key && valueParts.length > 0) {
-        acc[key] = decodeURIComponent(valueParts.join('='));
-      }
-      return acc;
-    }, {});
+  // Parse cookies with error handling
+  let cookies = {};
+  try {
+    cookies = cookieHeader
+      .split(';')
+      .map(c => c.trim())
+      .reduce((acc, cookie) => {
+        const [key, ...valueParts] = cookie.split('=');
+        if (key && valueParts.length > 0) {
+          try {
+            acc[key] = decodeURIComponent(valueParts.join('='));
+          } catch (e) {
+            // Skip malformed cookies
+            console.warn('Failed to decode cookie:', key);
+          }
+        }
+        return acc;
+      }, {});
+  } catch (error) {
+    console.error('Error parsing cookies:', error);
+    return {session: null, user: null, needsRefresh: false};
+  }
 
   const authToken = cookies[cookieName];
 
   if (!authToken) {
-    return {session: null, user: null};
+    return {session: null, user: null, needsRefresh: false};
   }
 
   try {
@@ -130,33 +142,68 @@ export async function getSupabaseSession(request, supabaseUrl, anonKey) {
     const accessToken = tokenData?.access_token;
 
     if (!accessToken) {
-      return {session: null, user: null};
+      return {session: null, user: null, needsRefresh: false};
     }
 
-    // Create a client with the access token to verify the session
-    const userClient = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
-    
-    // Get the user to verify the token is valid
-    const {data: {user}, error: userError} = await userClient.auth.getUser();
+    // Check token expiration
+    if (tokenData.expires_at) {
+      const expiresAt = typeof tokenData.expires_at === 'number' 
+        ? tokenData.expires_at 
+        : parseInt(tokenData.expires_at, 10);
+      const currentTime = Math.floor(Date.now() / 1000);
+      
+      // Token expired - return null session
+      if (expiresAt && currentTime >= expiresAt) {
+        return {session: null, user: null, needsRefresh: false};
+      }
+      
+      // Token expires within 5 minutes - mark for refresh
+      const needsRefresh = expiresAt && (expiresAt - currentTime) < 300;
+      
+      // Create a client with the access token to verify the session
+      const userClient = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+      
+      // Get the user to verify the token is valid
+      const {data: {user}, error: userError} = await userClient.auth.getUser();
 
-    if (userError || !user) {
-      return {session: null, user: null};
+      if (userError || !user) {
+        return {session: null, user: null, needsRefresh: false};
+      }
+
+      // Construct session object from token data
+      const session = {
+        access_token: accessToken,
+        refresh_token: tokenData.refresh_token,
+        expires_at: tokenData.expires_at,
+        expires_in: tokenData.expires_in,
+        token_type: tokenData.token_type || 'bearer',
+        user,
+      };
+
+      return {session, user, needsRefresh: needsRefresh || false};
+    } else {
+      // No expiration info - verify token but don't refresh
+      const userClient = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+      const {data: {user}, error: userError} = await userClient.auth.getUser();
+
+      if (userError || !user) {
+        return {session: null, user: null, needsRefresh: false};
+      }
+
+      const session = {
+        access_token: accessToken,
+        refresh_token: tokenData.refresh_token,
+        expires_at: tokenData.expires_at,
+        expires_in: tokenData.expires_in,
+        token_type: tokenData.token_type || 'bearer',
+        user,
+      };
+
+      return {session, user, needsRefresh: false};
     }
-
-    // Construct session object from token data
-    const session = {
-      access_token: accessToken,
-      refresh_token: tokenData.refresh_token,
-      expires_at: tokenData.expires_at,
-      expires_in: tokenData.expires_in,
-      token_type: tokenData.token_type || 'bearer',
-      user,
-    };
-
-    return {session, user};
   } catch (error) {
     console.error('Error parsing Supabase auth token:', error);
-    return {session: null, user: null};
+    return {session: null, user: null, needsRefresh: false};
   }
 }
 
@@ -454,5 +501,48 @@ export async function checkAdminAuth(request, env) {
   
   // Placeholder - uncomment when Supabase is installed and admin method is determined
   return {isAdmin: false, user: null};
+}
+
+/**
+ * Creates a session cookie string for Supabase authentication
+ * 
+ * @param {object} session - Supabase session object
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {boolean} isProduction - Whether in production environment
+ * @returns {string | null} - Cookie header value or null if session invalid
+ */
+export function createSessionCookie(session, supabaseUrl, isProduction = false) {
+  if (!session || !session.access_token || !supabaseUrl) {
+    return null;
+  }
+
+  // Extract project reference from Supabase URL
+  const urlMatch = supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/);
+  const projectRef = urlMatch ? urlMatch[1] : null;
+  
+  if (!projectRef) {
+    console.warn('Could not extract project reference from Supabase URL');
+    return null;
+  }
+
+  const cookieName = `sb-${projectRef}-auth-token`;
+  const cookieValue = JSON.stringify({
+    access_token: session.access_token,
+    refresh_token: session.refresh_token || '',
+    expires_at: session.expires_at || '',
+    expires_in: session.expires_in || 3600,
+    token_type: session.token_type || 'bearer',
+    user: session.user ? {
+      id: session.user.id,
+      email: session.user.email,
+    } : null,
+  });
+
+  // Build cookie attributes
+  const maxAge = session.expires_in || 3600;
+  const secureFlag = isProduction ? '; Secure' : '';
+  const cookieString = `${cookieName}=${encodeURIComponent(cookieValue)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secureFlag}`;
+
+  return cookieString;
 }
 

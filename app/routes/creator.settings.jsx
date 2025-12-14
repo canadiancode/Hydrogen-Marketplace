@@ -1,14 +1,19 @@
 import {Form, useLoaderData} from 'react-router';
+import {requireAuth} from '~/lib/auth-helpers';
 
 export const meta = () => {
   return [{title: 'WornVault | Account Settings'}];
 };
 
-export async function loader({context}) {
+export async function loader({context, request}) {
+  // Require authentication
+  const {user} = await requireAuth(request, context.env);
+  
   // Fetch creator profile from Supabase
   // const profile = await fetchCreatorProfile(context);
   
   return {
+    user,
     profile: {
       displayName: '',
       bio: '',
@@ -19,6 +24,9 @@ export async function loader({context}) {
 }
 
 export async function action({request, context}) {
+  // Require authentication
+  const {user} = await requireAuth(request, context.env);
+  
   const formData = await request.formData();
   
   // Update creator profile in Supabase

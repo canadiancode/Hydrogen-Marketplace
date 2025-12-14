@@ -1,14 +1,19 @@
 import {useLoaderData} from 'react-router';
+import {requireAuth} from '~/lib/auth-helpers';
 
 export const meta = () => {
   return [{title: 'WornVault | Payouts'}];
 };
 
-export async function loader({context}) {
+export async function loader({context, request}) {
+  // Require authentication
+  const {user} = await requireAuth(request, context.env);
+  
   // Fetch creator payouts from Supabase
   // const payouts = await fetchCreatorPayouts(context);
   
   return {
+    user,
     completedPayouts: [],
     pendingPayouts: [],
   };

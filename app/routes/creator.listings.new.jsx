@@ -1,10 +1,21 @@
 import {Form, redirect} from 'react-router';
+import {requireAuth} from '~/lib/auth-helpers';
 
 export const meta = () => {
   return [{title: 'WornVault | Create Listing'}];
 };
 
+export async function loader({context, request}) {
+  // Require authentication
+  const {user} = await requireAuth(request, context.env);
+  
+  return {user};
+}
+
 export async function action({request, context}) {
+  // Require authentication
+  const {user} = await requireAuth(request, context.env);
+  
   const formData = await request.formData();
   
   // Create listing in Supabase

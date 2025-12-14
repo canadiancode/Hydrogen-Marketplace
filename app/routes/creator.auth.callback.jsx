@@ -1,6 +1,6 @@
 import {redirect, useLoaderData} from 'react-router';
 import {useEffect, useState} from 'react';
-import {exchangeOAuthCode} from '~/lib/supabase';
+import {exchangeOAuthCode, createSessionCookie} from '~/lib/supabase';
 
 /**
  * Callback route for Supabase Auth
@@ -47,33 +47,25 @@ export async function loader({request, context}) {
       return redirect('/creator/login?error=oauth_failed');
     }
     
-    // Set session cookie
-    const urlMatch = env.SUPABASE_URL.match(/https?:\/\/([^.]+)\.supabase\.co/);
-    const projectRef = urlMatch ? urlMatch[1] : null;
+    // Determine if we're in a secure context
+    const isSecure = request.url.startsWith('https://') || 
+                     request.headers.get('x-forwarded-proto') === 'https' ||
+                     env.NODE_ENV === 'production';
     
-    if (!projectRef) {
+    // Create session cookie using helper function
+    const sessionWithUser = {
+      ...session,
+      user,
+    };
+    const cookieHeader = createSessionCookie(sessionWithUser, env.SUPABASE_URL, isSecure);
+    
+    if (!cookieHeader) {
       return redirect('/creator/login?error=config_error');
     }
     
-    const cookieName = `sb-${projectRef}-auth-token`;
-    const cookieValue = JSON.stringify({
-      access_token: session.access_token,
-      refresh_token: session.refresh_token,
-      expires_at: session.expires_at,
-      expires_in: session.expires_in,
-      token_type: session.token_type || 'bearer',
-      user: {
-        id: user.id,
-        email: user.email,
-      },
-    });
-    
     // Redirect to dashboard
     const response = redirect('/creator/dashboard');
-    response.headers.set(
-      'Set-Cookie',
-      `${cookieName}=${encodeURIComponent(cookieValue)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${session.expires_in || 3600}${request.url.startsWith('https://') ? '; Secure' : ''}`
-    );
+    response.headers.set('Set-Cookie', cookieHeader);
     
     return response;
   }
@@ -105,26 +97,30 @@ export async function action({request, context}) {
     return redirect('/creator/login?error=config_error');
   }
   
-  // Set session cookie
-  const urlMatch = env.SUPABASE_URL.match(/https?:\/\/([^.]+)\.supabase\.co/);
-  const projectRef = urlMatch ? urlMatch[1] : null;
+  // Determine if we're in a secure context
+  const isSecure = request.url.startsWith('https://') || 
+                   request.headers.get('x-forwarded-proto') === 'https' ||
+                   env.NODE_ENV === 'production';
   
-  if (!projectRef) {
-    return redirect('/creator/login?error=config_error');
-  }
-  
-  const cookieName = `sb-${projectRef}-auth-token`;
-  const cookieValue = JSON.stringify({
+  // Create session object for cookie creation
+  const session = {
     access_token: accessToken,
     refresh_token: refreshToken || '',
     expires_at: expiresAt || '',
-    expires_in: expiresIn || 3600,
+    expires_in: parseInt(expiresIn, 10) || 3600,
     token_type: tokenType || 'bearer',
     user: {
       id: userId || '',
       email: userEmail,
     },
-  });
+  };
+  
+  // Create session cookie using helper function
+  const cookieHeader = createSessionCookie(session, env.SUPABASE_URL, isSecure);
+  
+  if (!cookieHeader) {
+    return redirect('/creator/login?error=config_error');
+  }
   
   // Always redirect to dashboard after successful authentication
   // Profile creation can be handled on the dashboard if needed
@@ -132,10 +128,7 @@ export async function action({request, context}) {
   
   // Create response with cookie
   const response = redirect(redirectUrl);
-  response.headers.set(
-    'Set-Cookie',
-    `${cookieName}=${encodeURIComponent(cookieValue)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${expiresIn || 3600}${request.url.startsWith('https://') ? '; Secure' : ''}`
-  );
+  response.headers.set('Set-Cookie', cookieHeader);
   
   return response;
 }

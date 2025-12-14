@@ -1,10 +1,15 @@
 import {useLoaderData} from 'react-router';
+import {requireAuth} from '~/lib/auth-helpers';
 
-export async function loader({context}) {
+export async function loader({context, request}) {
+  // Require authentication
+  const {user} = await requireAuth(request, context.env);
+  
   // Fetch creator's listings from Supabase
   // const listings = await fetchCreatorListings(context);
   
   return {
+    user,
     listings: [],
   };
 }

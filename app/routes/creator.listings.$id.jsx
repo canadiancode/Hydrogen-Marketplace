@@ -1,15 +1,20 @@
 import {useLoaderData} from 'react-router';
+import {requireAuth} from '~/lib/auth-helpers';
 
 export const meta = ({data}) => {
   return [{title: `WornVault | Listing ${data?.listing.id ?? ''}`}];
 };
 
-export async function loader({params, context}) {
+export async function loader({params, context, request}) {
+  // Require authentication
+  const {user} = await requireAuth(request, context.env);
+  
   const {id} = params;
   // Fetch listing data from Supabase
   // const listing = await fetchCreatorListingById(context, id);
   
   return {
+    user,
     listing: {id, title: 'Listing Title'}, // Replace with actual data
   };
 }
