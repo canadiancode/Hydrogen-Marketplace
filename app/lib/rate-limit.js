@@ -92,3 +92,17 @@ export async function rateLimitMiddleware(
   const {maxRequests = 10, windowMs = 60000} = options;
   return await checkRateLimit(identifier, maxRequests, windowMs);
 }
+
+/**
+ * Simple synchronous-style rate limit function for backward compatibility
+ * Returns true if allowed, false if rate limited
+ * 
+ * @param {string} identifier - Unique identifier (e.g., IP address)
+ * @param {number} maxRequests - Maximum number of requests allowed
+ * @param {number} windowMs - Time window in milliseconds
+ * @returns {Promise<boolean>} - true if allowed, false if rate limited
+ */
+export async function rateLimit(identifier, maxRequests = 10, windowMs = 60000) {
+  const result = await checkRateLimit(identifier, maxRequests, windowMs);
+  return result.allowed;
+}

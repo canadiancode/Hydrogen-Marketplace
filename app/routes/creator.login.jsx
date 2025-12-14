@@ -38,13 +38,13 @@ export async function action({request, context}) {
     return {error: 'Server configuration error. Please contact support.'};
   }
   
-  // Rate limiting: 5 requests per 15 minutes per IP
+  // Rate limiting: 50 requests per 15 minutes per IP (increased for frequent refreshes)
   // ⚠️ PRODUCTION NOTE: This uses in-memory rate limiting which doesn't work
   // in distributed environments (Cloudflare Workers). For production, use:
-  // rateLimitWithKV(env.RATE_LIMIT_KV, rateLimitKey, 5, 15 * 60 * 1000)
+  // rateLimitWithKV(env.RATE_LIMIT_KV, rateLimitKey, 50, 15 * 60 * 1000)
   const clientIP = getClientIP(request);
   const rateLimitKey = `auth:${clientIP}`;
-  if (!rateLimit(rateLimitKey, 5, 15 * 60 * 1000)) {
+  if (!(await rateLimit(rateLimitKey, 50, 15 * 60 * 1000))) {
     return {error: 'Too many requests. Please try again in a few minutes.'};
   }
   

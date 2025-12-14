@@ -92,10 +92,10 @@ export async function action({request, context}) {
     return redirect('/creator/login?error=invalid_token');
   }
   
-  // Rate limiting: 10 requests per 15 minutes per IP for callback
+  // Rate limiting: 100 requests per 15 minutes per IP for callback (increased for frequent refreshes)
   const clientIP = getClientIP(request);
   const rateLimitKey = `auth_callback:${clientIP}`;
-  if (!rateLimit(rateLimitKey, 10, 15 * 60 * 1000)) {
+  if (!(await rateLimit(rateLimitKey, 100, 15 * 60 * 1000))) {
     return redirect('/creator/login?error=too_many_requests');
   }
   
