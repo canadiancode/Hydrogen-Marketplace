@@ -149,8 +149,8 @@ export async function action({request, context}) {
           }
           break;
         case 'username':
-          // Username: alphanumeric, hyphens, underscores only
-          sanitized = sanitized.replace(/[^a-zA-Z0-9_-]/g, '');
+          // Username: alphanumeric and hyphens only (no underscores)
+          sanitized = sanitized.replace(/[^a-zA-Z0-9-]/g, '');
           // Limit length (already validated elsewhere)
           break;
         case 'displayName':
@@ -634,54 +634,49 @@ export default function CreatorSettings() {
                   Username
                 </label>
                 <div className="mt-2">
-                  <div className="flex items-center rounded-md bg-white pl-3 outline-1 -outline-offset-1 outline-gray-300 focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:outline-white/10 dark:focus-within:outline-indigo-500">
-                    <div className="shrink-0 text-base text-gray-500 select-none sm:text-sm/6 dark:text-gray-300">
-                      example.com/
-                    </div>
-                    <input
-                      id="username"
-                      name="username"
-                      type="text"
-                      placeholder="janesmith"
-                      defaultValue={profile.username}
-                      required
-                      pattern="[a-zA-Z0-9][a-zA-Z0-9_-]*[a-zA-Z0-9]|[a-zA-Z0-9]"
-                      minLength={3}
-                      maxLength={30}
-                      onInput={handleUsernameInput}
-                      onKeyDown={(e) => {
-                        // Prevent typing invalid characters
-                        const key = e.key;
-                        // Allow: letters, numbers, hyphen, underscore, backspace, delete, arrow keys, etc.
-                        const isValidKey = /^[a-zA-Z0-9_-]$/.test(key) || 
-                                          ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 
-                                           'Tab', 'Home', 'End', 'Enter'].includes(key) ||
-                                          (e.ctrlKey || e.metaKey); // Allow Ctrl/Cmd combinations (copy, paste, etc.)
-                        if (!isValidKey && !e.shiftKey) {
-                          e.preventDefault();
-                        }
-                      }}
-                      onPaste={(e) => {
-                        // Filter pasted content
+                  <input
+                    id="username"
+                    name="username"
+                    type="text"
+                    placeholder="janesmith"
+                    defaultValue={profile.username}
+                    required
+                    pattern="[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]|[a-zA-Z0-9]"
+                    minLength={3}
+                    maxLength={30}
+                    onInput={handleUsernameInput}
+                    onKeyDown={(e) => {
+                      // Prevent typing invalid characters
+                      const key = e.key;
+                      // Allow: letters, numbers, hyphen, backspace, delete, arrow keys, etc.
+                      const isValidKey = /^[a-zA-Z0-9-]$/.test(key) || 
+                                        ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 
+                                         'Tab', 'Home', 'End', 'Enter'].includes(key) ||
+                                        (e.ctrlKey || e.metaKey); // Allow Ctrl/Cmd combinations (copy, paste, etc.)
+                      if (!isValidKey && !e.shiftKey) {
                         e.preventDefault();
-                        const pastedText = (e.clipboardData || window.clipboardData).getData('text');
-                        const filtered = pastedText.replace(/[^a-zA-Z0-9_-]/g, '');
-                        const input = e.target;
-                        const start = input.selectionStart;
-                        const end = input.selectionEnd;
-                        const currentValue = input.value;
-                        input.value = currentValue.substring(0, start) + filtered + currentValue.substring(end);
-                        input.setSelectionRange(start + filtered.length, start + filtered.length);
-                      }}
-                      aria-invalid={actionData?.fieldErrors?.username ? 'true' : 'false'}
-                      aria-describedby={actionData?.fieldErrors?.username ? 'username-error' : undefined}
-                      className={`block min-w-0 grow bg-transparent py-1.5 pr-3 pl-1 text-base placeholder:text-gray-400 focus:outline-none sm:text-sm/6 dark:placeholder:text-gray-500 ${
-                        actionData?.fieldErrors?.username
-                          ? 'text-red-900 dark:text-red-200'
-                          : 'text-gray-900 dark:text-white'
-                      }`}
-                    />
-                  </div>
+                      }
+                    }}
+                    onPaste={(e) => {
+                      // Filter pasted content
+                      e.preventDefault();
+                      const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+                      const filtered = pastedText.replace(/[^a-zA-Z0-9-]/g, '');
+                      const input = e.target;
+                      const start = input.selectionStart;
+                      const end = input.selectionEnd;
+                      const currentValue = input.value;
+                      input.value = currentValue.substring(0, start) + filtered + currentValue.substring(end);
+                      input.setSelectionRange(start + filtered.length, start + filtered.length);
+                    }}
+                    aria-invalid={actionData?.fieldErrors?.username ? 'true' : 'false'}
+                    aria-describedby={actionData?.fieldErrors?.username ? 'username-error' : undefined}
+                    className={`block w-full rounded-md bg-white px-3 py-1.5 text-base outline-1 -outline-offset-1 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 sm:text-sm/6 dark:bg-white/5 dark:outline-white/10 dark:placeholder:text-gray-500 ${
+                      actionData?.fieldErrors?.username
+                        ? 'text-red-900 outline-red-300 focus:outline-red-600 dark:text-red-200 dark:outline-red-500 dark:focus:outline-red-400'
+                        : 'text-gray-900 outline-gray-300 focus:outline-indigo-600 dark:text-white dark:focus:outline-indigo-500'
+                    }`}
+                  />
                   {actionData?.fieldErrors?.username && (
                     <p id="username-error" className="mt-1 text-sm text-red-600 dark:text-red-400">
                       {actionData.fieldErrors.username}
@@ -689,7 +684,7 @@ export default function CreatorSettings() {
                   )}
                   {!actionData?.fieldErrors?.username && (
                     <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      Only letters, numbers, hyphens, and underscores. 3-30 characters.
+                      Only letters, numbers, and hyphens. 3-30 characters.
                     </p>
                   )}
                 </div>
