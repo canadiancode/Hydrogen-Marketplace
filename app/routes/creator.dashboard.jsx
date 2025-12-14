@@ -22,5 +22,5 @@ export async function loader({context, request}) {
 export default function CreatorDashboardPage() {
   const data = useLoaderData();
   
-  return <CreatorDashboard />;
+  return <CreatorDashboard user={data.user} />;
 }

@@ -1,5 +1,8 @@
 import {Form, redirect, Link, useActionData} from 'react-router';
 import {checkCreatorAuth, sendMagicLink, initiateGoogleOAuth} from '~/lib/supabase';
+import {getClientIP} from '~/lib/auth-helpers';
+import {rateLimit} from '~/lib/rate-limit';
+import {validateAndSanitizeEmail} from '~/lib/validation';
 
 export const meta = () => {
   return [{title: 'WornVault | Creator Login'}];
@@ -28,6 +31,13 @@ export async function action({request, context}) {
     return {error: 'Server configuration error. Please contact support.'};
   }
   
+  // Rate limiting: 5 requests per 15 minutes per IP
+  const clientIP = getClientIP(request);
+  const rateLimitKey = `auth:${clientIP}`;
+  if (!rateLimit(rateLimitKey, 5, 15 * 60 * 1000)) {
+    return {error: 'Too many requests. Please try again in a few minutes.'};
+  }
+  
   const redirectTo = new URL('/creator/auth/callback', request.url).toString();
   
   if (authMethod === 'magic-link') {
@@ -35,15 +45,15 @@ export async function action({request, context}) {
       return {error: 'Email is required'};
     }
     
-    // Validate email format client-side as well
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    // Validate and sanitize email
+    const {valid, sanitized} = validateAndSanitizeEmail(email);
+    if (!valid) {
       return {error: 'Please enter a valid email address'};
     }
     
-    // Send magic link via Supabase Auth
+    // Send magic link via Supabase Auth (use sanitized email)
     const {error, data} = await sendMagicLink(
-      email,
+      sanitized,
       env.SUPABASE_URL,
       env.SUPABASE_ANON_KEY,
       redirectTo,

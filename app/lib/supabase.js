@@ -538,10 +538,12 @@ export function createSessionCookie(session, supabaseUrl, isProduction = false) 
     } : null,
   });
 
-  // Build cookie attributes
+  // Build cookie attributes with enhanced security
   const maxAge = session.expires_in || 3600;
+  // Always use Secure in production, SameSite=Strict for better CSRF protection
   const secureFlag = isProduction ? '; Secure' : '';
-  const cookieString = `${cookieName}=${encodeURIComponent(cookieValue)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secureFlag}`;
+  const sameSite = '; SameSite=Strict'; // More secure than Lax for auth cookies
+  const cookieString = `${cookieName}=${encodeURIComponent(cookieValue)}; Path=/; HttpOnly${sameSite}; Max-Age=${maxAge}${secureFlag}`;
 
   return cookieString;
 }

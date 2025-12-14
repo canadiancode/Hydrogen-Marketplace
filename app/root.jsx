@@ -189,24 +189,48 @@ export default function App() {
 
 export function ErrorBoundary() {
   const error = useRouteError();
-  let errorMessage = 'Unknown error';
+  const isDev = process.env.NODE_ENV === 'development';
+  
+  let errorMessage = 'An unexpected error occurred';
   let errorStatus = 500;
 
   if (isRouteErrorResponse(error)) {
-    errorMessage = error?.data?.message ?? error.data;
     errorStatus = error.status;
-  } else if (error instanceof Error) {
+    // Only show detailed errors in development
+    if (isDev) {
+      errorMessage = error?.data?.message ?? error.data ?? 'An error occurred';
+    } else {
+      // User-friendly messages for production
+      if (error.status === 404) {
+        errorMessage = 'Page not found';
+      } else if (error.status === 401) {
+        errorMessage = 'Unauthorized';
+      } else if (error.status === 403) {
+        errorMessage = 'Forbidden';
+      } else {
+        errorMessage = 'An error occurred. Please try again later.';
+      }
+    }
+  } else if (error instanceof Error && isDev) {
     errorMessage = error.message;
+  }
+
+  // Log full error server-side but don't expose to client in production
+  if (!isDev) {
+    console.error('ErrorBoundary caught:', error);
   }
 
   return (
     <div className="route-error">
       <h1>Oops</h1>
       <h2>{errorStatus}</h2>
-      {errorMessage && (
+      {isDev && errorMessage && (
         <fieldset>
           <pre>{errorMessage}</pre>
         </fieldset>
+      )}
+      {!isDev && (
+        <p>{errorMessage}</p>
       )}
     </div>
   );

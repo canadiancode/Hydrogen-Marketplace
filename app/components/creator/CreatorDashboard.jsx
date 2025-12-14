@@ -37,8 +37,15 @@ function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
 }
 
-export default function Example() {
+/**
+ * Creator Dashboard Component
+ * @param {{user?: {id?: string, email?: string}}} props - Component props
+ */
+export default function CreatorDashboard({user = null}) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  
+  // User data is available via props but component can work without it
+  // This maintains backward compatibility while allowing data from loader
 
   return (
     <>

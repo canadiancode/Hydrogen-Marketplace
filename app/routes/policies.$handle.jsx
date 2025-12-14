@@ -1,4 +1,5 @@
 import {Link, useLoaderData} from 'react-router';
+import {sanitizeHTML} from '~/lib/sanitize';
 
 /**
  * @type {Route.MetaFunction}
@@ -52,7 +53,7 @@ export default function Policy() {
       </div>
       <br />
       <h1>{policy.title}</h1>
-      <div dangerouslySetInnerHTML={{__html: policy.body}} />
+      <div dangerouslySetInnerHTML={{__html: sanitizeHTML(policy.body)}} />
     </div>
   );
 }

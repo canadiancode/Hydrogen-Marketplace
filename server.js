@@ -2,6 +2,7 @@
 import {storefrontRedirect} from '@shopify/hydrogen';
 import {createRequestHandler} from '@shopify/hydrogen/oxygen';
 import {createHydrogenRouterContext} from '~/lib/context';
+import {addRequestTimeout} from '~/lib/request-timeout';
 
 /**
  * Export a fetch handler in module format.
@@ -15,8 +16,19 @@ export default {
    */
   async fetch(request, env, executionContext) {
     try {
+      // Check request size limit (10MB)
+      const contentLength = request.headers.get('content-length');
+      const maxSize = 10 * 1024 * 1024; // 10MB
+      if (contentLength && parseInt(contentLength, 10) > maxSize) {
+        return new Response('Request too large', {status: 413});
+      }
+
+      // Add request timeout (30 seconds) to prevent hanging requests
+      // Critical for production scale
+      const timeoutRequest = addRequestTimeout(request, 30000);
+
       const hydrogenContext = await createHydrogenRouterContext(
-        request,
+        timeoutRequest,
         env,
         executionContext,
       );
@@ -32,7 +44,21 @@ export default {
         getLoadContext: () => hydrogenContext,
       });
 
-      const response = await handleRequest(request);
+      const response = await handleRequest(timeoutRequest);
+
+      // Add security headers
+      response.headers.set('X-Content-Type-Options', 'nosniff');
+      response.headers.set('X-Frame-Options', 'DENY');
+      response.headers.set('X-XSS-Protection', '1; mode=block');
+      response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+      
+      // Only add Permissions-Policy if not already set by Hydrogen
+      if (!response.headers.has('Permissions-Policy')) {
+        response.headers.set(
+          'Permissions-Policy',
+          'geolocation=(), microphone=(), camera=()'
+        );
+      }
 
       if (hydrogenContext.session.isPending) {
         response.headers.set(

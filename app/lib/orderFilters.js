@@ -13,6 +13,7 @@ export const ORDER_FILTER_FIELDS = {
  * @param {string} value - The input string to sanitize
  */
 function sanitizeFilterValue(value) {
+  if (typeof value !== 'string') return '';
   // Only allow alphanumeric, underscore, and dash
   // Remove anything else to prevent injection
   return value.replace(/[^a-zA-Z0-9_\-]/g, '');

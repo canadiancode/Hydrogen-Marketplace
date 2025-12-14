@@ -11,6 +11,7 @@ import {ProductPrice} from '~/components/ProductPrice';
 import {ProductImage} from '~/components/ProductImage';
 import {ProductForm} from '~/components/ProductForm';
 import {redirectIfHandleIsLocalized} from '~/lib/redirect';
+import {sanitizeHTML} from '~/lib/sanitize';
 
 /**
  * @type {Route.MetaFunction}
@@ -125,7 +126,7 @@ export default function Product() {
           <strong>Description</strong>
         </p>
         <br />
-        <div dangerouslySetInnerHTML={{__html: descriptionHtml}} />
+        <div dangerouslySetInnerHTML={{__html: sanitizeHTML(descriptionHtml)}} />
         <br />
       </div>
       <Analytics.ProductView

@@ -1,6 +1,8 @@
 import {redirect, useLoaderData} from 'react-router';
 import {useEffect, useState} from 'react';
-import {exchangeOAuthCode, createSessionCookie} from '~/lib/supabase';
+import {exchangeOAuthCode, createSessionCookie, createUserSupabaseClient} from '~/lib/supabase';
+import {getClientIP} from '~/lib/auth-helpers';
+import {rateLimit} from '~/lib/rate-limit';
 
 /**
  * Callback route for Supabase Auth
@@ -82,13 +84,18 @@ export async function action({request, context}) {
   const expiresAt = formData.get('expires_at');
   const expiresIn = formData.get('expires_in');
   const tokenType = formData.get('token_type');
-  const userEmail = formData.get('user_email');
-  const userId = formData.get('user_id');
   
   const {env} = context;
   
-  if (!accessToken || !userEmail) {
+  if (!accessToken) {
     return redirect('/creator/login?error=invalid_token');
+  }
+  
+  // Rate limiting: 10 requests per 15 minutes per IP for callback
+  const clientIP = getClientIP(request);
+  const rateLimitKey = `auth_callback:${clientIP}`;
+  if (!rateLimit(rateLimitKey, 10, 15 * 60 * 1000)) {
+    return redirect('/creator/login?error=too_many_requests');
   }
   
   // Validate environment variables
@@ -97,12 +104,28 @@ export async function action({request, context}) {
     return redirect('/creator/login?error=config_error');
   }
   
+  // Validate token server-side by creating a Supabase client and verifying the user
+  // This ensures we don't trust client-provided user data
+  const userClient = createUserSupabaseClient(
+    env.SUPABASE_URL,
+    env.SUPABASE_ANON_KEY,
+    accessToken,
+  );
+  
+  // Verify the token is valid and get the actual user data
+  const {data: {user}, error: userError} = await userClient.auth.getUser();
+  
+  if (userError || !user) {
+    console.error('Token validation failed:', userError);
+    return redirect('/creator/login?error=invalid_token');
+  }
+  
   // Determine if we're in a secure context
   const isSecure = request.url.startsWith('https://') || 
                    request.headers.get('x-forwarded-proto') === 'https' ||
                    env.NODE_ENV === 'production';
   
-  // Create session object for cookie creation
+  // Create session object with validated user data
   const session = {
     access_token: accessToken,
     refresh_token: refreshToken || '',
@@ -110,8 +133,8 @@ export async function action({request, context}) {
     expires_in: parseInt(expiresIn, 10) || 3600,
     token_type: tokenType || 'bearer',
     user: {
-      id: userId || '',
-      email: userEmail,
+      id: user.id,
+      email: user.email,
     },
   };
   
@@ -164,17 +187,11 @@ export default function AuthCallback() {
       
       // Handle both magic links and OAuth (both can have access_token in hash)
       if (accessToken) {
-        // Extract user info from token (basic JWT decode)
+        // Send token to server for validation
+        // Server will validate the token and extract user info securely
         try {
-          const payload = JSON.parse(atob(accessToken.split('.')[1]));
-          const userEmail = payload.email;
-          const userId = payload.sub;
-          
-          if (!userEmail || !userId) {
-            throw new Error('Missing email or user ID in token payload');
-          }
-          
           // Submit form to set session cookie
+          // Server-side action will validate the token properly
           const form = document.createElement('form');
           form.method = 'POST';
           form.style.display = 'none';
@@ -184,15 +201,11 @@ export default function AuthCallback() {
           form.appendChild(createInput('expires_at', expiresAt || ''));
           form.appendChild(createInput('expires_in', expiresIn || '3600'));
           form.appendChild(createInput('token_type', tokenType || 'bearer'));
-          form.appendChild(createInput('user_email', userEmail));
-          form.appendChild(createInput('user_id', userId));
           
           document.body.appendChild(form);
           form.submit();
         } catch (err) {
           console.error('Error processing auth callback:', err);
-          console.error('Hash:', hash);
-          console.error('Access token present:', !!accessToken);
           setError('Failed to process authentication. Please try again.');
           setTimeout(() => {
             window.location.href = '/creator/login?error=token_parse_error';

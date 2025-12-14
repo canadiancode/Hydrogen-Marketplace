@@ -18,11 +18,37 @@ const additionalContext = {
  * @param {Env} env
  * @param {ExecutionContext} executionContext
  */
+/**
+ * Validates required environment variables
+ * @param {object} env - Environment variables object
+ * @throws {Error} If required variables are missing
+ */
+function validateEnvVars(env) {
+  const requiredVars = [
+    'SESSION_SECRET',
+    'PUBLIC_STORE_DOMAIN',
+    'PUBLIC_STOREFRONT_API_TOKEN',
+  ];
+  
+  const missing = requiredVars.filter(varName => !env?.[varName]);
+  
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required environment variables: ${missing.join(', ')}`
+    );
+  }
+}
+
 export async function createHydrogenRouterContext(
   request,
   env,
   executionContext,
 ) {
+  /**
+   * Validate required environment variables
+   */
+  validateEnvVars(env);
+  
   /**
    * Open a cache instance in the worker and a custom session instance.
    */
