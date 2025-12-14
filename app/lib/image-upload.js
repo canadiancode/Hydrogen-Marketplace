@@ -167,10 +167,13 @@ export async function deleteProfileImage(userEmail, supabaseUrl, anonKey, access
     const {createUserSupabaseClient} = await import('~/lib/supabase');
     const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
 
+    // Sanitize email for use in file path (same as upload function)
+    const sanitizedEmail = userEmail.replace(/[@.]/g, '_');
+    
     // List files in user's folder
     const {data: files, error: listError} = await supabase.storage
       .from('creator-profile-images')
-      .list(userEmail);
+      .list(sanitizedEmail);
 
     if (listError) {
       return {
