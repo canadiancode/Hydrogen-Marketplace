@@ -827,6 +827,128 @@ export async function fetchCreatorListings(creatorId, supabaseUrl, anonKey, acce
 }
 
 /**
+ * Fetches all listings for admin review
+ * Uses service role key to bypass RLS and fetch all listings regardless of creator
+ * Includes listing photos and formats data for display
+ * 
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} serviceRoleKey - Supabase service role key (for admin operations)
+ * @param {object} options - Optional filters
+ * @param {string} options.status - Filter by status (e.g., 'pending_approval')
+ * @param {number} options.limit - Maximum number of listings to return
+ * @returns {Promise<Array>} Array of listing objects with photos and creator info
+ */
+export async function fetchAllListings(supabaseUrl, serviceRoleKey, options = {}) {
+  if (!supabaseUrl || !serviceRoleKey) {
+    return [];
+  }
+
+  const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
+  
+  // Build query for listings
+  let query = supabase
+    .from('listings')
+    .select('*')
+    .order('created_at', {ascending: false});
+  
+  // Apply status filter if provided
+  if (options.status) {
+    query = query.eq('status', options.status);
+  }
+  
+  // Apply limit if provided
+  if (options.limit) {
+    query = query.limit(options.limit);
+  }
+  
+  const {data: listings, error: listingsError} = await query;
+
+  if (listingsError) {
+    console.error('Error fetching all listings:', listingsError);
+    return [];
+  }
+
+  if (!listings || listings.length === 0) {
+    return [];
+  }
+
+  // Fetch creator information for all listings
+  const creatorIds = [...new Set(listings.map(l => l.creator_id).filter(Boolean))];
+  let creatorsMap = {};
+  
+  if (creatorIds.length > 0) {
+    const {data: creators, error: creatorsError} = await supabase
+      .from('creators')
+      .select('id, email, display_name, handle')
+      .in('id', creatorIds);
+    
+    if (!creatorsError && creators) {
+      creators.forEach(creator => {
+        creatorsMap[creator.id] = creator;
+      });
+    }
+  }
+
+  // Fetch photos for all listings
+  const listingIds = listings.map(l => l.id);
+  const {data: photos, error: photosError} = await supabase
+    .from('listing_photos')
+    .select('*')
+    .in('listing_id', listingIds)
+    .eq('photo_type', 'reference'); // Only get reference photos for display
+
+  if (photosError) {
+    console.error('Error fetching listing photos:', photosError);
+    // Continue without photos rather than failing completely
+  }
+
+  // Group photos by listing_id
+  const photosByListing = {};
+  if (photos) {
+    photos.forEach(photo => {
+      if (!photosByListing[photo.listing_id]) {
+        photosByListing[photo.listing_id] = [];
+      }
+      photosByListing[photo.listing_id].push(photo);
+    });
+  }
+
+  // Combine listings with their photos and format for display
+  const listingsWithPhotos = listings.map(listing => {
+    const listingPhotos = photosByListing[listing.id] || [];
+    
+    // Get public URL for thumbnail
+    let thumbnailUrl = null;
+    if (listingPhotos.length > 0) {
+      const {data} = supabase.storage
+        .from('listing-photos')
+        .getPublicUrl(listingPhotos[0].storage_path);
+      thumbnailUrl = data?.publicUrl || null;
+    }
+    
+    return {
+      ...listing,
+      photos: listingPhotos.map(photo => {
+        const {data} = supabase.storage
+          .from('listing-photos')
+          .getPublicUrl(photo.storage_path);
+        return {
+          ...photo,
+          publicUrl: data?.publicUrl || null,
+        };
+      }),
+      // Format price for display
+      price: (listing.price_cents / 100).toFixed(2),
+      thumbnailUrl,
+      // Creator info (from separate query)
+      creator: creatorsMap[listing.creator_id] || null,
+    };
+  });
+
+  return listingsWithPhotos;
+}
+
+/**
  * Fetches a single listing by ID for a creator
  * Verifies that the listing belongs to the authenticated creator
  * Includes listing photos and formats data for display

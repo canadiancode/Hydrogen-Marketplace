@@ -64,12 +64,30 @@ export async function action({request, params, context}) {
     });
   }
   
-  // CSRF protection
+  // CSRF protection with constant-time validation to prevent timing attacks
   const formData = await request.formData();
   const csrfToken = formData.get('csrf_token');
   const storedToken = context.session.get('csrf_token');
   
-  if (!csrfToken || !storedToken || csrfToken !== storedToken) {
+  if (!csrfToken || !storedToken) {
+    return new Response('Invalid security token. Please refresh the page and try again.', {
+      status: 403,
+    });
+  }
+  
+  // Constant-time comparison to prevent timing attacks
+  if (csrfToken.length !== storedToken.length) {
+    return new Response('Invalid security token. Please refresh the page and try again.', {
+      status: 403,
+    });
+  }
+  
+  let result = 0;
+  for (let i = 0; i < csrfToken.length; i++) {
+    result |= csrfToken.charCodeAt(i) ^ storedToken.charCodeAt(i);
+  }
+  
+  if (result !== 0) {
     return new Response('Invalid security token. Please refresh the page and try again.', {
       status: 403,
     });
@@ -78,21 +96,32 @@ export async function action({request, params, context}) {
   // Clear CSRF token after use (one-time use)
   context.session.unset('csrf_token');
   
-  // Validate action
+  // Validate and sanitize action parameter
   const actionValue = formData.get('action');
-  if (actionValue !== 'approve' && actionValue !== 'reject') {
+  const validActions = ['approve', 'reject'];
+  const sanitizedAction = String(actionValue || '').trim().toLowerCase();
+  
+  if (!validActions.includes(sanitizedAction)) {
     return new Response('Invalid action. Must be "approve" or "reject".', {status: 400});
   }
   
-  // Validate and sanitize notes
-  const rawNotes = formData.get('notes')?.toString().trim() || '';
+  // Validate and sanitize notes - prevent XSS
+  const rawNotes = formData.get('notes')?.toString() || '';
   const MAX_NOTES_LENGTH = 1000;
-  const sanitizedNotes = sanitizeHTML(rawNotes).substring(0, MAX_NOTES_LENGTH);
+  const sanitizedNotes = sanitizeHTML(rawNotes.trim()).substring(0, MAX_NOTES_LENGTH);
   
-  // Validate listing ID parameter
+  // Validate listing ID parameter - prevent injection
   const {id} = params;
-  if (!id || typeof id !== 'string' || id.length === 0) {
+  if (!id || typeof id !== 'string') {
     return new Response('Invalid listing ID', {status: 400});
+  }
+  
+  // Validate UUID format (36 chars with hyphens or 32 without)
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const sanitizedId = id.trim();
+  
+  if (sanitizedId.length < 32 || sanitizedId.length > 36 || !UUID_REGEX.test(sanitizedId)) {
+    return new Response('Invalid listing ID format', {status: 400});
   }
   
   // Update listing status in Supabase

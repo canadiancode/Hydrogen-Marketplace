@@ -1,5 +1,5 @@
 import {useLoaderData, redirect, Link} from 'react-router';
-import {checkAdminAuth} from '~/lib/supabase';
+import {checkAdminAuth, fetchAllListings} from '~/lib/supabase';
 
 export const meta = () => {
   return [{title: 'WornVault | Admin Dashboard'}];
@@ -14,23 +14,45 @@ export async function loader({request, context}) {
     throw redirect('/creator/login?error=admin_access_required');
   }
   
-  // Fetch admin dashboard data from Supabase
-  // const dashboardData = await fetchAdminDashboard(context);
+  const supabaseUrl = context.env.SUPABASE_URL;
+  const serviceRoleKey = context.env.SUPABASE_SERVICE_ROLE_KEY;
+  
+  // Initialize counts
+  let pendingApprovals = 0;
+  let liveListings = 0;
+  let soldListings = 0;
+  let completedListings = 0;
+  
+  if (supabaseUrl && serviceRoleKey) {
+    try {
+      // Fetch all listings using service role key (bypasses RLS)
+      const allListings = await fetchAllListings(supabaseUrl, serviceRoleKey);
+      
+      // Count listings by status
+      pendingApprovals = allListings.filter(l => l.status === 'pending_approval').length;
+      liveListings = allListings.filter(l => l.status === 'live').length;
+      soldListings = allListings.filter(l => l.status === 'sold').length;
+      completedListings = allListings.filter(l => l.status === 'completed').length;
+    } catch (error) {
+      console.error('Error fetching admin dashboard data:', error);
+      // Continue with zero counts if there's an error
+    }
+  }
   
   return {
-    pendingApprovals: [],
-    soldItemsAwaitingShipment: [],
-    itemsInValidation: [],
-    pendingPayouts: [],
+    pendingApprovals,
+    liveListings,
+    soldListings,
+    completedListings,
   };
 }
 
 export default function AdminDashboard() {
   const {
     pendingApprovals,
-    soldItemsAwaitingShipment,
-    itemsInValidation,
-    pendingPayouts,
+    liveListings,
+    soldListings,
+    completedListings,
   } = useLoaderData();
   
   return (
@@ -45,7 +67,10 @@ export default function AdminDashboard() {
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+          <Link
+            to="/admin/listings?status=pending_approval"
+            className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 hover:shadow-md transition-shadow"
+          >
             <div className="flex items-center">
               <div className="flex-shrink-0">
                 <div className="flex items-center justify-center h-12 w-12 rounded-md bg-yellow-500 text-white">
@@ -56,35 +81,20 @@ export default function AdminDashboard() {
               </div>
               <div className="ml-5 w-0 flex-1">
                 <dl>
-                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Pending Approvals</dt>
-                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">{pendingApprovals.length}</dd>
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Pending Approval</dt>
+                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">{pendingApprovals}</dd>
                 </dl>
               </div>
             </div>
-          </div>
+          </Link>
 
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+          <Link
+            to="/admin/listings?status=live"
+            className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 hover:shadow-md transition-shadow"
+          >
             <div className="flex items-center">
               <div className="flex-shrink-0">
-                <div className="flex items-center justify-center h-12 w-12 rounded-md bg-orange-500 text-white">
-                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                  </svg>
-                </div>
-              </div>
-              <div className="ml-5 w-0 flex-1">
-                <dl>
-                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Awaiting Shipment</dt>
-                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">{soldItemsAwaitingShipment.length}</dd>
-                </dl>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <div className="flex items-center justify-center h-12 w-12 rounded-md bg-blue-500 text-white">
+                <div className="flex items-center justify-center h-12 w-12 rounded-md bg-green-500 text-white">
                   <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
@@ -92,30 +102,54 @@ export default function AdminDashboard() {
               </div>
               <div className="ml-5 w-0 flex-1">
                 <dl>
-                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">In Validation</dt>
-                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">{itemsInValidation.length}</dd>
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Live</dt>
+                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">{liveListings}</dd>
                 </dl>
               </div>
             </div>
-          </div>
+          </Link>
 
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+          <Link
+            to="/admin/listings?status=sold"
+            className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 hover:shadow-md transition-shadow"
+          >
             <div className="flex items-center">
               <div className="flex-shrink-0">
-                <div className="flex items-center justify-center h-12 w-12 rounded-md bg-green-500 text-white">
+                <div className="flex items-center justify-center h-12 w-12 rounded-md bg-blue-500 text-white">
                   <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
                   </svg>
                 </div>
               </div>
               <div className="ml-5 w-0 flex-1">
                 <dl>
-                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Pending Payouts</dt>
-                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">{pendingPayouts.length}</dd>
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Sold</dt>
+                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">{soldListings}</dd>
                 </dl>
               </div>
             </div>
-          </div>
+          </Link>
+
+          <Link
+            to="/admin/listings?status=completed"
+            className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 hover:shadow-md transition-shadow"
+          >
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <div className="flex items-center justify-center h-12 w-12 rounded-md bg-purple-500 text-white">
+                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                </div>
+              </div>
+              <div className="ml-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Completed</dt>
+                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">{completedListings}</dd>
+                </dl>
+              </div>
+            </div>
+          </Link>
         </div>
 
         {/* Quick Actions */}
