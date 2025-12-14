@@ -35,22 +35,32 @@ export async function action({request, context}) {
       return {error: 'Email is required'};
     }
     
+    // Validate email format client-side as well
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return {error: 'Please enter a valid email address'};
+    }
+    
     // Send magic link via Supabase Auth
-    // const {error} = await sendMagicLink(
-    //   email,
-    //   env.SUPABASE_URL,
-    //   env.SUPABASE_ANON_KEY,
-    //   redirectTo,
-    // );
+    const {error, data} = await sendMagicLink(
+      email,
+      env.SUPABASE_URL,
+      env.SUPABASE_ANON_KEY,
+      redirectTo,
+    );
     
-    // if (error) {
-    //   return {error: error.message};
-    // }
+    if (error) {
+      console.error('Magic link error:', error);
+      // Return user-friendly error message
+      return {error: error.message || 'Failed to send magic link. Please try again.'};
+    }
     
-    // For now, return success message (will be replaced with actual Supabase logic)
+    // Success - magic link sent
+    // Note: Supabase always returns success even if email doesn't exist
+    // (for security - prevents email enumeration)
     return {
       success: true,
-      message: 'Check your email for the magic link!',
+      message: 'Check your email for the magic link! If you don\'t see it, check your spam folder.',
     };
   }
   

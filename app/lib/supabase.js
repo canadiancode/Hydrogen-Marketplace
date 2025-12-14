@@ -25,16 +25,18 @@ import {createClient} from '@supabase/supabase-js';
  * @returns {import('@supabase/supabase-js').SupabaseClient}
  */
 export function createServerSupabaseClient(supabaseUrl, serviceRoleKey) {
-  // const supabase = createClient(supabaseUrl, serviceRoleKey, {
-  //   auth: {
-  //     autoRefreshToken: false,
-  //     persistSession: false,
-  //   },
-  // });
-  // return supabase;
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error('Supabase URL and service role key are required');
+  }
+
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
   
-  // Placeholder - uncomment when Supabase is installed
-  return null;
+  return supabase;
 }
 
 /**
@@ -47,21 +49,23 @@ export function createServerSupabaseClient(supabaseUrl, serviceRoleKey) {
  * @returns {import('@supabase/supabase-js').SupabaseClient}
  */
 export function createUserSupabaseClient(supabaseUrl, anonKey, accessToken) {
-  // const supabase = createClient(supabaseUrl, anonKey, {
-  //   global: {
-  //     headers: {
-  //       Authorization: `Bearer ${accessToken}`,
-  //     },
-  //   },
-  //   auth: {
-  //     autoRefreshToken: false,
-  //     persistSession: false,
-  //   },
-  // });
-  // return supabase;
+  if (!supabaseUrl || !anonKey) {
+    throw new Error('Supabase URL and anon key are required');
+  }
+
+  const supabase = createClient(supabaseUrl, anonKey, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
   
-  // Placeholder - uncomment when Supabase is installed
-  return null;
+  return supabase;
 }
 
 /**
@@ -74,63 +78,164 @@ export function createUserSupabaseClient(supabaseUrl, anonKey, accessToken) {
  * @returns {Promise<{session: Session | null, user: User | null}>}
  */
 export async function getSupabaseSession(request, supabaseUrl, anonKey) {
-  // const supabase = createClient(supabaseUrl, anonKey, {
-  //   auth: {
-  //     autoRefreshToken: false,
-  //     persistSession: false,
-  //   },
-  // });
+  if (!supabaseUrl || !anonKey) {
+    return {session: null, user: null};
+  }
+
+  // Create Supabase client
+  const supabase = createClient(supabaseUrl, anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+
+  // Get cookies from request
+  const cookieHeader = request.headers.get('Cookie') || '';
   
-  // // Get session from cookies
-  // const cookieHeader = request.headers.get('Cookie') || '';
-  // const cookies = Object.fromEntries(
-  //   cookieHeader.split(';').map(c => c.trim().split('='))
-  // );
+  // Extract project reference from Supabase URL
+  // e.g., https://vpzktiosvxbusozfjhrx.supabase.co -> vpzktiosvxbusozfjhrx
+  const urlMatch = supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/);
+  const projectRef = urlMatch ? urlMatch[1] : null;
   
-  // // Supabase stores session in sb-<project-ref>-auth-token cookie
-  // const accessToken = cookies[`sb-${supabaseUrl.split('//')[1].split('.')[0]}-auth-token`];
+  if (!projectRef) {
+    console.warn('Could not extract project reference from Supabase URL');
+    return {session: null, user: null};
+  }
+
+  // Supabase stores session in cookie: sb-<project-ref>-auth-token
+  const cookieName = `sb-${projectRef}-auth-token`;
   
-  // if (accessToken) {
-  //   const {data: {session}, error} = await supabase.auth.getSession();
-  //   if (!error && session) {
-  //     return {session, user: session.user};
-  //   }
-  // }
-  
-  // return {session: null, user: null};
-  
-  // Placeholder - uncomment when Supabase is installed
-  return {session: null, user: null};
+  // Parse cookies
+  const cookies = cookieHeader
+    .split(';')
+    .map(c => c.trim())
+    .reduce((acc, cookie) => {
+      const [key, ...valueParts] = cookie.split('=');
+      if (key && valueParts.length > 0) {
+        acc[key] = decodeURIComponent(valueParts.join('='));
+      }
+      return acc;
+    }, {});
+
+  const authToken = cookies[cookieName];
+
+  if (!authToken) {
+    return {session: null, user: null};
+  }
+
+  try {
+    // Parse the auth token cookie (it's a JSON string)
+    const tokenData = JSON.parse(authToken);
+    const accessToken = tokenData?.access_token;
+
+    if (!accessToken) {
+      return {session: null, user: null};
+    }
+
+    // Create a client with the access token to verify the session
+    const userClient = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+    
+    // Get the user to verify the token is valid
+    const {data: {user}, error: userError} = await userClient.auth.getUser();
+
+    if (userError || !user) {
+      return {session: null, user: null};
+    }
+
+    // Construct session object from token data
+    const session = {
+      access_token: accessToken,
+      refresh_token: tokenData.refresh_token,
+      expires_at: tokenData.expires_at,
+      expires_in: tokenData.expires_in,
+      token_type: tokenData.token_type || 'bearer',
+      user,
+    };
+
+    return {session, user};
+  } catch (error) {
+    console.error('Error parsing Supabase auth token:', error);
+    return {session: null, user: null};
+  }
 }
 
 /**
  * Sends a magic link email via Supabase Auth
  * 
+ * Best practices:
+ * - Email confirmation should be enabled in Supabase dashboard
+ * - Custom SMTP recommended for production
+ * - Ensure database triggers are set up correctly
+ * 
  * @param {string} email - User's email address
  * @param {string} supabaseUrl - Your Supabase project URL
  * @param {string} anonKey - Supabase anon/public key
  * @param {string} redirectTo - URL to redirect to after clicking magic link
- * @returns {Promise<{error: Error | null}>}
+ * @returns {Promise<{error: Error | null, data: object | null}>}
  */
 export async function sendMagicLink(email, supabaseUrl, anonKey, redirectTo) {
-  // const supabase = createClient(supabaseUrl, anonKey, {
-  //   auth: {
-  //     autoRefreshToken: false,
-  //     persistSession: false,
-  //   },
-  // });
+  if (!email || !supabaseUrl || !anonKey) {
+    return {
+      error: new Error('Email, Supabase URL, and anon key are required'),
+      data: null,
+    };
+  }
+
+  // Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return {
+      error: new Error('Invalid email format'),
+      data: null,
+    };
+  }
+
+  const supabase = createClient(supabaseUrl, anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      // Don't require email confirmation for magic links (handled by Supabase)
+      // But ensure email confirmation is enabled in Supabase dashboard
+    },
+  });
   
-  // const {error} = await supabase.auth.signInWithOtp({
-  //   email,
-  //   options: {
-  //     emailRedirectTo: redirectTo,
-  //   },
-  // });
-  
-  // return {error};
-  
-  // Placeholder - uncomment when Supabase is installed
-  return {error: null};
+  try {
+    const {data, error} = await supabase.auth.signInWithOtp({
+      email: email.toLowerCase().trim(), // Normalize email
+      options: {
+        emailRedirectTo: redirectTo,
+        // Allow new user signups
+        shouldCreateUser: true,
+      },
+    });
+    
+    if (error) {
+      // Provide more helpful error messages
+      let errorMessage = error.message;
+      
+      if (error.message?.includes('Database error')) {
+        errorMessage = 'Database configuration error. Please check Supabase dashboard settings. Ensure database triggers are set up correctly.';
+      } else if (error.message?.includes('email')) {
+        errorMessage = 'Email sending failed. Please check your email address and try again.';
+      } else if (error.message?.includes('rate limit')) {
+        errorMessage = 'Too many requests. Please wait a moment and try again.';
+      }
+      
+      return {
+        error: new Error(errorMessage),
+        data: null,
+      };
+    }
+    
+    return {error: null, data};
+  } catch (err) {
+    console.error('Unexpected error sending magic link:', err);
+    return {
+      error: new Error('An unexpected error occurred. Please try again.'),
+      data: null,
+    };
+  }
 }
 
 /**
@@ -170,26 +275,33 @@ export async function initiateGoogleOAuth(supabaseUrl, anonKey, redirectTo) {
  * @returns {Promise<{session: Session | null, user: User | null, error: Error | null}>}
  */
 export async function verifyMagicLink(token, type, supabaseUrl, anonKey) {
-  // const supabase = createClient(supabaseUrl, anonKey, {
-  //   auth: {
-  //     autoRefreshToken: false,
-  //     persistSession: false,
-  //   },
-  // });
+  if (!token || !type || !supabaseUrl || !anonKey) {
+    return {
+      session: null,
+      user: null,
+      error: new Error('Token, type, Supabase URL, and anon key are required'),
+    };
+  }
+
+  const supabase = createClient(supabaseUrl, anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
   
-  // const {data, error} = await supabase.auth.verifyOtp({
-  //   token_hash: token,
-  //   type,
-  // });
+  // Supabase magic links use token_hash parameter
+  // The type is typically 'magiclink' or 'email'
+  const {data, error} = await supabase.auth.verifyOtp({
+    token_hash: token,
+    type: type === 'magiclink' ? 'magiclink' : type,
+  });
   
-  // if (error) {
-  //   return {session: null, user: null, error};
-  // }
+  if (error) {
+    return {session: null, user: null, error};
+  }
   
-  // return {session: data.session, user: data.user, error: null};
-  
-  // Placeholder - uncomment when Supabase is installed
-  return {session: null, user: null, error: null};
+  return {session: data.session, user: data.user, error: null};
 }
 
 /**
@@ -200,24 +312,68 @@ export async function verifyMagicLink(token, type, supabaseUrl, anonKey) {
  * @returns {Promise<{isAuthenticated: boolean, user: User | null}>}
  */
 export async function checkCreatorAuth(request, env) {
-  // const {user} = await getSupabaseSession(
-  //   request,
-  //   env.SUPABASE_URL,
-  //   env.SUPABASE_ANON_KEY,
-  // );
+  if (!env?.SUPABASE_URL || !env?.SUPABASE_ANON_KEY) {
+    return {isAuthenticated: false, user: null};
+  }
+
+  const {user} = await getSupabaseSession(
+    request,
+    env.SUPABASE_URL,
+    env.SUPABASE_ANON_KEY,
+  );
   
-  // return {
-  //   isAuthenticated: !!user,
-  //   user,
-  // };
+  return {
+    isAuthenticated: !!user,
+    user,
+  };
+}
+
+/**
+ * Checks if a creator profile exists for the authenticated user
+ * Uses email matching since schema links creators to auth via email
+ * 
+ * @param {string} email - User's email address
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} anonKey - Supabase anon/public key
+ * @param {string} accessToken - User's access token
+ * @returns {Promise<{exists: boolean, creator: object | null}>}
+ */
+export async function checkCreatorProfileExists(email, supabaseUrl, anonKey, accessToken) {
+  if (!email || !supabaseUrl || !anonKey || !accessToken) {
+    return {exists: false, creator: null};
+  }
+
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
   
-  // Placeholder - uncomment when Supabase is installed
-  return {isAuthenticated: false, user: null};
+  // RLS will automatically filter by auth.email(), but we can also explicitly check by email
+  // Using .single() since email is unique in the creators table
+  const {data, error} = await supabase
+    .from('creators')
+    .select('id, email, display_name, handle, verification_status')
+    .eq('email', email)
+    .single();
+  
+  if (error || !data) {
+    // If error is "PGRST116" (no rows returned), that's expected for new users
+    if (error?.code === 'PGRST116') {
+      return {exists: false, creator: null};
+    }
+    // Other errors might indicate a problem
+    console.error('Error checking creator profile:', error);
+    return {exists: false, creator: null};
+  }
+  
+  return {exists: true, creator: data};
 }
 
 /**
  * Checks if a user is an admin
- * Requires checking the database for admin flag
+ * NOTE: Admin identification method needs to be determined
+ * Options:
+ * 1. Add is_admin boolean to creators table
+ * 2. Create separate admins table
+ * 3. Use specific email addresses/domain
+ * 4. Use Supabase Auth metadata
  * 
  * @param {Request} request - The incoming request
  * @param {object} env - Environment variables
@@ -230,26 +386,26 @@ export async function checkAdminAuth(request, env) {
   //   return {isAdmin: false, user: null};
   // }
   
-  // // Check admin flag in database
-  // const supabase = createUserSupabaseClient(
-  //   env.SUPABASE_URL,
-  //   env.SUPABASE_ANON_KEY,
-  //   user.access_token,
-  // );
+  // // TODO: Implement admin check based on chosen method
+  // // Option 1: Check is_admin flag in creators table (if added)
+  // // Option 2: Check separate admins table
+  // // Option 3: Check if email is in admin list
+  // // Option 4: Check user metadata/claims
   
-  // const {data, error} = await supabase
-  //   .from('creators')
-  //   .select('is_admin')
-  //   .eq('user_id', user.id)
-  //   .single();
+  // // Example for Option 1 (if is_admin column is added):
+  // // const supabase = createUserSupabaseClient(
+  // //   env.SUPABASE_URL,
+  // //   env.SUPABASE_ANON_KEY,
+  // //   user.access_token,
+  // // );
+  // // const {data} = await supabase
+  // //   .from('creators')
+  // //   .select('is_admin')
+  // //   .eq('email', user.email)
+  // //   .single();
+  // // return {isAdmin: data?.is_admin === true, user};
   
-  // if (error || !data) {
-  //   return {isAdmin: false, user};
-  // }
-  
-  // return {isAdmin: data.is_admin === true, user};
-  
-  // Placeholder - uncomment when Supabase is installed
+  // Placeholder - uncomment when Supabase is installed and admin method is determined
   return {isAdmin: false, user: null};
 }
 
