@@ -2,11 +2,46 @@
  * Rate Limiting Utility
  * 
  * Simple in-memory rate limiter for protecting endpoints from abuse.
- * For production, consider using Redis or a dedicated rate limiting service.
+ * 
+ * ⚠️ PRODUCTION WARNING: This implementation uses in-memory storage which
+ * does NOT work in distributed environments like Cloudflare Workers.
+ * 
+ * For production, you MUST use one of these distributed solutions:
+ * 1. Cloudflare KV (recommended for Cloudflare Workers)
+ * 2. Cloudflare Durable Objects (for strict rate limiting)
+ * 3. Redis (if using a different hosting platform)
+ * 
+ * Example Cloudflare KV implementation:
+ * ```javascript
+ * async function checkRateLimitKV(kvNamespace, identifier, maxRequests, windowMs) {
+ *   const key = `rate_limit:${identifier}`;
+ *   const data = await kvNamespace.get(key, 'json');
+ *   const now = Date.now();
+ *   
+ *   if (!data || data.expiresAt < now) {
+ *     await kvNamespace.put(key, JSON.stringify({
+ *       count: 1,
+ *       expiresAt: now + windowMs,
+ *       resetAt: now + windowMs,
+ *     }), { expirationTtl: Math.ceil(windowMs / 1000) });
+ *     return { allowed: true, remaining: maxRequests - 1, resetAt: now + windowMs };
+ *   }
+ *   
+ *   if (data.count >= maxRequests) {
+ *     return { allowed: false, remaining: 0, resetAt: data.expiresAt };
+ *   }
+ *   
+ *   data.count += 1;
+ *   await kvNamespace.put(key, JSON.stringify(data), { expirationTtl: Math.ceil((data.expiresAt - now) / 1000) });
+ *   return { allowed: true, remaining: maxRequests - data.count, resetAt: data.expiresAt };
+ * }
+ * ```
  */
 
 // In-memory store for rate limit data
-// In production, this should be replaced with Redis or similar
+// ⚠️ WARNING: This only works in single-instance environments
+// In production with Cloudflare Workers, this will NOT work correctly
+// across multiple worker instances. Use Cloudflare KV or Durable Objects instead.
 const rateLimitStore = new Map();
 
 // Track last cleanup time to avoid cleaning too frequently

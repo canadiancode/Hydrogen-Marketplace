@@ -35,7 +35,7 @@ export class AppSession {
         name: 'session',
         httpOnly: true,
         path: '/',
-        sameSite: 'lax',
+        sameSite: 'strict', // Changed from 'lax' for better CSRF protection
         secrets,
       },
     });

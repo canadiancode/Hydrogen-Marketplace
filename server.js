@@ -17,11 +17,33 @@ export default {
   async fetch(request, env, executionContext) {
     try {
       // Check request size limit (10MB)
+      // Note: Content-Length header can be spoofed, but this provides a first-line defense.
+      // Actual body size validation happens at the route level for file uploads.
       const contentLength = request.headers.get('content-length');
       const maxSize = 10 * 1024 * 1024; // 10MB
-      if (contentLength && parseInt(contentLength, 10) > maxSize) {
-        return new Response('Request too large', {status: 413});
+      
+      if (contentLength) {
+        const headerSize = parseInt(contentLength, 10);
+        // Validate Content-Length header
+        if (isNaN(headerSize) || headerSize > maxSize) {
+          return new Response('Request too large', {status: 413});
+        }
+        // Reject negative or zero sizes for non-GET requests (indicates spoofing)
+        if (request.method !== 'GET' && headerSize <= 0) {
+          return new Response('Invalid request size', {status: 400});
+        }
+        // Reject unreasonably large Content-Length values (potential integer overflow)
+        if (headerSize > maxSize * 10) {
+          return new Response('Request too large', {status: 413});
+        }
       }
+      
+      // Note: Actual body size validation for file uploads is handled at the route level
+      // (e.g., in creator.listings.new.jsx and creator.listings.$id.edit.jsx)
+      // This is necessary because:
+      // 1. Reading the body here would consume it, preventing React Router from processing it
+      // 2. Different routes may have different size limits
+      // 3. File upload routes already validate actual file sizes
 
       // Add request timeout (30 seconds) to prevent hanging requests
       // Critical for production scale

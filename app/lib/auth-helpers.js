@@ -9,6 +9,41 @@ import {redirect} from 'react-router';
 import {getSupabaseSession, createSessionCookie} from '~/lib/supabase';
 
 /**
+ * Validates that a URL is a safe internal redirect
+ * Prevents open redirect vulnerabilities
+ * 
+ * @param {string} url - URL to validate
+ * @returns {boolean} - True if safe internal URL
+ */
+function isValidInternalUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  
+  // Only allow relative paths starting with /
+  if (!url.startsWith('/')) return false;
+  
+  // Block protocol-relative URLs (//example.com)
+  if (url.startsWith('//')) return false;
+  
+  // Block URLs containing : (could be javascript:, data:, etc.)
+  if (url.includes(':')) return false;
+  
+  // Block URLs with newlines or other control characters
+  if (/[\r\n\t]/.test(url)) return false;
+  
+  // Additional safety: ensure it's a valid path
+  try {
+    // Try to parse as URL relative to a base
+    const testUrl = new URL(url, 'https://example.com');
+    // Ensure it's still relative (pathname should match)
+    if (testUrl.origin !== 'https://example.com') return false;
+  } catch {
+    return false;
+  }
+  
+  return true;
+}
+
+/**
  * Middleware to require authentication
  * Redirects to login if not authenticated
  * 
@@ -37,8 +72,8 @@ export async function requireAuth(request, env, redirectTo = '/creator/login') {
     const currentUrl = new URL(request.url);
     const returnTo = currentUrl.pathname + currentUrl.search;
     
-    // Only add returnTo if it's not already the login page
-    if (!returnTo.startsWith('/creator/login')) {
+    // Only add returnTo if it's not already the login page and is a valid internal URL
+    if (!returnTo.startsWith('/creator/login') && isValidInternalUrl(returnTo)) {
       const loginUrl = new URL(redirectTo, request.url);
       loginUrl.searchParams.set('returnTo', returnTo);
       throw redirect(loginUrl.toString());
@@ -170,7 +205,26 @@ export async function generateCSRFToken(request, sessionSecret = null) {
 }
 
 /**
+ * Constant-time string comparison to prevent timing attacks
+ * 
+ * @param {string} a - First string
+ * @param {string} b - Second string
+ * @returns {boolean} - True if strings are equal
+ */
+function constantTimeEquals(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.length !== b.length) return false;
+  
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
+/**
  * Validates CSRF token with optional signature verification
+ * Uses constant-time comparison to prevent timing attacks
  * 
  * @param {Request} request - The incoming request
  * @param {string} expectedToken - Expected CSRF token
@@ -190,6 +244,16 @@ export async function validateCSRFToken(request, expectedToken, sessionSecret = 
   if (expectedToken.includes('.') && sessionSecret && typeof crypto !== 'undefined' && crypto.subtle) {
     try {
       const [token, signature] = expectedToken.split('.');
+      const [receivedTokenPart, receivedSignature] = receivedToken.includes('.') 
+        ? receivedToken.split('.') 
+        : [receivedToken, null];
+      
+      // Constant-time comparison of token parts
+      if (!constantTimeEquals(token, receivedTokenPart)) {
+        return false;
+      }
+      
+      // Verify signature
       const encoder = new TextEncoder();
       const keyData = encoder.encode(sessionSecret);
       const key = await crypto.subtle.importKey(
@@ -204,15 +268,17 @@ export async function validateCSRFToken(request, expectedToken, sessionSecret = 
         .map(b => b.toString(16).padStart(2, '0'))
         .join('');
       
-      return receivedToken === expectedToken && signature === expectedSignatureHex;
+      // Constant-time comparison of signatures
+      return constantTimeEquals(signature, receivedSignature) && 
+             constantTimeEquals(expectedSignatureHex, receivedSignature);
     } catch (err) {
-      // If signature verification fails, fall back to simple comparison
+      // If signature verification fails, fall back to constant-time comparison
       console.warn('CSRF signature verification failed:', err);
     }
   }
   
-  // Simple comparison (constant-time comparison would be better, but this is acceptable)
-  return receivedToken === expectedToken;
+  // Constant-time comparison to prevent timing attacks
+  return constantTimeEquals(receivedToken, expectedToken);
 }
 
 /**
