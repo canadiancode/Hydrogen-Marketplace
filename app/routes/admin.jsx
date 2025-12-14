@@ -53,6 +53,18 @@ export default function AdminLayout() {
               Listings
             </NavLink>
             <NavLink
+              to="/admin/creators"
+              className={({isActive}) =>
+                `border-b-2 py-4 px-1 text-sm font-medium ${
+                  isActive
+                    ? 'border-indigo-500 dark:border-indigo-400 text-indigo-600 dark:text-white'
+                    : 'border-transparent text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-white hover:border-gray-300 dark:hover:border-white/20'
+                }`
+              }
+            >
+              Creators
+            </NavLink>
+            <NavLink
               to="/admin/logistics"
               className={({isActive}) =>
                 `border-b-2 py-4 px-1 text-sm font-medium ${

@@ -1014,6 +1014,237 @@ export async function fetchCreatorListingById(listingId, creatorId, supabaseUrl,
 }
 
 /**
+ * Fetches a single listing by ID for admin review
+ * Uses service role key to bypass RLS and fetch all listing data
+ * Includes photos (all types), creator info, logistics events, and payouts
+ * 
+ * @param {string} listingId - Listing UUID
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} serviceRoleKey - Supabase service role key (for admin operations)
+ * @returns {Promise<object | null>} Listing object with all related data or null if not found
+ */
+export async function fetchAdminListingById(listingId, supabaseUrl, serviceRoleKey) {
+  if (!listingId || !supabaseUrl || !serviceRoleKey) {
+    return null;
+  }
+
+  const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
+  
+  // Fetch the listing
+  const {data: listing, error: listingError} = await supabase
+    .from('listings')
+    .select('*')
+    .eq('id', listingId)
+    .single();
+
+  if (listingError || !listing) {
+    console.error('Error fetching listing:', listingError);
+    return null;
+  }
+
+  // Fetch creator information
+  let creator = null;
+  if (listing.creator_id) {
+    const {data: creatorData, error: creatorError} = await supabase
+      .from('creators')
+      .select('*')
+      .eq('id', listing.creator_id)
+      .single();
+    
+    if (!creatorError && creatorData) {
+      creator = creatorData;
+    }
+  }
+
+  // Fetch all photos for this listing (all types: reference, intake, internal)
+  const {data: photos, error: photosError} = await supabase
+    .from('listing_photos')
+    .select('*')
+    .eq('listing_id', listingId)
+    .order('created_at', {ascending: true});
+
+  if (photosError) {
+    console.error('Error fetching listing photos:', photosError);
+  }
+
+  // Get public URLs for photos
+  const photosWithUrls = (photos || []).map(photo => {
+    const {data} = supabase.storage
+      .from('listing-photos')
+      .getPublicUrl(photo.storage_path);
+    
+    return {
+      ...photo,
+      publicUrl: data?.publicUrl || null,
+    };
+  });
+
+  // Group photos by type
+  const photosByType = {
+    reference: photosWithUrls.filter(p => p.photo_type === 'reference'),
+    intake: photosWithUrls.filter(p => p.photo_type === 'intake'),
+    internal: photosWithUrls.filter(p => p.photo_type === 'internal'),
+  };
+
+  // Fetch logistics events for this listing
+  const {data: logisticsEvents, error: logisticsError} = await supabase
+    .from('logistics_events')
+    .select('*')
+    .eq('listing_id', listingId)
+    .order('created_at', {ascending: true});
+
+  if (logisticsError) {
+    console.error('Error fetching logistics events:', logisticsError);
+  }
+
+  // Fetch payouts for this listing
+  const {data: payouts, error: payoutsError} = await supabase
+    .from('payouts')
+    .select('*')
+    .eq('listing_id', listingId)
+    .order('created_at', {ascending: false});
+
+  if (payoutsError) {
+    console.error('Error fetching payouts:', payoutsError);
+  }
+
+  // Format listing data for display
+  return {
+    ...listing,
+    photos: photosWithUrls,
+    photosByType,
+    creator,
+    logisticsEvents: logisticsEvents || [],
+    payouts: payouts || [],
+    price: (listing.price_cents / 100).toFixed(2),
+    priceDollars: listing.price_cents / 100,
+  };
+}
+
+/**
+ * Fetches all creators for admin review
+ * Uses service role key to bypass RLS and fetch all creators
+ * 
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} serviceRoleKey - Supabase service role key (for admin operations)
+ * @returns {Promise<Array>} Array of creator objects
+ */
+export async function fetchAllCreators(supabaseUrl, serviceRoleKey) {
+  if (!supabaseUrl || !serviceRoleKey) {
+    return [];
+  }
+
+  const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
+  
+  // Fetch all creators
+  const {data: creators, error: creatorsError} = await supabase
+    .from('creators')
+    .select('*')
+    .order('created_at', {ascending: false});
+  
+  if (creatorsError) {
+    console.error('Error fetching all creators:', creatorsError);
+    return [];
+  }
+  
+  if (!creators || creators.length === 0) {
+    return [];
+  }
+  
+  return creators;
+}
+
+/**
+ * Fetches a single creator by ID for admin review
+ * Uses service role key to bypass RLS and fetch all creator data
+ * Includes listings, verification info, and payouts
+ * 
+ * @param {string} creatorId - Creator UUID
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} serviceRoleKey - Supabase service role key (for admin operations)
+ * @returns {Promise<object | null>} Creator object with all related data or null if not found
+ */
+export async function fetchAdminCreatorById(creatorId, supabaseUrl, serviceRoleKey) {
+  if (!creatorId || !supabaseUrl || !serviceRoleKey) {
+    return null;
+  }
+
+  const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
+  
+  // Fetch the creator
+  const {data: creator, error: creatorError} = await supabase
+    .from('creators')
+    .select('*')
+    .eq('id', creatorId)
+    .single();
+
+  if (creatorError || !creator) {
+    console.error('Error fetching creator:', creatorError);
+    return null;
+  }
+
+  // Fetch creator verification info
+  const {data: verification, error: verificationError} = await supabase
+    .from('creator_verifications')
+    .select('*')
+    .eq('creator_id', creatorId)
+    .order('created_at', {ascending: false})
+    .limit(1)
+    .maybeSingle();
+
+  if (verificationError) {
+    console.error('Error fetching creator verification:', verificationError);
+  }
+
+  // Fetch all listings for this creator
+  const {data: listings, error: listingsError} = await supabase
+    .from('listings')
+    .select('*')
+    .eq('creator_id', creatorId)
+    .order('created_at', {ascending: false});
+
+  if (listingsError) {
+    console.error('Error fetching creator listings:', listingsError);
+  }
+
+  // Fetch all payouts for this creator
+  const {data: payouts, error: payoutsError} = await supabase
+    .from('payouts')
+    .select('*')
+    .eq('creator_id', creatorId)
+    .order('created_at', {ascending: false});
+
+  if (payoutsError) {
+    console.error('Error fetching creator payouts:', payoutsError);
+  }
+
+  // Format payouts with currency
+  const payoutsWithCurrency = (payouts || []).map(payout => ({
+    ...payout,
+    grossAmountDollars: payout.gross_amount_cents / 100,
+    platformFeeDollars: payout.platform_fee_cents / 100,
+    netAmountDollars: payout.net_amount_cents / 100,
+  }));
+
+  // Format listings with price
+  const listingsWithPrice = (listings || []).map(listing => ({
+    ...listing,
+    priceDollars: listing.price_cents / 100,
+    price: (listing.price_cents / 100).toFixed(2),
+  }));
+
+  return {
+    ...creator,
+    verification: verification || null,
+    listings: listingsWithPrice,
+    payouts: payoutsWithCurrency,
+    totalListings: listingsWithPrice.length,
+    totalPayouts: payoutsWithCurrency.length,
+    totalEarnings: payoutsWithCurrency.reduce((sum, p) => sum + p.netAmountDollars, 0),
+  };
+}
+
+/**
  * Creates a session cookie string for Supabase authentication
  * 
  * @param {object} session - Supabase session object
