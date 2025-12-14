@@ -3,6 +3,8 @@ import {getPaginationVariables, Analytics} from '@shopify/hydrogen';
 import {SearchForm} from '~/components/SearchForm';
 import {SearchResults} from '~/components/SearchResults';
 import {getEmptyPredictiveSearchResult} from '~/lib/search';
+import {rateLimitMiddleware} from '~/lib/rate-limit';
+import {getClientIP} from '~/lib/auth-helpers';
 
 /**
  * @type {Route.MetaFunction}
@@ -219,11 +221,34 @@ async function regularSearch({request, context}) {
   const {storefront} = context;
   const url = new URL(request.url);
   const variables = getPaginationVariables(request, {pageBy: 8});
-  const term = String(url.searchParams.get('q') || '');
+  
+  // Validate and limit search term length
+  const rawTerm = String(url.searchParams.get('q') || '');
+  const MAX_SEARCH_LENGTH = 200;
+  const term = rawTerm.trim().substring(0, MAX_SEARCH_LENGTH);
+  
+  // Sanitize search term (remove control characters)
+  const sanitizedTerm = term.replace(/[\x00-\x1F\x7F]/g, '');
+  
+  // Rate limiting for search
+  const clientIP = getClientIP(request);
+  const rateLimit = await rateLimitMiddleware(request, `search:${clientIP}`, {
+    maxRequests: 30,
+    windowMs: 60000, // 1 minute
+  });
+
+  if (!rateLimit.allowed) {
+    return {
+      type: 'regular',
+      term: sanitizedTerm,
+      error: 'Too many search requests. Please wait a moment.',
+      result: {total: 0, items: {}},
+    };
+  }
 
   // Search articles, pages, and products for the `q` term
   const {errors, ...items} = await storefront.query(SEARCH_QUERY, {
-    variables: {...variables, term},
+    variables: {...variables, term: sanitizedTerm},
   });
 
   if (!items) {
@@ -239,7 +264,7 @@ async function regularSearch({request, context}) {
     ? errors.map(({message}) => message).join(', ')
     : undefined;
 
-  return {type: 'regular', term, error, result: {total, items}};
+  return {type: 'regular', term: sanitizedTerm, error, result: {total, items}};
 }
 
 /**
@@ -378,11 +403,31 @@ const PREDICTIVE_SEARCH_QUERY = `#graphql
 async function predictiveSearch({request, context}) {
   const {storefront} = context;
   const url = new URL(request.url);
-  const term = String(url.searchParams.get('q') || '').trim();
-  const limit = Number(url.searchParams.get('limit') || 10);
+  
+  // Validate and limit search term length
+  const rawTerm = String(url.searchParams.get('q') || '').trim();
+  const MAX_SEARCH_LENGTH = 200;
+  const term = rawTerm.substring(0, MAX_SEARCH_LENGTH).replace(/[\x00-\x1F\x7F]/g, '');
+  
+  // Validate and limit limit parameter
+  const rawLimit = Number(url.searchParams.get('limit') || 10);
+  const MAX_LIMIT = 50;
+  const limit = Math.min(Math.max(1, rawLimit), MAX_LIMIT);
+  
   const type = 'predictive';
 
   if (!term) return {type, term, result: getEmptyPredictiveSearchResult()};
+
+  // Rate limiting for predictive search
+  const clientIP = getClientIP(request);
+  const rateLimit = await rateLimitMiddleware(request, `search-predictive:${clientIP}`, {
+    maxRequests: 60, // More lenient for predictive (autocomplete)
+    windowMs: 60000, // 1 minute
+  });
+
+  if (!rateLimit.allowed) {
+    return {type, term, result: getEmptyPredictiveSearchResult()};
+  }
 
   // Predictively search articles, collections, pages, products, and queries (suggestions)
   const {predictiveSearch: items, errors} = await storefront.query(
@@ -398,9 +443,13 @@ async function predictiveSearch({request, context}) {
   );
 
   if (errors) {
-    throw new Error(
-      `Shopify API errors: ${errors.map(({message}) => message).join(', ')}`,
-    );
+    // Log error but don't expose full details
+    console.error('Predictive search API errors:', {
+      errors: errors.map(({message}) => message),
+      term,
+      timestamp: new Date().toISOString(),
+    });
+    throw new Error('Search service temporarily unavailable');
   }
 
   if (!items) {

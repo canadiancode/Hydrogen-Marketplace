@@ -10,6 +10,8 @@ import {
   DELETE_ADDRESS_MUTATION,
   CREATE_ADDRESS_MUTATION,
 } from '~/graphql/customer-account/CustomerAddressMutations';
+import {rateLimitMiddleware} from '~/lib/rate-limit';
+import {getClientIP} from '~/lib/auth-helpers';
 
 /**
  * @type {Route.MetaFunction}
@@ -33,6 +35,22 @@ export async function loader({context}) {
 export async function action({request, context}) {
   const {customerAccount} = context;
 
+  // Rate limiting: max 15 requests per minute per IP
+  const clientIP = getClientIP(request);
+  const rateLimit = await rateLimitMiddleware(request, `account-addresses:${clientIP}`, {
+    maxRequests: 15,
+    windowMs: 60000, // 1 minute
+  });
+
+  if (!rateLimit.allowed) {
+    return data(
+      {
+        error: 'Too many requests. Please wait a moment before trying again.',
+      },
+      {status: 429},
+    );
+  }
+
   try {
     const form = await request.formData();
 
@@ -41,6 +59,15 @@ export async function action({request, context}) {
       : null;
     if (!addressId) {
       throw new Error('You must provide an address id.');
+    }
+
+    // Validate addressId format (should be Shopify GID format)
+    // Shopify GIDs are in format: gid://shopify/CustomerAddress/{id}
+    if (!addressId.match(/^gid:\/\/shopify\/CustomerAddress\/\d+$/) && addressId !== 'NEW_ADDRESS_ID') {
+      return data(
+        {error: {[addressId]: 'Invalid address ID format'}},
+        {status: 400},
+      );
     }
 
     // this will ensure redirecting to login never happen for mutatation
@@ -57,6 +84,56 @@ export async function action({request, context}) {
     const defaultAddress = form.has('defaultAddress')
       ? String(form.get('defaultAddress')) === 'on'
       : false;
+    
+    // Define field-specific sanitization
+    const sanitizeAddressField = (key, value) => {
+      if (!value || typeof value !== 'string') return '';
+      
+      let sanitized = value.trim();
+      
+      // Remove control characters
+      sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, '');
+      
+      // Field-specific limits
+      const limits = {
+        firstName: 50,
+        lastName: 50,
+        company: 100,
+        address1: 200,
+        address2: 200,
+        city: 100,
+        zoneCode: 50,
+        zip: 20,
+        territoryCode: 2, // Country code
+        phoneNumber: 20,
+      };
+      
+      const maxLength = limits[key] || 255;
+      sanitized = sanitized.substring(0, maxLength);
+      
+      // Remove HTML tags
+      sanitized = sanitized.replace(/<[^>]*>/g, '');
+      
+      // Territory code must be exactly 2 uppercase letters
+      if (key === 'territoryCode') {
+        sanitized = sanitized
+          .toUpperCase()
+          .replace(/[^A-Z]/g, '')
+          .substring(0, 2);
+      }
+      
+      // Phone number validation
+      if (key === 'phoneNumber' && sanitized) {
+        // Remove non-digit characters except + at start
+        sanitized = sanitized.replace(/[^\d+]/g, '');
+        if (!sanitized.match(/^\+?[1-9]\d{3,14}$/)) {
+          return ''; // Invalid phone format
+        }
+      }
+      
+      return sanitized;
+    };
+    
     const address = {};
     const keys = [
       'address1',
@@ -74,7 +151,10 @@ export async function action({request, context}) {
     for (const key of keys) {
       const value = form.get(key);
       if (typeof value === 'string') {
-        address[key] = value;
+        const sanitized = sanitizeAddressField(key, value);
+        if (sanitized.length > 0) {
+          address[key] = sanitized;
+        }
       }
     }
 
@@ -111,16 +191,25 @@ export async function action({request, context}) {
             defaultAddress,
           };
         } catch (error) {
-          if (error instanceof Error) {
-            return data(
-              {error: {[addressId]: error.message}},
-              {
-                status: 400,
-              },
-            );
+          // Log full error server-side only
+          console.error('Address create error:', {
+            error: error.message,
+            errorStack: error.stack,
+            addressId,
+            timestamp: new Date().toISOString(),
+          });
+          
+          let userFriendlyError = 'Operation failed. Please try again.';
+          const errorMessage = (error.message || '').toLowerCase();
+          
+          if (errorMessage.includes('validation') || errorMessage.includes('invalid')) {
+            userFriendlyError = 'Please check your input.';
+          } else if (errorMessage.includes('required')) {
+            userFriendlyError = 'Please fill in all required fields.';
           }
+          
           return data(
-            {error: {[addressId]: error}},
+            {error: {[addressId]: userFriendlyError}},
             {
               status: 400,
             },
@@ -131,12 +220,30 @@ export async function action({request, context}) {
       case 'PUT': {
         // handle address updates
         try {
+          // Validate addressId before decodeURIComponent
+          let decodedAddressId = addressId;
+          if (addressId !== 'NEW_ADDRESS_ID') {
+            try {
+              decodedAddressId = decodeURIComponent(addressId);
+              // Additional validation after decode
+              if (!decodedAddressId.match(/^gid:\/\/shopify\/CustomerAddress\/\d+$/)) {
+                throw new Error('Invalid address ID format');
+              }
+            } catch (decodeError) {
+              console.error('Error decoding address ID:', decodeError);
+              return data(
+                {error: {[addressId]: 'Invalid address ID'}},
+                {status: 400},
+              );
+            }
+          }
+          
           const {data, errors} = await customerAccount.mutate(
             UPDATE_ADDRESS_MUTATION,
             {
               variables: {
                 address,
-                addressId: decodeURIComponent(addressId),
+                addressId: decodedAddressId,
                 defaultAddress,
                 language: customerAccount.i18n.language,
               },
@@ -161,16 +268,25 @@ export async function action({request, context}) {
             defaultAddress,
           };
         } catch (error) {
-          if (error instanceof Error) {
-            return data(
-              {error: {[addressId]: error.message}},
-              {
-                status: 400,
-              },
-            );
+          // Log full error server-side only
+          console.error('Address update error:', {
+            error: error.message,
+            errorStack: error.stack,
+            addressId,
+            timestamp: new Date().toISOString(),
+          });
+          
+          let userFriendlyError = 'Operation failed. Please try again.';
+          const errorMessage = (error.message || '').toLowerCase();
+          
+          if (errorMessage.includes('not found')) {
+            userFriendlyError = 'Address not found.';
+          } else if (errorMessage.includes('validation') || errorMessage.includes('invalid')) {
+            userFriendlyError = 'Please check your input.';
           }
+          
           return data(
-            {error: {[addressId]: error}},
+            {error: {[addressId]: userFriendlyError}},
             {
               status: 400,
             },
@@ -181,11 +297,29 @@ export async function action({request, context}) {
       case 'DELETE': {
         // handles address deletion
         try {
+          // Validate addressId before decodeURIComponent
+          let decodedAddressId = addressId;
+          if (addressId !== 'NEW_ADDRESS_ID') {
+            try {
+              decodedAddressId = decodeURIComponent(addressId);
+              // Additional validation after decode
+              if (!decodedAddressId.match(/^gid:\/\/shopify\/CustomerAddress\/\d+$/)) {
+                throw new Error('Invalid address ID format');
+              }
+            } catch (decodeError) {
+              console.error('Error decoding address ID:', decodeError);
+              return data(
+                {error: {[addressId]: 'Invalid address ID'}},
+                {status: 400},
+              );
+            }
+          }
+          
           const {data, errors} = await customerAccount.mutate(
             DELETE_ADDRESS_MUTATION,
             {
               variables: {
-                addressId: decodeURIComponent(addressId),
+                addressId: decodedAddressId,
                 language: customerAccount.i18n.language,
               },
             },
@@ -205,16 +339,25 @@ export async function action({request, context}) {
 
           return {error: null, deletedAddress: addressId};
         } catch (error) {
-          if (error instanceof Error) {
-            return data(
-              {error: {[addressId]: error.message}},
-              {
-                status: 400,
-              },
-            );
+          // Log full error server-side only
+          console.error('Address delete error:', {
+            error: error.message,
+            errorStack: error.stack,
+            addressId,
+            timestamp: new Date().toISOString(),
+          });
+          
+          let userFriendlyError = 'Operation failed. Please try again.';
+          const errorMessage = (error.message || '').toLowerCase();
+          
+          if (errorMessage.includes('not found')) {
+            userFriendlyError = 'Address not found.';
+          } else if (errorMessage.includes('validation') || errorMessage.includes('invalid')) {
+            userFriendlyError = 'Invalid address ID.';
           }
+          
           return data(
-            {error: {[addressId]: error}},
+            {error: {[addressId]: userFriendlyError}},
             {
               status: 400,
             },
@@ -232,16 +375,16 @@ export async function action({request, context}) {
       }
     }
   } catch (error) {
-    if (error instanceof Error) {
-      return data(
-        {error: error.message},
-        {
-          status: 400,
-        },
-      );
-    }
+    // Log full error server-side only
+    console.error('Address action error:', {
+      error: error.message,
+      errorStack: error.stack,
+      timestamp: new Date().toISOString(),
+    });
+    
+    // Return generic error to client
     return data(
-      {error},
+      {error: 'An error occurred. Please try again.'},
       {
         status: 400,
       },

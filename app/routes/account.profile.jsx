@@ -6,6 +6,8 @@ import {
   useNavigation,
   useOutletContext,
 } from 'react-router';
+import {rateLimitMiddleware} from '~/lib/rate-limit';
+import {getClientIP} from '~/lib/auth-helpers';
 
 /**
  * @type {Route.MetaFunction}
@@ -33,17 +35,54 @@ export async function action({request, context}) {
     return data({error: 'Method not allowed'}, {status: 405});
   }
 
+  // Rate limiting: max 10 requests per minute per IP
+  const clientIP = getClientIP(request);
+  const rateLimit = await rateLimitMiddleware(request, `account-profile:${clientIP}`, {
+    maxRequests: 10,
+    windowMs: 60000, // 1 minute
+  });
+
+  if (!rateLimit.allowed) {
+    return data(
+      {
+        error: 'Too many requests. Please wait a moment before trying again.',
+        customer: null,
+      },
+      {status: 429},
+    );
+  }
+
   const form = await request.formData();
+
+  // Input validation constants
+  const MAX_NAME_LENGTH = 50;
 
   try {
     const customer = {};
     const validInputKeys = ['firstName', 'lastName'];
+    
     for (const [key, value] of form.entries()) {
       if (!validInputKeys.includes(key)) {
         continue;
       }
       if (typeof value === 'string' && value.length) {
-        customer[key] = value;
+        // Sanitize name fields
+        let sanitized = value.trim();
+        
+        // Remove control characters and limit length
+        sanitized = sanitized
+          .replace(/[\x00-\x1F\x7F]/g, '')
+          .substring(0, MAX_NAME_LENGTH);
+        
+        // Remove HTML tags
+        sanitized = sanitized.replace(/<[^>]*>/g, '');
+        
+        // Only allow letters, spaces, hyphens, apostrophes
+        sanitized = sanitized.replace(/[^a-zA-Z\s'-]/g, '');
+        
+        if (sanitized.length > 0) {
+          customer[key] = sanitized;
+        }
       }
     }
 
@@ -71,8 +110,26 @@ export async function action({request, context}) {
       customer: data?.customerUpdate?.customer,
     };
   } catch (error) {
+    // Log full error details server-side only
+    console.error('Account profile update error:', {
+      error: error.message,
+      errorStack: error.stack,
+      timestamp: new Date().toISOString(),
+    });
+    
+    // Return generic error to client
+    let userFriendlyError = 'Failed to update profile. Please try again.';
+    
+    // Only expose safe, specific errors (whitelist approach)
+    const errorMessage = (error.message || '').toLowerCase();
+    if (errorMessage.includes('validation') || errorMessage.includes('invalid')) {
+      userFriendlyError = 'Please check your input and try again.';
+    } else if (errorMessage.includes('required')) {
+      userFriendlyError = 'Please fill in all required fields.';
+    }
+    
     return data(
-      {error: error.message, customer: null},
+      {error: userFriendlyError, customer: null},
       {
         status: 400,
       },

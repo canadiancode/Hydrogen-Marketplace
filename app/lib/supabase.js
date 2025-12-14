@@ -756,6 +756,77 @@ export async function checkAdminAuth(request, env) {
 }
 
 /**
+ * Fetches all listings for a creator
+ * Includes listing photos and formats data for display
+ * 
+ * @param {string} creatorId - Creator's UUID
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} anonKey - Supabase anon/public key
+ * @param {string} accessToken - User's access token
+ * @returns {Promise<Array>} Array of listing objects with photos
+ */
+export async function fetchCreatorListings(creatorId, supabaseUrl, anonKey, accessToken) {
+  if (!creatorId || !supabaseUrl || !anonKey || !accessToken) {
+    return [];
+  }
+
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  
+  // Fetch listings for this creator
+  // RLS will automatically filter by creator_id based on auth.email()
+  const {data: listings, error: listingsError} = await supabase
+    .from('listings')
+    .select('*')
+    .eq('creator_id', creatorId)
+    .order('created_at', {ascending: false});
+
+  if (listingsError) {
+    console.error('Error fetching listings:', listingsError);
+    return [];
+  }
+
+  if (!listings || listings.length === 0) {
+    return [];
+  }
+
+  // Fetch photos for all listings
+  const listingIds = listings.map(l => l.id);
+  const {data: photos, error: photosError} = await supabase
+    .from('listing_photos')
+    .select('*')
+    .in('listing_id', listingIds)
+    .eq('photo_type', 'reference'); // Only get reference photos for display
+
+  if (photosError) {
+    console.error('Error fetching listing photos:', photosError);
+    // Continue without photos rather than failing completely
+  }
+
+  // Group photos by listing_id
+  const photosByListing = {};
+  if (photos) {
+    photos.forEach(photo => {
+      if (!photosByListing[photo.listing_id]) {
+        photosByListing[photo.listing_id] = [];
+      }
+      photosByListing[photo.listing_id].push(photo);
+    });
+  }
+
+  // Combine listings with their photos
+  const listingsWithPhotos = listings.map(listing => ({
+    ...listing,
+    photos: photosByListing[listing.id] || [],
+    // Format price for display
+    price: (listing.price_cents / 100).toFixed(2),
+    // Get first photo URL if available (for thumbnail)
+    thumbnailUrl: photosByListing[listing.id]?.[0]?.storage_path || null,
+  }));
+
+  return listingsWithPhotos;
+}
+
+/**
  * Creates a session cookie string for Supabase authentication
  * 
  * @param {object} session - Supabase session object

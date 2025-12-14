@@ -167,13 +167,6 @@ export async function uploadProfileImage(file, userEmail, supabaseUrl, anonKey, 
       .from('creator-profile-images')
       .getPublicUrl(filePath);
 
-    console.log('Generated public URL:', {
-      filePath,
-      publicUrl: urlData?.publicUrl,
-      urlData,
-      fullResponse: JSON.stringify(urlData),
-    });
-
     // Check if publicUrl exists - it should be in urlData.publicUrl
     const publicUrl = urlData?.publicUrl;
     
@@ -203,12 +196,6 @@ export async function uploadProfileImage(file, userEmail, supabaseUrl, anonKey, 
         error: new Error('Invalid image URL format'),
       };
     }
-
-    console.log('Image upload successful:', {
-      filePath,
-      publicUrl,
-      urlLength: publicUrl.length,
-    });
 
     return {
       url: publicUrl,

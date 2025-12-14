@@ -50,7 +50,6 @@ export async function action({request, context}) {
       
       formDataKeys.push(entry);
     }
-    console.log('Action: All FormData entries', JSON.stringify(formDataKeys, null, 2));
     
     // Extract form data
     const title = formData.get('title')?.toString().trim();
@@ -58,20 +57,6 @@ export async function action({request, context}) {
     const story = formData.get('description')?.toString().trim();
     const price = formData.get('price')?.toString();
     const photos = formData.getAll('photos');
-    
-    console.log('Action: Extracted photos from FormData', {
-      photosLength: photos.length,
-      photos,
-    });
-
-    console.log('Action: Form data received', {
-      hasTitle: !!title,
-      hasCategory: !!category,
-      hasStory: !!story,
-      hasPrice: !!price,
-      photoCount: photos.length,
-      photoTypes: photos.map(p => typeof p),
-    });
 
     // Validate required fields
     if (!title || !category || !story || !price) {
@@ -118,11 +103,6 @@ export async function action({request, context}) {
       return detail;
     });
     
-    console.log('Action: Raw photos array', JSON.stringify({
-      length: photos.length,
-      photos: rawPhotoDetails,
-    }, null, 2));
-    
     // Log the structure of photos for debugging
     const photoDetails = photos.map((photo, idx) => {
       // First check if photo exists
@@ -161,55 +141,38 @@ export async function action({request, context}) {
       
       return details;
     });
-    
-    console.log('Action: Inspecting photos', {
-      count: photos.length,
-      photos: photoDetails,
-    });
 
     const validPhotos = photos.filter((photo, idx) => {
       // Very lenient validation - accept any non-empty value from FormData
       // Files are submitted manually from client, so we should get File objects
       if (!photo) {
-        console.log(`Action: Photo ${idx} is falsy`);
         return false;
       }
       
       // Reject empty strings (these come from the file input which we don't use anymore)
       if (typeof photo === 'string') {
         if (photo.trim() === '') {
-          console.log(`Action: Photo ${idx} is empty string - skipping`);
           return false;
         }
         // If it's a non-empty string, it's not a file - reject it
-        console.log(`Action: Photo ${idx} is non-empty string (not a file) - skipping`);
         return false;
       }
       
       // Accept File instances
       if (photo instanceof File) {
-        console.log(`Action: Photo ${idx} is File instance`);
         return true;
       }
       
       // Accept Blob instances
       if (typeof Blob !== 'undefined' && photo instanceof Blob) {
-        console.log(`Action: Photo ${idx} is Blob instance`);
         return true;
       }
       
       // Accept any object (FormData files are objects)
       if (typeof photo === 'object') {
-        console.log(`Action: Photo ${idx} is object, accepting`, {
-          constructor: photo.constructor?.name,
-          hasSize: typeof photo.size === 'number',
-          hasType: typeof photo.type === 'string',
-          hasName: typeof photo.name === 'string',
-        });
         return true;
       }
       
-      console.log(`Action: Photo ${idx} rejected - type: ${typeof photo}`);
       return false;
     });
 
@@ -225,8 +188,6 @@ export async function action({request, context}) {
       });
       return new Response('At least one photo is required', {status: 400});
     }
-
-    console.log('Action: Valid photos found', {count: validPhotos.length});
 
     const {createUserSupabaseClient} = await import('~/lib/supabase');
     const {fetchCreatorProfile} = await import('~/lib/supabase');
@@ -248,7 +209,6 @@ export async function action({request, context}) {
     const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
 
     // Get creator_id from email
-    console.log('Action: Fetching creator profile for', user.email);
     const creatorProfile = await fetchCreatorProfile(user.email, supabaseUrl, anonKey, accessToken);
     if (!creatorProfile || !creatorProfile.id) {
       console.error('Action: Creator profile not found', {email: user.email});
@@ -256,17 +216,8 @@ export async function action({request, context}) {
     }
 
     const creatorId = creatorProfile.id;
-    console.log('Action: Creator ID found', {creatorId});
 
     // Create listing record
-    console.log('Action: Creating listing', {
-      creatorId,
-      title,
-      category,
-      storyLength: story.length,
-      priceCents,
-    });
-
     const {data: listing, error: listingError} = await supabase
       .from('listings')
       .insert({
@@ -292,7 +243,6 @@ export async function action({request, context}) {
     }
 
     const listingId = listing.id;
-    console.log('Action: Listing created successfully', {listingId});
 
     // Upload photos and create listing_photos records
     const uploadedPhotos = [];
@@ -302,12 +252,6 @@ export async function action({request, context}) {
       const photo = validPhotos[i];
       
       try {
-        console.log(`Action: Processing photo ${i + 1}/${validPhotos.length}`, {
-          name: photo.name,
-          type: photo.type,
-          size: photo.size,
-        });
-
         // Upload photo to Supabase Storage
         const sanitizedEmail = user.email
           .replace(/[@.]/g, '_')
@@ -345,8 +289,6 @@ export async function action({request, context}) {
         const fileName = `${timestamp}-${random}.${fileExt}`;
         const filePath = `listings/${sanitizedEmail}/${listingId}/${fileName}`;
 
-        console.log(`Action: Uploading photo ${i + 1} to`, filePath);
-
         // Try to upload directly first (Supabase might accept File/Blob objects)
         // If that fails, convert to ArrayBuffer
         let uploadPayload;
@@ -355,13 +297,10 @@ export async function action({request, context}) {
 
         // Try to use the photo directly if it's a File or Blob
         if (photo instanceof File || (typeof Blob !== 'undefined' && photo instanceof Blob)) {
-          console.log(`Action: Using photo ${i + 1} directly as File/Blob`);
           uploadPayload = photo;
         } else if (typeof photo.arrayBuffer === 'function') {
-          console.log(`Action: Converting photo ${i + 1} using arrayBuffer()`);
           uploadPayload = await photo.arrayBuffer();
         } else if (typeof photo.stream === 'function') {
-          console.log(`Action: Converting photo ${i + 1} using stream()`);
           // Convert stream to ArrayBuffer
           const stream = photo.stream();
           const chunks = [];
@@ -381,11 +320,9 @@ export async function action({request, context}) {
           }
           uploadPayload = buffer.buffer;
         } else if (typeof photo.bytes === 'function') {
-          console.log(`Action: Converting photo ${i + 1} using bytes()`);
           uploadPayload = await photo.bytes();
         } else {
           // Last resort: try to convert to Blob
-          console.log(`Action: Converting photo ${i + 1} to Blob`);
           try {
             const blob = typeof Blob !== 'undefined' && photo instanceof Blob 
               ? photo 
@@ -413,8 +350,6 @@ export async function action({request, context}) {
           continue;
         }
 
-        console.log(`Action: Photo ${i + 1} uploaded successfully`, uploadData);
-
         // Create listing_photo record
         const {data: photoRecord, error: photoError} = await supabase
           .from('listing_photos')
@@ -434,7 +369,6 @@ export async function action({request, context}) {
           continue;
         }
 
-        console.log(`Action: Photo record ${i + 1} created successfully`, photoRecord);
         uploadedPhotos.push(photoRecord);
       } catch (err) {
         console.error(`Action: Unexpected error processing photo ${i + 1}:`, err);
@@ -457,14 +391,8 @@ export async function action({request, context}) {
       console.warn('Action: Some photos failed to upload:', errors);
     }
 
-    console.log('Action: Listing submission successful', {
-      listingId,
-      photosUploaded: uploadedPhotos.length,
-      totalPhotos: validPhotos.length,
-    });
-
-    // Success - redirect to listings page
-    return redirect('/creator/listings');
+    // Success - redirect to listings page with success parameter
+    return redirect('/creator/listings?submitted=true');
   } catch (error) {
     console.error('Action: Unexpected error creating listing:', error);
     console.error('Action: Error stack:', error.stack);
@@ -560,7 +488,6 @@ export default function CreateListing() {
     const fileArray = Array.from(files || []);
     if (fileArray.length === 0) return;
     
-    console.log('Files selected:', fileArray.length);
     
     // Filter to only image files
     const imageFiles = fileArray.filter(file => file.type.startsWith('image/'));
@@ -569,7 +496,6 @@ export default function CreateListing() {
     const newPhotos = imageFiles.map((file) => {
       try {
         const preview = URL.createObjectURL(file);
-        console.log('Created preview URL:', preview, 'for file:', file.name, 'type:', file.type);
         return {
           file,
           preview,
@@ -584,8 +510,6 @@ export default function CreateListing() {
     if (newPhotos.length > 0) {
       setSelectedPhotos((prev) => {
         const updated = [...prev, ...newPhotos];
-        console.log('Total photos after update:', updated.length);
-        console.log('Photo previews:', updated.map(p => ({id: p.id, preview: p.preview?.substring(0, 50)})));
         return updated;
       });
     }
@@ -643,21 +567,9 @@ export default function CreateListing() {
     });
   };
 
-  // Debug: Log selectedPhotos changes
-  useEffect(() => {
-    console.log('selectedPhotos state changed:', {
-      count: selectedPhotos.length,
-      photos: selectedPhotos.map(p => ({
-        id: p.id,
-        fileName: p.file?.name,
-        fileType: p.file?.type,
-        preview: p.preview,
-        previewValid: p.preview && p.preview.startsWith('blob:')
-      }))
-    });
-  }, [selectedPhotos]);
 
   // Cleanup object URLs on unmount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     return () => {
       // Clean up all blob URLs when component unmounts
@@ -667,7 +579,6 @@ export default function CreateListing() {
         }
       });
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run cleanup on unmount
 
   // Handle category selection
@@ -737,14 +648,6 @@ export default function CreateListing() {
       if (photo.file) {
         formData.append('photos', photo.file);
       }
-    });
-
-    console.log('Submitting form with', {
-      title: titleInput?.value,
-      category: selectedCategory,
-      description: descriptionInput?.value,
-      price: priceInput?.value,
-      photoCount: selectedPhotos.length,
     });
 
     // Submit the form with our FormData
@@ -998,13 +901,7 @@ export default function CreateListing() {
                                     setImageErrors(prev => new Set(prev).add(photo.id));
                                   }}
                                   onLoad={(e) => {
-                                    console.log('Image loaded successfully:', {
-                                      preview: photo.preview,
-                                      id: photo.id,
-                                      fileName: photo.file?.name,
-                                      naturalWidth: e.target.naturalWidth,
-                                      naturalHeight: e.target.naturalHeight
-                                    });
+                                    // Image loaded successfully
                                     // Remove from errors if it was there
                                     setImageErrors(prev => {
                                       const next = new Set(prev);

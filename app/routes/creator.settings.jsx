@@ -3,6 +3,7 @@ import {Form, useLoaderData, useActionData, useNavigation} from 'react-router';
 import {requireAuth, generateCSRFToken, validateCSRFToken, getClientIP} from '~/lib/auth-helpers';
 import {fetchCreatorProfile, updateCreatorProfile} from '~/lib/supabase';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
+import {sanitizeHTML} from '~/lib/sanitize';
 import {ChevronDownIcon} from '@heroicons/react/16/solid';
 
 export const meta = () => {
@@ -91,7 +92,7 @@ export async function action({request, context}) {
   if (!rateLimit.allowed) {
     return {
       success: false,
-      error: 'Too many requests. Please wait a moment before trying again.',
+      error: `Too many requests. Please wait a moment before trying again. You can try again after ${new Date(rateLimit.resetAt).toLocaleTimeString()}.`,
     };
   }
   
@@ -118,6 +119,34 @@ export async function action({request, context}) {
     let imageUrl = null;
     
     if (imageFile && imageFile instanceof File && imageFile.size > 0) {
+      // Validate file before upload
+      const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+      const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+      
+      // Check file size
+      if (imageFile.size > MAX_IMAGE_SIZE) {
+        return {
+          success: false,
+          error: 'Image file size exceeds 5MB limit. Please choose a smaller image.',
+        };
+      }
+      
+      // Check file is not empty
+      if (imageFile.size === 0) {
+        return {
+          success: false,
+          error: 'Image file is empty. Please select a valid image.',
+        };
+      }
+      
+      // Validate MIME type
+      if (!ALLOWED_IMAGE_TYPES.includes(imageFile.type)) {
+        return {
+          success: false,
+          error: 'Invalid image type. Only JPEG, PNG, WebP, and GIF are allowed.',
+        };
+      }
+      
       try {
         const {uploadProfileImage} = await import('~/lib/image-upload');
         const uploadResult = await uploadProfileImage(
@@ -137,10 +166,20 @@ export async function action({request, context}) {
         
         imageUrl = uploadResult.url;
       } catch (error) {
-        console.error('Error uploading image:', error);
+        // Log full error server-side only
+        console.error('Error uploading image:', {
+          error: error.message,
+          errorStack: error.stack,
+          fileName: imageFile.name,
+          fileSize: imageFile.size,
+          fileType: imageFile.type,
+          timestamp: new Date().toISOString(),
+        });
+        
+        // Return generic error to client
         return {
           success: false,
-          error: error.message || 'Failed to upload image. Please try again.',
+          error: 'Failed to upload image. Please try again.',
         };
       }
     }
@@ -162,6 +201,14 @@ export async function action({request, context}) {
       rawUpdates.profileImageUrl = imageUrl;
     }
     
+    // Input validation constants
+    const MAX_FIRST_NAME_LENGTH = 50;
+    const MAX_LAST_NAME_LENGTH = 50;
+    const MIN_USERNAME_LENGTH = 3;
+    const MAX_USERNAME_LENGTH = 30;
+    const MAX_DISPLAY_NAME_LENGTH = 100;
+    const MAX_BIO_LENGTH = 1000;
+    
     // Sanitize and validate all inputs
     const sanitizeInput = (value, type) => {
       if (!value || value === '') return null;
@@ -175,33 +222,37 @@ export async function action({request, context}) {
           // Names: letters, spaces, hyphens, apostrophes only
           sanitized = sanitized.replace(/[^a-zA-Z\s'-]/g, '');
           // Limit length
-          if (sanitized.length > 50) {
-            sanitized = sanitized.substring(0, 50);
+          if (sanitized.length > MAX_FIRST_NAME_LENGTH) {
+            sanitized = sanitized.substring(0, MAX_FIRST_NAME_LENGTH);
           }
           break;
         case 'username':
           // Username: alphanumeric and hyphens only (no underscores)
           sanitized = sanitized.replace(/[^a-zA-Z0-9-]/g, '');
-          // Limit length (already validated elsewhere)
+          // Limit length (validated separately below)
           break;
         case 'displayName':
           // Display name: letters, numbers, spaces, basic punctuation
           sanitized = sanitized.replace(/[^a-zA-Z0-9\s'.-]/g, '');
           // Limit length
-          if (sanitized.length > 100) {
-            sanitized = sanitized.substring(0, 100);
+          if (sanitized.length > MAX_DISPLAY_NAME_LENGTH) {
+            sanitized = sanitized.substring(0, MAX_DISPLAY_NAME_LENGTH);
           }
           break;
         case 'bio':
-          // Bio: remove potentially dangerous characters
-          // Remove SQL injection patterns: ' OR '1'='1, DROP TABLE, etc.
+          // Bio: Use HTML sanitization for XSS protection
+          // First remove control characters and dangerous patterns
           sanitized = sanitized
-            .replace(/['"]/g, '') // Remove quotes
-            .replace(/[<>{}[\]`$\\]/g, '') // Remove dangerous characters
-            .replace(/[\x00-\x1F\x7F]/g, ''); // Remove control characters
-          // Limit length
-          if (sanitized.length > 1000) {
-            sanitized = sanitized.substring(0, 1000);
+            .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
+            .replace(/javascript:/gi, '') // Remove javascript: protocol
+            .replace(/on\w+\s*=/gi, ''); // Remove event handlers like onclick=
+          
+          // Apply HTML sanitization (will strip any remaining HTML/script tags)
+          sanitized = sanitizeHTML(sanitized);
+          
+          // Limit length after sanitization
+          if (sanitized.length > MAX_BIO_LENGTH) {
+            sanitized = sanitized.substring(0, MAX_BIO_LENGTH);
           }
           break;
         case 'payoutMethod':
@@ -275,16 +326,22 @@ export async function action({request, context}) {
       }
     });
     
-    // Validate required fields
+    // Validate required fields with comprehensive checks
     if (!updates.displayName) {
       fieldErrors.displayName = 'Display name is required';
-    } else if (updates.displayName.length > 100) {
-      fieldErrors.displayName = 'Display name must be 100 characters or less.';
+    } else if (updates.displayName.length === 0) {
+      fieldErrors.displayName = 'Display name cannot be empty';
+    } else if (updates.displayName.length > MAX_DISPLAY_NAME_LENGTH) {
+      fieldErrors.displayName = `Display name must be ${MAX_DISPLAY_NAME_LENGTH} characters or less.`;
+    } else if (updates.displayName.trim().length === 0) {
+      fieldErrors.displayName = 'Display name cannot be only whitespace';
     }
     
     // Validate username format (alphanumeric and hyphens only - no underscores)
     if (!updates.username) {
       fieldErrors.username = 'Username is required';
+    } else if (updates.username.length === 0) {
+      fieldErrors.username = 'Username cannot be empty';
     } else {
       // Username validation: only alphanumeric characters and hyphens (no underscores)
       // Must start and end with alphanumeric character
@@ -293,25 +350,37 @@ export async function action({request, context}) {
         fieldErrors.username = 'Username can only contain letters, numbers, and hyphens. It must start and end with a letter or number.';
       }
       // Additional length validation
-      if (updates.username.length < 3) {
-        fieldErrors.username = 'Username must be at least 3 characters long.';
+      if (updates.username.length < MIN_USERNAME_LENGTH) {
+        fieldErrors.username = `Username must be at least ${MIN_USERNAME_LENGTH} characters long.`;
       }
-      if (updates.username.length > 30) {
-        fieldErrors.username = 'Username must be 30 characters or less.';
+      if (updates.username.length > MAX_USERNAME_LENGTH) {
+        fieldErrors.username = `Username must be ${MAX_USERNAME_LENGTH} characters or less.`;
       }
     }
     
     // Validate name fields length
-    if (updates.firstName && updates.firstName.length > 50) {
-      fieldErrors.firstName = 'First name must be 50 characters or less.';
+    if (updates.firstName) {
+      if (updates.firstName.length > MAX_FIRST_NAME_LENGTH) {
+        fieldErrors.firstName = `First name must be ${MAX_FIRST_NAME_LENGTH} characters or less.`;
+      } else if (updates.firstName.trim().length === 0 && updates.firstName.length > 0) {
+        fieldErrors.firstName = 'First name cannot be only whitespace';
+      }
     }
-    if (updates.lastName && updates.lastName.length > 50) {
-      fieldErrors.lastName = 'Last name must be 50 characters or less.';
+    if (updates.lastName) {
+      if (updates.lastName.length > MAX_LAST_NAME_LENGTH) {
+        fieldErrors.lastName = `Last name must be ${MAX_LAST_NAME_LENGTH} characters or less.`;
+      } else if (updates.lastName.trim().length === 0 && updates.lastName.length > 0) {
+        fieldErrors.lastName = 'Last name cannot be only whitespace';
+      }
     }
     
     // Validate bio length
-    if (updates.bio && updates.bio.length > 1000) {
-      fieldErrors.bio = 'Bio must be 1000 characters or less.';
+    if (updates.bio) {
+      if (updates.bio.length > MAX_BIO_LENGTH) {
+        fieldErrors.bio = `Bio must be ${MAX_BIO_LENGTH} characters or less.`;
+      } else if (updates.bio.trim().length === 0 && updates.bio.length > 0) {
+        fieldErrors.bio = 'Bio cannot be only whitespace';
+      }
     }
     
     // Validate payout method (should only be 'paypal')
@@ -337,22 +406,17 @@ export async function action({request, context}) {
       session.access_token,
     );
     
-    console.log('Profile updated successfully:', {
-      profileImageUrl: updatedProfile?.profile_image_url,
-      imageUrlFromUpload: imageUrl,
-      allUpdates: updates,
-    });
-    
     return {
       success: true,
       message: 'Profile updated successfully',
       profileImageUrl: updatedProfile?.profile_image_url || imageUrl || null,
     };
   } catch (error) {
-    // Log full error details server-side only
+    // Log full error details server-side only (don't expose to client)
     console.error('Error updating creator profile:', {
       error: error.message,
       errorCode: error.code,
+      errorStack: error.stack,
       userEmail: user.email,
       timestamp: new Date().toISOString(),
     });
@@ -361,18 +425,22 @@ export async function action({request, context}) {
     const fieldErrors = {};
     let userFriendlyError = 'Failed to update profile. Please try again.';
     
-    // Only expose specific, safe error messages
-    const errorMessage = error.message || '';
-    if (errorMessage.includes('Username is already taken')) {
+    // Only expose specific, safe error messages (whitelist approach)
+    const errorMessage = (error.message || '').toLowerCase();
+    if (errorMessage.includes('username') && errorMessage.includes('taken')) {
       fieldErrors.username = 'Username is already taken. Please choose a different username.';
       userFriendlyError = 'Please fix the errors below';
-    } else if (errorMessage.includes('Display name is required')) {
+    } else if (errorMessage.includes('display name') && errorMessage.includes('required')) {
       fieldErrors.displayName = 'Display name is required';
       userFriendlyError = 'Please fix the errors below';
-    } else if (errorMessage.includes('Username is required')) {
+    } else if (errorMessage.includes('username') && errorMessage.includes('required')) {
       fieldErrors.username = 'Username is required';
       userFriendlyError = 'Please fix the errors below';
+    } else if (errorMessage.includes('validation') || errorMessage.includes('invalid')) {
+      // Generic validation error - don't expose details
+      userFriendlyError = 'Validation error. Please check your input and try again.';
     }
+    // For all other errors, use generic message (don't expose database errors, stack traces, etc.)
     
     return {
       success: false,
