@@ -1,9 +1,11 @@
 import {useState, useRef, useEffect} from 'react';
 import {Form, redirect, useSubmit, useLoaderData, useNavigate, useActionData, useNavigation, data} from 'react-router';
-import {requireAuth} from '~/lib/auth-helpers';
+import {requireAuth, generateCSRFToken, getClientIP} from '~/lib/auth-helpers';
+import {rateLimitMiddleware} from '~/lib/rate-limit';
 import {ChevronDownIcon, ChevronUpIcon, XMarkIcon} from '@heroicons/react/16/solid';
 import {PhotoIcon} from '@heroicons/react/24/solid';
 import {fetchCreatorProfile, fetchCreatorListingById, createUserSupabaseClient} from '~/lib/supabase';
+import {sanitizeHTML} from '~/lib/sanitize';
 
 export const meta = ({data}) => {
   return [{title: `WornVault | Edit Listing ${data?.listing?.title ?? ''}`}];
@@ -51,10 +53,15 @@ export async function loader({params, context, request}) {
   const editableStatuses = ['draft', 'pending_approval'];
   const canEdit = editableStatuses.includes(listing.status);
 
+  // Generate CSRF token for form protection
+  const csrfToken = await generateCSRFToken(request, context.env.SESSION_SECRET);
+  context.session.set('csrf_token', csrfToken);
+
   return {
     user,
     listing,
     canEdit,
+    csrfToken,
   };
 }
 
@@ -63,17 +70,41 @@ export async function action({request, context, params}) {
     // Require authentication
     const {user, session} = await requireAuth(request, context.env);
     
-    if (!user?.email) {
-      console.error('Action: User not authenticated');
-      throw new Response('Unauthorized', {status: 401});
+    if (!user?.email || !session?.access_token) {
+      return data({error: 'Unauthorized'}, {status: 401});
+    }
+
+    // Rate limiting: max 10 requests per minute per user
+    const clientIP = getClientIP(request);
+    const rateLimitKey = `edit-listing:${user.email}:${clientIP}`;
+    const rateLimit = await rateLimitMiddleware(request, rateLimitKey, {
+      maxRequests: 10,
+      windowMs: 60000, // 1 minute
+    });
+    
+    if (!rateLimit.allowed) {
+      return data({
+        error: `Too many requests. Please wait a moment before trying again. You can try again after ${new Date(rateLimit.resetAt).toLocaleTimeString()}.`
+      }, {status: 429});
     }
 
     const {id} = params;
     if (!id) {
-      throw new Response('Listing ID required', {status: 400});
+      return data({error: 'Listing ID required'}, {status: 400});
     }
 
     const formData = await request.formData();
+    
+    // Validate CSRF token
+    const csrfToken = formData.get('csrf_token');
+    const storedCSRFToken = context.session.get('csrf_token');
+    
+    if (!csrfToken || !storedCSRFToken || csrfToken !== storedCSRFToken) {
+      return data({error: 'Invalid security token. Please refresh the page and try again.'}, {status: 403});
+    }
+    
+    // Clear CSRF token after use (one-time use)
+    context.session.unset('csrf_token');
     
     // Extract form data
     const title = formData.get('title')?.toString().trim();
@@ -81,21 +112,61 @@ export async function action({request, context, params}) {
     const story = formData.get('description')?.toString().trim();
     const price = formData.get('price')?.toString();
     
-    // Photo handling
+    // Photo handling with MIME type validation
     const existingPhotoIds = formData.get('existingPhotoIds')?.toString().split(',').filter(Boolean) || [];
     const deletedPhotoIds = formData.get('deletedPhotoIds')?.toString().split(',').filter(Boolean) || [];
-    const newPhotos = formData.getAll('photos').filter(photo => photo instanceof File && photo.size > 0);
+    const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    
+    const newPhotos = formData.getAll('photos').filter(photo => {
+      if (!(photo instanceof File) || photo.size === 0) return false;
+      if (photo.size > MAX_FILE_SIZE) {
+        console.warn(`Photo ${photo.name} exceeds size limit`);
+        return false;
+      }
+      // Validate MIME type
+      if (!ALLOWED_IMAGE_TYPES.includes(photo.type)) {
+        console.warn(`Photo ${photo.name} has invalid MIME type: ${photo.type}`);
+        return false;
+      }
+      return true;
+    });
 
-    // Validate required fields
-    if (!title || !category || !story || !price) {
-      console.error('Action: Missing required fields', {title, category, story, price});
+    // Sanitize inputs
+    const MAX_TITLE_LENGTH = 200;
+    const MAX_STORY_LENGTH = 5000;
+    const sanitizedTitle = title
+      ? title.replace(/[\x00-\x1F\x7F]/g, '').substring(0, MAX_TITLE_LENGTH)
+      : '';
+    const sanitizedCategory = category
+      ? category.replace(/[^a-zA-Z0-9\s&'-]/g, '').substring(0, 100)
+      : '';
+    const sanitizedStory = story
+      ? sanitizeHTML(story).substring(0, MAX_STORY_LENGTH)
+      : '';
+
+    // Validate required fields with sanitized values
+    if (!sanitizedTitle || !sanitizedCategory || !sanitizedStory || !price) {
       return data({error: 'Missing required fields'}, {status: 400});
+    }
+
+    // Validate category against allowed list
+    const VALID_CATEGORIES = [
+      'Tops & Blouses', 'Dresses', 'Bottoms & Pants', 'Skirts', 'Outerwear',
+      'Activewear', 'Swimwear', 'Lingerie & Underwear', 'Intimate Apparel',
+      'Adult Content Clothing', 'Accessories', 'Shoes', 'Jewelry',
+      'Electronics', 'Home & Garden', 'Beauty & Personal Care', 'Health & Wellness',
+      'Sports & Outdoors', 'Toys & Games', 'Books & Media', 'Automotive',
+      'Pet Supplies', 'Office Supplies', 'Food & Beverages', 'Other',
+    ];
+    
+    if (!VALID_CATEGORIES.includes(sanitizedCategory)) {
+      return data({error: 'Invalid category selected'}, {status: 400});
     }
 
     // Validate price
     const priceFloat = parseFloat(price);
     if (isNaN(priceFloat) || priceFloat <= 0) {
-      console.error('Action: Invalid price', {price});
       return data({error: 'Invalid price'}, {status: 400});
     }
 
@@ -163,9 +234,9 @@ export async function action({request, context, params}) {
     const {error: updateError, data: updatedListing} = await supabase
       .from('listings')
       .update({
-        title: title,
-        category: category,
-        story: story,
+        title: sanitizedTitle,
+        category: sanitizedCategory,
+        story: sanitizedStory,
         price_cents: priceCents,
         status: 'pending_approval',
       })
@@ -402,7 +473,7 @@ const ALL_CATEGORIES = [
 
 export default function EditListing() {
   const loaderData = useLoaderData();
-  const {listing, canEdit} = loaderData || {};
+  const {listing, canEdit, csrfToken} = loaderData || {};
   const navigate = useNavigate();
   const actionData = useActionData();
   const navigation = useNavigation();
@@ -643,6 +714,11 @@ export default function EditListing() {
     // Manually construct FormData
     const formData = new FormData();
     
+    // Add CSRF token
+    if (csrfToken) {
+      formData.append('csrf_token', csrfToken);
+    }
+    
     // Add form fields
     const form = e.target;
     const titleInput = form.querySelector('[name="title"]');
@@ -729,6 +805,7 @@ export default function EditListing() {
         )}
 
         <Form method="post" encType="multipart/form-data" onSubmit={handleSubmit}>
+          <input type="hidden" name="csrf_token" value={csrfToken || ''} />
           <div className="space-y-12">
             <div className="border-b border-gray-900/10 pb-12 dark:border-white/10">
               <h2 className="text-base/7 font-semibold text-gray-900 dark:text-white">Listing Details</h2>

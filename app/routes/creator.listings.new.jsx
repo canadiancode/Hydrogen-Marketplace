@@ -1,6 +1,8 @@
 import {useState, useRef, useEffect} from 'react';
-import {Form, redirect, useSubmit} from 'react-router';
-import {requireAuth} from '~/lib/auth-helpers';
+import {Form, redirect, useSubmit, useLoaderData} from 'react-router';
+import {requireAuth, generateCSRFToken, getClientIP} from '~/lib/auth-helpers';
+import {rateLimitMiddleware} from '~/lib/rate-limit';
+import {sanitizeHTML} from '~/lib/sanitize';
 import {ChevronDownIcon, ChevronUpIcon, XMarkIcon} from '@heroicons/react/16/solid';
 import {PhotoIcon} from '@heroicons/react/24/solid';
 
@@ -10,9 +12,13 @@ export const meta = () => {
 
 export async function loader({context, request}) {
   // Require authentication
-  const {user} = await requireAuth(request, context.env);
+  const {user, session} = await requireAuth(request, context.env);
   
-  return {user};
+  // Generate CSRF token for form protection
+  const csrfToken = await generateCSRFToken(request, context.env.SESSION_SECRET);
+  context.session.set('csrf_token', csrfToken);
+  
+  return {user, csrfToken};
 }
 
 export async function action({request, context}) {
@@ -20,36 +26,37 @@ export async function action({request, context}) {
     // Require authentication
     const {user, session} = await requireAuth(request, context.env);
     
-    if (!user?.email) {
-      console.error('Action: User not authenticated');
-      throw new Response('Unauthorized', {status: 401});
+    if (!user?.email || !session?.access_token) {
+      return new Response('Unauthorized', {status: 401});
+    }
+
+    // Rate limiting: max 10 requests per minute per user
+    const clientIP = getClientIP(request);
+    const rateLimitKey = `create-listing:${user.email}:${clientIP}`;
+    const rateLimit = await rateLimitMiddleware(request, rateLimitKey, {
+      maxRequests: 10,
+      windowMs: 60000, // 1 minute
+    });
+    
+    if (!rateLimit.allowed) {
+      return new Response(
+        `Too many requests. Please wait a moment before trying again. You can try again after ${new Date(rateLimit.resetAt).toLocaleTimeString()}.`,
+        {status: 429}
+      );
     }
 
     const formData = await request.formData();
     
-    // Log all form data keys to see what we're receiving
-    const formDataKeys = [];
-    for (const [key, value] of formData.entries()) {
-      const entry = {
-        key,
-        valueType: typeof value,
-        isFile: value instanceof File,
-        isBlob: typeof Blob !== 'undefined' && value instanceof Blob,
-        isString: typeof value === 'string',
-        stringValue: typeof value === 'string' ? value.substring(0, 50) : null,
-        constructor: value?.constructor?.name,
-      };
-      
-      if (key === 'photos') {
-        entry.size = value?.size;
-        entry.type = value?.type;
-        entry.name = value?.name;
-        entry.hasArrayBuffer = typeof value?.arrayBuffer === 'function';
-        entry.rawValue = value;
-      }
-      
-      formDataKeys.push(entry);
+    // Validate CSRF token
+    const csrfToken = formData.get('csrf_token');
+    const storedCSRFToken = context.session.get('csrf_token');
+    
+    if (!csrfToken || !storedCSRFToken || csrfToken !== storedCSRFToken) {
+      return new Response('Invalid security token. Please refresh the page and try again.', {status: 403});
     }
+    
+    // Clear CSRF token after use (one-time use)
+    context.session.unset('csrf_token');
     
     // Extract form data
     const title = formData.get('title')?.toString().trim();
@@ -58,134 +65,66 @@ export async function action({request, context}) {
     const price = formData.get('price')?.toString();
     const photos = formData.getAll('photos');
 
-    // Validate required fields
-    if (!title || !category || !story || !price) {
-      console.error('Action: Missing required fields', {title, category, story, price});
+    // Sanitize inputs
+    const MAX_TITLE_LENGTH = 200;
+    const MAX_STORY_LENGTH = 5000;
+    const sanitizedTitle = title
+      ? title.replace(/[\x00-\x1F\x7F]/g, '').substring(0, MAX_TITLE_LENGTH)
+      : '';
+    const sanitizedCategory = category
+      ? category.replace(/[^a-zA-Z0-9\s&'-]/g, '').substring(0, 100)
+      : '';
+    const sanitizedStory = story
+      ? sanitizeHTML(story).substring(0, MAX_STORY_LENGTH)
+      : '';
+
+    // Validate required fields with sanitized values
+    if (!sanitizedTitle || !sanitizedCategory || !sanitizedStory || !price) {
       return new Response('Missing required fields', {status: 400});
+    }
+
+    // Validate category against allowed list
+    const VALID_CATEGORIES = [
+      'Tops & Blouses', 'Dresses', 'Bottoms & Pants', 'Skirts', 'Outerwear',
+      'Activewear', 'Swimwear', 'Lingerie & Underwear', 'Intimate Apparel',
+      'Adult Content Clothing', 'Accessories', 'Shoes', 'Jewelry',
+      'Electronics', 'Home & Garden', 'Beauty & Personal Care', 'Health & Wellness',
+      'Sports & Outdoors', 'Toys & Games', 'Books & Media', 'Automotive',
+      'Pet Supplies', 'Office Supplies', 'Food & Beverages', 'Other',
+    ];
+    
+    if (!VALID_CATEGORIES.includes(sanitizedCategory)) {
+      return new Response('Invalid category selected', {status: 400});
     }
 
     // Validate price
     const priceFloat = parseFloat(price);
     if (isNaN(priceFloat) || priceFloat <= 0) {
-      console.error('Action: Invalid price', {price});
       return new Response('Invalid price', {status: 400});
     }
 
     // Convert price to cents
     const priceCents = Math.round(priceFloat * 100);
 
-    // Validate photos - filter out empty strings and non-File objects
-    // Note: Files are now submitted manually from client state, so we might get empty strings
-    // Log the raw structure first with full details
-    const rawPhotoDetails = photos.map((p, i) => {
-      const detail = {
-        index: i,
-        value: p,
-        type: typeof p,
-        isNull: p === null,
-        isUndefined: p === undefined,
-        isString: typeof p === 'string',
-        stringValue: typeof p === 'string' ? p : null,
-        isObject: typeof p === 'object' && p !== null,
-        constructor: p?.constructor?.name,
-        isFile: p instanceof File,
-        isBlob: typeof Blob !== 'undefined' && p instanceof Blob,
-      };
-      
-      if (p && typeof p === 'object') {
-        detail.keys = Object.keys(p);
-        detail.size = p.size;
-        detail.type = p.type;
-        detail.name = p.name;
-        detail.hasArrayBuffer = typeof p.arrayBuffer === 'function';
-      }
-      
-      return detail;
-    });
+    // Validate photos with size and MIME type checks
+    const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
     
-    // Log the structure of photos for debugging
-    const photoDetails = photos.map((photo, idx) => {
-      // First check if photo exists
-      if (!photo) {
-        return {
-          index: idx,
-          value: photo,
-          valueType: typeof photo,
-          isNull: photo === null,
-          isUndefined: photo === undefined,
-          isFalsy: !photo,
-        };
-      }
-      
-      const details = {
-        index: idx,
-        valueType: typeof photo,
-        isFile: photo instanceof File,
-        constructor: photo?.constructor?.name,
-        hasSize: typeof photo?.size === 'number',
-        hasType: typeof photo?.type === 'string',
-        hasName: typeof photo?.name === 'string',
-        hasArrayBuffer: typeof photo?.arrayBuffer === 'function',
-        hasStream: typeof photo?.stream === 'function',
-        hasText: typeof photo?.text === 'function',
-        hasBytes: typeof photo?.bytes === 'function',
-        size: photo?.size,
-        mimeType: photo?.type,
-        fileName: photo?.name,
-      };
-      
-      if (photo && typeof photo === 'object') {
-        details.keys = Object.keys(photo);
-        details.entries = Object.entries(photo).slice(0, 10); // First 10 entries
-      }
-      
-      return details;
-    });
-
-    const validPhotos = photos.filter((photo, idx) => {
-      // Very lenient validation - accept any non-empty value from FormData
-      // Files are submitted manually from client, so we should get File objects
-      if (!photo) {
+    const validPhotos = photos.filter(photo => {
+      if (!photo || !(photo instanceof File) || photo.size === 0) return false;
+      if (photo.size > MAX_FILE_SIZE) {
+        console.warn(`Photo ${photo.name} exceeds size limit`);
         return false;
       }
-      
-      // Reject empty strings (these come from the file input which we don't use anymore)
-      if (typeof photo === 'string') {
-        if (photo.trim() === '') {
-          return false;
-        }
-        // If it's a non-empty string, it's not a file - reject it
+      // Validate MIME type
+      if (!ALLOWED_IMAGE_TYPES.includes(photo.type)) {
+        console.warn(`Photo ${photo.name} has invalid MIME type: ${photo.type}`);
         return false;
       }
-      
-      // Accept File instances
-      if (photo instanceof File) {
-        return true;
-      }
-      
-      // Accept Blob instances
-      if (typeof Blob !== 'undefined' && photo instanceof Blob) {
-        return true;
-      }
-      
-      // Accept any object (FormData files are objects)
-      if (typeof photo === 'object') {
-        return true;
-      }
-      
-      return false;
+      return true;
     });
 
     if (validPhotos.length === 0) {
-      console.error('Action: No valid photos after filtering', {
-        photosCount: photos.length,
-        photos: photos.map((p, i) => ({
-          index: i,
-          type: typeof p,
-          isFile: p instanceof File,
-          keys: p && typeof p === 'object' ? Object.keys(p) : null,
-        })),
-      });
       return new Response('At least one photo is required', {status: 400});
     }
 
@@ -222,9 +161,9 @@ export async function action({request, context}) {
       .from('listings')
       .insert({
         creator_id: creatorId,
-        title: title,
-        category: category,
-        story: story,
+        title: sanitizedTitle,
+        category: sanitizedCategory,
+        story: sanitizedStory,
         price_cents: priceCents,
         currency: 'USD',
         status: 'pending_approval',
@@ -443,6 +382,8 @@ const ALL_CATEGORIES = [
 ];
 
 export default function CreateListing() {
+  const loaderData = useLoaderData();
+  const {csrfToken} = loaderData || {};
   const [selectedCategory, setSelectedCategory] = useState('');
   const [categorySearch, setCategorySearch] = useState('');
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
@@ -632,6 +573,11 @@ export default function CreateListing() {
     // Manually construct FormData with files from state
     const formData = new FormData();
     
+    // Add CSRF token
+    if (csrfToken) {
+      formData.append('csrf_token', csrfToken);
+    }
+    
     // Add form fields - use form elements or state values
     const form = e.target;
     const titleInput = form.querySelector('[name="title"]');
@@ -661,6 +607,7 @@ export default function CreateListing() {
     <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
       <div className="pb-32 max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Form method="post" encType="multipart/form-data" onSubmit={handleSubmit}>
+          <input type="hidden" name="csrf_token" value={csrfToken || ''} />
           <div className="space-y-12">
             <div className="border-b border-gray-900/10 pb-12 dark:border-white/10">
               <h2 className="text-base/7 font-semibold text-gray-900 dark:text-white">Listing Details</h2>
