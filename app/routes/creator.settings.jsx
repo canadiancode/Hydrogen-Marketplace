@@ -1,6 +1,6 @@
-import {Form, useLoaderData} from 'react-router';
+import {Form, useLoaderData, useActionData, useNavigation} from 'react-router';
 import {requireAuth} from '~/lib/auth-helpers';
-import {ChevronDownIcon} from '@heroicons/react/16/solid';
+import {fetchCreatorProfile, updateCreatorProfile} from '~/lib/supabase';
 
 export const meta = () => {
   return [{title: 'WornVault | Account Settings'}];
@@ -8,46 +8,148 @@ export const meta = () => {
 
 export async function loader({context, request}) {
   // Require authentication
-  const {user} = await requireAuth(request, context.env);
+  const {user, session} = await requireAuth(request, context.env);
   
   // Fetch creator profile from Supabase
-  // const profile = await fetchCreatorProfile(context);
+  let profile = null;
+  if (user?.email && session?.access_token) {
+    try {
+      profile = await fetchCreatorProfile(
+        user.email,
+        context.env.SUPABASE_URL,
+        context.env.SUPABASE_ANON_KEY,
+        session.access_token,
+      );
+    } catch (error) {
+      console.error('Error fetching creator profile:', error);
+      // Continue with null profile - will use defaults
+    }
+  }
   
+  // Map database fields to form field names
   return {
     user,
-    profile: {
-      displayName: '',
-      bio: '',
-      payoutMethod: '',
-      notificationEmail: '',
-      firstName: '',
-      lastName: '',
-      email: '',
-      username: '',
-      timezone: '',
-    },
+    profile: profile
+      ? {
+          firstName: profile.first_name || '',
+          lastName: profile.last_name || '',
+          email: profile.email || user.email || '',
+          username: profile.handle || '',
+          displayName: profile.display_name || '',
+          bio: profile.bio || '',
+          payoutMethod: profile.payout_method || '',
+        }
+      : {
+          firstName: '',
+          lastName: '',
+          email: user.email || '',
+          username: '',
+          displayName: '',
+          bio: '',
+          payoutMethod: '',
+        },
   };
 }
 
 export async function action({request, context}) {
   // Require authentication
-  const {user} = await requireAuth(request, context.env);
+  const {user, session} = await requireAuth(request, context.env);
+  
+  if (!user?.email || !session?.access_token) {
+    return {
+      success: false,
+      error: 'Authentication required',
+    };
+  }
   
   const formData = await request.formData();
   
-  // Update creator profile in Supabase
-  // await updateCreatorProfile(context, {
-  //   displayName: formData.get('displayName'),
-  //   bio: formData.get('bio'),
-  //   payoutMethod: formData.get('payoutMethod'),
-  //   notificationEmail: formData.get('notificationEmail'),
-  // });
-  
-  return {success: true};
+  try {
+    // Extract form fields with explicit empty string handling
+    const fieldErrors = {};
+    const rawUpdates = {
+      firstName: formData.get('first-name')?.toString().trim(),
+      lastName: formData.get('last-name')?.toString().trim(),
+      username: formData.get('username')?.toString().trim(),
+      displayName: formData.get('displayName')?.toString().trim(),
+      bio: formData.get('bio')?.toString().trim(),
+      payoutMethod: formData.get('payoutMethod')?.toString().trim(),
+      // Note: email is intentionally excluded - it's read-only and tied to auth
+    };
+    
+    // Convert empty strings to undefined and validate required fields
+    const updates = {};
+    Object.keys(rawUpdates).forEach((key) => {
+      const value = rawUpdates[key];
+      if (value === '' || value === null) {
+        // Skip empty values unless they're required fields
+        if (key === 'displayName' || key === 'username') {
+          fieldErrors[key] = `${key === 'displayName' ? 'Display name' : 'Username'} is required`;
+        }
+      } else {
+        updates[key] = value;
+      }
+    });
+    
+    // Validate required fields
+    if (!updates.displayName) {
+      fieldErrors.displayName = 'Display name is required';
+    }
+    
+    if (!updates.username) {
+      fieldErrors.username = 'Username is required';
+    }
+    
+    // Return field-level errors if any
+    if (Object.keys(fieldErrors).length > 0) {
+      return {
+        success: false,
+        error: 'Please fix the errors below',
+        fieldErrors,
+      };
+    }
+    
+    // Update creator profile in Supabase
+    await updateCreatorProfile(
+      user.email,
+      updates,
+      context.env.SUPABASE_URL,
+      context.env.SUPABASE_ANON_KEY,
+      session.access_token,
+    );
+    
+    return {
+      success: true,
+      message: 'Profile updated successfully',
+    };
+  } catch (error) {
+    console.error('Error updating creator profile:', {
+      error,
+      userEmail: user.email,
+      timestamp: new Date().toISOString(),
+    });
+    
+    // Check if error is a unique constraint violation for username
+    const errorMessage = error.message || 'Failed to update profile. Please try again.';
+    const fieldErrors = {};
+    
+    if (errorMessage.includes('Username is already taken')) {
+      fieldErrors.username = 'Username is already taken. Please choose a different username.';
+    }
+    
+    return {
+      success: false,
+      error: fieldErrors.username ? 'Please fix the errors below' : errorMessage,
+      fieldErrors: Object.keys(fieldErrors).length > 0 ? fieldErrors : undefined,
+    };
+  }
 }
 
 export default function CreatorSettings() {
-  const {profile} = useLoaderData();
+  const {profile, user} = useLoaderData();
+  const actionData = useActionData();
+  const navigation = useNavigation();
+  const isSubmitting = navigation.state === 'submitting';
   
   return (
     <main className="bg-white dark:bg-gray-900">
@@ -60,11 +162,39 @@ export default function CreatorSettings() {
           <div>
             <h2 className="text-base/7 font-semibold text-gray-900 dark:text-white">Personal Information</h2>
             <p className="mt-1 text-sm/6 text-gray-500 dark:text-gray-300">
-              Use a permanent address where you can receive mail.
+              Update your profile information and preferences.
             </p>
           </div>
 
-          <form className="md:col-span-2">
+          <Form method="post" className="md:col-span-2">
+            {/* Success/Error Messages */}
+            {actionData?.success && (
+              <div className="mb-6 rounded-md bg-green-50 p-4 dark:bg-green-900/20">
+                <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                  {actionData.message || 'Profile updated successfully'}
+                </p>
+              </div>
+            )}
+            
+            {actionData?.error && (
+              <div className="mb-6 rounded-md bg-red-50 p-4 dark:bg-red-900/20">
+                <p className="text-sm font-medium text-red-800 dark:text-red-200">
+                  {actionData.error}
+                </p>
+              </div>
+            )}
+            
+            {/* Field-level error messages */}
+            {actionData?.fieldErrors && Object.keys(actionData.fieldErrors).length > 0 && (
+              <div className="mb-6 rounded-md bg-red-50 p-4 dark:bg-red-900/20">
+                <ul className="list-disc list-inside space-y-1 text-sm text-red-800 dark:text-red-200">
+                  {Object.entries(actionData.fieldErrors).map(([field, message]) => (
+                    <li key={field}>{message}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
             <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:max-w-xl sm:grid-cols-6">
               <div className="col-span-full flex items-center gap-x-8">
                 <img
@@ -126,8 +256,12 @@ export default function CreatorSettings() {
                     type="email"
                     autoComplete="email"
                     defaultValue={profile.email}
-                    className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
+                    readOnly
+                    className="block w-full rounded-md bg-gray-50 px-3 py-1.5 text-base text-gray-500 outline-1 -outline-offset-1 outline-gray-300 cursor-not-allowed sm:text-sm/6 dark:bg-gray-800 dark:text-gray-400 dark:outline-white/10"
                   />
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Email cannot be changed as it's tied to your account authentication.
+                  </p>
                 </div>
               </div>
 
@@ -146,31 +280,21 @@ export default function CreatorSettings() {
                       type="text"
                       placeholder="janesmith"
                       defaultValue={profile.username}
-                      className="block min-w-0 grow bg-transparent py-1.5 pr-3 pl-1 text-base text-gray-900 placeholder:text-gray-400 focus:outline-none sm:text-sm/6 dark:text-white dark:placeholder:text-gray-500"
+                      required
+                      aria-invalid={actionData?.fieldErrors?.username ? 'true' : 'false'}
+                      aria-describedby={actionData?.fieldErrors?.username ? 'username-error' : undefined}
+                      className={`block min-w-0 grow bg-transparent py-1.5 pr-3 pl-1 text-base placeholder:text-gray-400 focus:outline-none sm:text-sm/6 dark:placeholder:text-gray-500 ${
+                        actionData?.fieldErrors?.username
+                          ? 'text-red-900 dark:text-red-200'
+                          : 'text-gray-900 dark:text-white'
+                      }`}
                     />
                   </div>
-                </div>
-              </div>
-
-              <div className="col-span-full">
-                <label htmlFor="timezone" className="block text-sm/6 font-medium text-gray-900 dark:text-white">
-                  Timezone
-                </label>
-                <div className="mt-2 grid grid-cols-1">
-                  <select
-                    id="timezone"
-                    name="timezone"
-                    defaultValue={profile.timezone}
-                    className="col-start-1 row-start-1 w-full appearance-none rounded-md bg-white py-1.5 pr-8 pl-3 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:*:bg-gray-800 dark:focus:outline-indigo-500"
-                  >
-                    <option>Pacific Standard Time</option>
-                    <option>Eastern Standard Time</option>
-                    <option>Greenwich Mean Time</option>
-                  </select>
-                  <ChevronDownIcon
-                    aria-hidden="true"
-                    className="pointer-events-none col-start-1 row-start-1 mr-2 size-5 self-center justify-self-end text-gray-400 dark:text-gray-300 sm:size-4"
-                  />
+                  {actionData?.fieldErrors?.username && (
+                    <p id="username-error" className="mt-1 text-sm text-red-600 dark:text-red-400">
+                      {actionData.fieldErrors.username}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -184,8 +308,20 @@ export default function CreatorSettings() {
                     name="displayName"
                     type="text"
                     defaultValue={profile.displayName}
-                    className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
+                    required
+                    aria-invalid={actionData?.fieldErrors?.displayName ? 'true' : 'false'}
+                    aria-describedby={actionData?.fieldErrors?.displayName ? 'displayName-error' : undefined}
+                    className={`block w-full rounded-md bg-white px-3 py-1.5 text-base outline-1 -outline-offset-1 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 sm:text-sm/6 dark:bg-white/5 dark:outline-white/10 dark:placeholder:text-gray-500 ${
+                      actionData?.fieldErrors?.displayName
+                        ? 'text-red-900 outline-red-300 focus:outline-red-600 dark:text-red-200 dark:outline-red-500 dark:focus:outline-red-400'
+                        : 'text-gray-900 outline-gray-300 focus:outline-indigo-600 dark:text-white dark:focus:outline-indigo-500'
+                    }`}
                   />
+                  {actionData?.fieldErrors?.displayName && (
+                    <p id="displayName-error" className="mt-1 text-sm text-red-600 dark:text-red-400">
+                      {actionData.fieldErrors.displayName}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -199,21 +335,6 @@ export default function CreatorSettings() {
                     name="bio"
                     rows={4}
                     defaultValue={profile.bio}
-                    className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div className="col-span-full">
-                <label htmlFor="notificationEmail" className="block text-sm/6 font-medium text-gray-900 dark:text-white">
-                  Notification Email
-                </label>
-                <div className="mt-2">
-                  <input
-                    id="notificationEmail"
-                    name="notificationEmail"
-                    type="email"
-                    defaultValue={profile.notificationEmail}
                     className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
                   />
                 </div>
@@ -238,131 +359,13 @@ export default function CreatorSettings() {
             <div className="mt-8 flex">
               <button
                 type="submit"
-                className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
+                disabled={isSubmitting}
+                className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
               >
-                Save
+                {isSubmitting ? 'Saving...' : 'Save'}
               </button>
             </div>
-          </form>
-        </div>
-
-        {/* Change Password Section */}
-        <div className="grid max-w-7xl grid-cols-1 gap-x-8 gap-y-10 px-4 py-16 sm:px-6 md:grid-cols-3 lg:px-8 bg-white dark:bg-gray-900">
-          <div>
-            <h2 className="text-base/7 font-semibold text-gray-900 dark:text-white">Change password</h2>
-            <p className="mt-1 text-sm/6 text-gray-500 dark:text-gray-300">
-              Update your password associated with your account.
-            </p>
-          </div>
-
-          <form className="md:col-span-2">
-            <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:max-w-xl sm:grid-cols-6">
-              <div className="col-span-full">
-                <label
-                  htmlFor="current-password"
-                  className="block text-sm/6 font-medium text-gray-900 dark:text-white"
-                >
-                  Current password
-                </label>
-                <div className="mt-2">
-                  <input
-                    id="current-password"
-                    name="current_password"
-                    type="password"
-                    autoComplete="current-password"
-                    className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div className="col-span-full">
-                <label
-                  htmlFor="new-password"
-                  className="block text-sm/6 font-medium text-gray-900 dark:text-white"
-                >
-                  New password
-                </label>
-                <div className="mt-2">
-                  <input
-                    id="new-password"
-                    name="new_password"
-                    type="password"
-                    autoComplete="new-password"
-                    className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div className="col-span-full">
-                <label
-                  htmlFor="confirm-password"
-                  className="block text-sm/6 font-medium text-gray-900 dark:text-white"
-                >
-                  Confirm password
-                </label>
-                <div className="mt-2">
-                  <input
-                    id="confirm-password"
-                    name="confirm_password"
-                    type="password"
-                    autoComplete="new-password"
-                    className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-8 flex">
-              <button
-                type="submit"
-                className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
-              >
-                Save
-              </button>
-            </div>
-          </form>
-        </div>
-
-        {/* Log Out Other Sessions Section */}
-        <div className="grid max-w-7xl grid-cols-1 gap-x-8 gap-y-10 px-4 py-16 sm:px-6 md:grid-cols-3 lg:px-8 bg-white dark:bg-gray-900">
-          <div>
-            <h2 className="text-base/7 font-semibold text-gray-900 dark:text-white">Log out other sessions</h2>
-            <p className="mt-1 text-sm/6 text-gray-500 dark:text-gray-300">
-              Please enter your password to confirm you would like to log out of your other sessions across all of
-              your devices.
-            </p>
-          </div>
-
-          <form className="md:col-span-2">
-            <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:max-w-xl sm:grid-cols-6">
-              <div className="col-span-full">
-                <label
-                  htmlFor="logout-password"
-                  className="block text-sm/6 font-medium text-gray-900 dark:text-white"
-                >
-                  Your password
-                </label>
-                <div className="mt-2">
-                  <input
-                    id="logout-password"
-                    name="password"
-                    type="password"
-                    autoComplete="current-password"
-                    className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-8 flex">
-              <button
-                type="submit"
-                className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
-              >
-                Log out other sessions
-              </button>
-            </div>
-          </form>
+          </Form>
         </div>
 
         {/* Delete Account Section */}

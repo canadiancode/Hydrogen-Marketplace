@@ -513,6 +513,178 @@ export async function checkCreatorProfileExists(email, supabaseUrl, anonKey, acc
 }
 
 /**
+ * Fetches creator profile by email
+ * Returns full profile data for use in settings page
+ * 
+ * @param {string} userEmail - User's email address
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} anonKey - Supabase anon/public key
+ * @param {string} accessToken - User's access token
+ * @returns {Promise<object | null>} Creator profile object or null if not found
+ */
+export async function fetchCreatorProfile(userEmail, supabaseUrl, anonKey, accessToken) {
+  if (!userEmail || !supabaseUrl || !anonKey || !accessToken) {
+    return null;
+  }
+
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  
+  // RLS will automatically filter by auth.email()
+  const {data, error} = await supabase
+    .from('creators')
+    .select('*')
+    .eq('email', userEmail)
+    .single();
+  
+  if (error) {
+    // If error is "PGRST116" (no rows returned), profile doesn't exist yet
+    if (error?.code === 'PGRST116') {
+      return null;
+    }
+    // Log other errors but don't throw - let caller handle
+    console.error('Error fetching creator profile:', error);
+    throw error;
+  }
+  
+  return data;
+}
+
+/**
+ * Updates creator profile fields
+ * Creates profile if it doesn't exist, or updates if it does
+ * Validates required fields and handles unique constraint errors
+ * 
+ * @param {string} userEmail - User's email address
+ * @param {object} updates - Object with fields to update (camelCase form field names)
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} anonKey - Supabase anon/public key
+ * @param {string} accessToken - User's access token
+ * @returns {Promise<object>} Updated/created creator profile object
+ * @throws {Error} If update fails (validation, unique constraint, etc.)
+ */
+export async function updateCreatorProfile(userEmail, updates, supabaseUrl, anonKey, accessToken) {
+  if (!userEmail || !supabaseUrl || !anonKey || !accessToken) {
+    throw new Error('Missing required parameters');
+  }
+
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  
+  // First, check if profile exists
+  const {data: existingProfile} = await supabase
+    .from('creators')
+    .select('*')
+    .eq('email', userEmail)
+    .maybeSingle(); // Use maybeSingle() instead of single() to avoid error if not found
+  
+  // Map form fields (camelCase) to database columns (snake_case)
+  const dbUpdates = {};
+  if (updates.displayName !== undefined) dbUpdates.display_name = updates.displayName;
+  if (updates.bio !== undefined) dbUpdates.bio = updates.bio;
+  if (updates.payoutMethod !== undefined) dbUpdates.payout_method = updates.payoutMethod;
+  if (updates.username !== undefined) dbUpdates.handle = updates.username;
+  if (updates.firstName !== undefined) dbUpdates.first_name = updates.firstName;
+  if (updates.lastName !== undefined) dbUpdates.last_name = updates.lastName;
+  
+  const isNewProfile = !existingProfile;
+  
+  if (isNewProfile) {
+    // For new profiles, display_name and handle are required
+    if (!dbUpdates.display_name?.trim()) {
+      throw new Error('Display name is required');
+    }
+    if (!dbUpdates.handle?.trim()) {
+      throw new Error('Username is required');
+    }
+    // Set email for new profile
+    dbUpdates.email = userEmail;
+    
+    // Insert new profile
+    const {data, error} = await supabase
+      .from('creators')
+      .insert(dbUpdates)
+      .select()
+      .single();
+    
+    if (error) {
+      // Handle unique constraint violations
+      if (error.code === '23505') {
+        if (error.message?.includes('handle') || error.message?.includes('creators_handle_key')) {
+          throw new Error('Username is already taken. Please choose a different username.');
+        }
+        if (error.message?.includes('email') || error.message?.includes('creators_email_key')) {
+          throw new Error('Email is already in use.');
+        }
+        throw new Error('A field with this value already exists.');
+      }
+      
+      // Handle other database errors
+      if (error.code === '23502') {
+        throw new Error('Required fields cannot be empty.');
+      }
+      
+      console.error('Error creating creator profile:', {
+        error,
+        userEmail,
+        updates: dbUpdates,
+        timestamp: new Date().toISOString(),
+      });
+      throw new Error(error.message || 'Failed to create profile. Please try again.');
+    }
+    
+    return data;
+  } else {
+    // For existing profiles, validate only if fields are being updated
+    if (dbUpdates.display_name !== undefined && !dbUpdates.display_name?.trim()) {
+      throw new Error('Display name is required');
+    }
+    if (dbUpdates.handle !== undefined && !dbUpdates.handle?.trim()) {
+      throw new Error('Username is required');
+    }
+    
+    // Update existing profile
+    const {data, error} = await supabase
+      .from('creators')
+      .update(dbUpdates)
+      .eq('email', userEmail)
+      .select()
+      .single();
+    
+    if (error) {
+      // Handle unique constraint violations
+      if (error.code === '23505') {
+        if (error.message?.includes('handle') || error.message?.includes('creators_handle_key')) {
+          throw new Error('Username is already taken. Please choose a different username.');
+        }
+        if (error.message?.includes('email') || error.message?.includes('creators_email_key')) {
+          throw new Error('Email is already in use.');
+        }
+        throw new Error('A field with this value already exists.');
+      }
+      
+      // Handle other database errors
+      if (error.code === '23502') {
+        throw new Error('Required fields cannot be empty.');
+      }
+      
+      // Handle PGRST116 (no rows returned) - shouldn't happen, but handle gracefully
+      if (error.code === 'PGRST116') {
+        throw new Error('Profile not found. Please refresh the page and try again.');
+      }
+      
+      console.error('Error updating creator profile:', {
+        error,
+        userEmail,
+        updates: dbUpdates,
+        timestamp: new Date().toISOString(),
+      });
+      throw new Error(error.message || 'Failed to update profile. Please try again.');
+    }
+    
+    return data;
+  }
+}
+
+/**
  * Checks if a user is an admin
  * NOTE: Admin identification method needs to be determined
  * Options:
