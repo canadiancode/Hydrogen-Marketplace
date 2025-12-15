@@ -3,9 +3,9 @@ import {Link} from 'react-router';
 /**
  * Creator Dashboard Component
  * Displays overview and stats for the creator
- * @param {{user?: {id?: string, email?: string}}} props - Component props
+ * @param {{user?: {id?: string, email?: string}, stats?: {totalListings: number, activeListings: number, pendingApproval: number, totalEarnings: string}}} props - Component props
  */
-export default function CreatorDashboard({user = null}) {
+export default function CreatorDashboard({user = null, stats = {totalListings: 0, activeListings: 0, pendingApproval: 0, totalEarnings: '0.00'}}) {
   return (
     <div className="bg-gray-50 dark:bg-gray-900">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -30,7 +30,7 @@ export default function CreatorDashboard({user = null}) {
               <div className="ml-5 w-0 flex-1">
                 <dl>
                   <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Total Listings</dt>
-                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">0</dd>
+                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">{stats.totalListings || 0}</dd>
                 </dl>
               </div>
             </div>
@@ -48,7 +48,7 @@ export default function CreatorDashboard({user = null}) {
               <div className="ml-5 w-0 flex-1">
                 <dl>
                   <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Active Listings</dt>
-                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">0</dd>
+                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">{stats.activeListings || 0}</dd>
                 </dl>
               </div>
             </div>
@@ -66,7 +66,7 @@ export default function CreatorDashboard({user = null}) {
               <div className="ml-5 w-0 flex-1">
                 <dl>
                   <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Pending Approval</dt>
-                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">0</dd>
+                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">{stats.pendingApproval || 0}</dd>
                 </dl>
               </div>
             </div>
@@ -84,7 +84,7 @@ export default function CreatorDashboard({user = null}) {
               <div className="ml-5 w-0 flex-1">
                 <dl>
                   <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Total Earnings</dt>
-                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">$0.00</dd>
+                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">${stats.totalEarnings || '0.00'}</dd>
                 </dl>
               </div>
             </div>

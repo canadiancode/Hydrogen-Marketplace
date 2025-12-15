@@ -49,8 +49,9 @@ export async function loader({params, context, request}) {
     throw new Response('Listing not found', {status: 404});
   }
 
-  // Check if listing can be edited (only draft or pending_approval)
-  const editableStatuses = ['draft', 'pending_approval'];
+  // Check if listing can be edited (draft, pending_approval, or live)
+  // Live listings can be edited but will go back to pending_approval status
+  const editableStatuses = ['draft', 'pending_approval', 'live'];
   const canEdit = editableStatuses.includes(listing.status);
 
   // Generate CSRF token for form protection
@@ -215,20 +216,26 @@ export async function action({request, context, params}) {
       return data({error: 'Listing not found or unauthorized'}, {status: 404});
     }
 
-    // Check if listing can be edited
-    const editableStatuses = ['draft', 'pending_approval'];
+    // Check if listing can be edited (draft, pending_approval, or live)
+    // Live listings can be edited but will go back to pending_approval status
+    const editableStatuses = ['draft', 'pending_approval', 'live'];
     if (!editableStatuses.includes(existingListing.status)) {
       return data({error: 'This listing cannot be edited in its current status'}, {status: 403});
     }
 
-    // Update listing record and set status to pending_approval for re-review
+    // Determine new status: if it's live, change to pending_approval; otherwise keep current status
+    const newStatus = existingListing.status === 'live' ? 'pending_approval' : existingListing.status;
+
+    // Update listing record
+    // If listing is live, set status to pending_approval for re-review
     console.log('Action: Updating listing with data:', {
       id,
       title,
       category,
       story,
       price_cents: priceCents,
-      status: 'pending_approval',
+      old_status: existingListing.status,
+      new_status: newStatus,
     });
     
     const {error: updateError, data: updatedListing} = await supabase
@@ -238,7 +245,7 @@ export async function action({request, context, params}) {
         category: sanitizedCategory,
         story: sanitizedStory,
         price_cents: priceCents,
-        status: 'pending_approval',
+        status: newStatus,
       })
       .eq('id', id)
       .eq('creator_id', creatorId)
@@ -766,7 +773,8 @@ export default function EditListing() {
             </h2>
             <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-4">
               This listing cannot be edited because it is in "{listing.status}" status. 
-              Only listings with "draft" or "pending_approval" status can be edited.
+              Only listings with "draft", "pending_approval", or "live" status can be edited. 
+              Live listings that are edited will return to "pending_approval" status for review.
             </p>
             <button
               onClick={() => navigate(`/creator/listings/${listing.id}`)}
@@ -794,6 +802,13 @@ export default function EditListing() {
           <p className="text-lg text-gray-600 dark:text-gray-400">
             Update your listing details. Changes will be saved immediately.
           </p>
+          {listing.status === 'live' && (
+            <div className="mt-4 rounded-md bg-blue-50 dark:bg-blue-900/20 p-4 border border-blue-200 dark:border-blue-800">
+              <p className="text-sm text-blue-800 dark:text-blue-200">
+                <strong>Note:</strong> This listing is currently live. Any edits you make will change the status back to "pending_approval" and require admin review before going live again.
+              </p>
+            </div>
+          )}
         </div>
 
         {actionData?.error && (

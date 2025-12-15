@@ -1289,3 +1289,74 @@ export function createSessionCookie(session, supabaseUrl, isProduction = false) 
   return cookieString;
 }
 
+/**
+ * Fetches dashboard statistics for a creator
+ * Returns counts of listings by status and total earnings
+ * 
+ * @param {string} creatorId - Creator's UUID
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} anonKey - Supabase anon/public key
+ * @param {string} accessToken - User's access token
+ * @returns {Promise<object>} Dashboard statistics object
+ */
+export async function fetchCreatorDashboardStats(creatorId, supabaseUrl, anonKey, accessToken) {
+  if (!creatorId || !supabaseUrl || !anonKey || !accessToken) {
+    return {
+      totalListings: 0,
+      activeListings: 0,
+      pendingApproval: 0,
+      totalEarnings: 0,
+    };
+  }
+
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  
+  // Fetch all listings for this creator to calculate stats
+  const {data: listings, error: listingsError} = await supabase
+    .from('listings')
+    .select('id, status')
+    .eq('creator_id', creatorId);
+
+  if (listingsError) {
+    console.error('Error fetching dashboard stats:', listingsError);
+    return {
+      totalListings: 0,
+      activeListings: 0,
+      pendingApproval: 0,
+      totalEarnings: 0,
+    };
+  }
+
+  if (!listings || listings.length === 0) {
+    return {
+      totalListings: 0,
+      activeListings: 0,
+      pendingApproval: 0,
+      totalEarnings: 0,
+    };
+  }
+
+  // Calculate statistics
+  const totalListings = listings.length;
+  const activeListings = listings.filter(l => l.status === 'live').length;
+  const pendingApproval = listings.filter(l => l.status === 'pending_approval').length;
+
+  // Fetch payouts to calculate total earnings
+  const {data: payouts, error: payoutsError} = await supabase
+    .from('payouts')
+    .select('net_amount_cents')
+    .eq('creator_id', creatorId);
+
+  let totalEarnings = 0;
+  if (!payoutsError && payouts && payouts.length > 0) {
+    totalEarnings = payouts.reduce((sum, payout) => sum + (payout.net_amount_cents || 0), 0) / 100;
+  }
+
+  return {
+    totalListings,
+    activeListings,
+    pendingApproval,
+    totalEarnings: totalEarnings.toFixed(2),
+  };
+}
+

@@ -13,7 +13,7 @@ import {
 export function WhatIsWornVault() {
   return (
     <div className="bg-gray-50 py-24 sm:py-32 dark:bg-gray-900">
-      <div className="mx-auto max-w-2xl px-6 lg:max-w-7xl lg:px-8">
+      <div className="relative mx-auto max-w-2xl px-6 lg:max-w-7xl lg:px-8">
         <div className="text-center">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-indigo-600">
             <ShieldCheckIcon className="h-6 w-6 text-white" aria-hidden="true" />
