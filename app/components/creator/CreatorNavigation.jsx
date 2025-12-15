@@ -9,6 +9,8 @@ import {
   Cog6ToothIcon,
   XMarkIcon,
   ShieldCheckIcon,
+  ShoppingCartIcon,
+  TruckIcon,
 } from '@heroicons/react/24/outline'
 import { Bars3Icon, MagnifyingGlassIcon } from '@heroicons/react/20/solid'
 
@@ -16,7 +18,8 @@ const navigation = [
   { name: 'Creator Dashboard', href: '/creator/dashboard', icon: Squares2X2Icon },
   { name: 'Manage Listings', href: '/creator/listings', icon: RectangleStackIcon },
   { name: 'Create Listing', href: '/creator/listings/new', icon: PlusCircleIcon },
-  { name: 'Payouts', href: '/creator/payouts', icon: BanknotesIcon },
+  { name: 'Logistics', href: '/creator/logistics', icon: TruckIcon },
+  { name: 'Sales', href: '/creator/sales', icon: ShoppingCartIcon },
 ]
 
 const settingsNavigation = [

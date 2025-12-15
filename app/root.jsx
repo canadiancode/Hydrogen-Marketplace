@@ -15,7 +15,7 @@ import resetStyles from '~/styles/reset.css?url';
 import appStyles from '~/styles/app.css?url';
 import tailwindCss from './styles/tailwind.css?url';
 import {PageLayout} from './components/PageLayout';
-import {checkAdminAuth} from '~/lib/supabase';
+import {checkAdminAuth, checkCreatorAuth} from '~/lib/supabase';
 
 /**
  * This is important to avoid re-fetching root queries on sub-navigations
@@ -141,10 +141,16 @@ function loadDeferredData({context, request}) {
     .then(({isAdmin}) => isAdmin)
     .catch(() => false);
   
+  // Check creator status (non-blocking, deferred)
+  const isCreator = checkCreatorAuth(request, context.env)
+    .then(({isAuthenticated}) => isAuthenticated)
+    .catch(() => false);
+  
   return {
     cart: cart.get(),
     isLoggedIn: customerAccount.isLoggedIn(),
     isAdmin,
+    isCreator,
     footer,
   };
 }
@@ -189,7 +195,7 @@ export default function App() {
       shop={data.shop}
       consent={data.consent}
     >
-      <PageLayout {...data}>
+      <PageLayout {...data} isCreator={data.isCreator}>
         <Outlet />
       </PageLayout>
     </Analytics.Provider>

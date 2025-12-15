@@ -1,8 +1,9 @@
-import {Await, Link, useMatches} from 'react-router';
+import {Await, Link, useMatches, useRouteLoaderData} from 'react-router';
 import {Suspense, useId} from 'react';
 import {Aside} from '~/components/Aside';
 import {Footer} from '~/components/Footer';
 import {Header, HeaderMenu} from '~/components/Header';
+import {WornVaultHeader} from '~/components/WornVaultHeader';
 import {CartMain} from '~/components/CartMain';
 import {
   SEARCH_ENDPOINT,
@@ -46,23 +47,33 @@ export function PageLayout({
   header,
   isLoggedIn,
   isAdmin,
+  isCreator,
   publicStoreDomain,
 }) {
   const hideHeaderFooter = shouldHideHeaderFooter();
+  const rootData = useRouteLoaderData('root');
   
   return (
     <Aside.Provider>
       <CartAside cart={cart} />
       <SearchAside />
       <MobileMenuAside header={header} publicStoreDomain={publicStoreDomain} />
-      {header && !hideHeaderFooter && (
-        <Header
-          header={header}
-          cart={cart}
-          isLoggedIn={isLoggedIn}
-          isAdmin={isAdmin}
-          publicStoreDomain={publicStoreDomain}
-        />
+      {!hideHeaderFooter && (
+        <Suspense fallback={<div className="h-16" />}>
+          <Await resolve={isLoggedIn} errorElement={<WornVaultHeader isLoggedIn={false} isCreator={false} cart={cart} />}>
+            {(loggedIn) => (
+              <Await resolve={isCreator} errorElement={<WornVaultHeader isLoggedIn={loggedIn} isCreator={false} cart={cart} />}>
+                {(creator) => (
+                  <WornVaultHeader 
+                    isLoggedIn={loggedIn} 
+                    isCreator={creator} 
+                    cart={cart}
+                  />
+                )}
+              </Await>
+            )}
+          </Await>
+        </Suspense>
       )}
       <main className="pb-32 sm:pb-12">{children}</main>
       {!hideHeaderFooter && (
