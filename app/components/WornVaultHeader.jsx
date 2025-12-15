@@ -28,8 +28,6 @@ const shopItems = [
   { name: 'Explore All', href: '/shop' },
   { name: 'New Arrivals', href: '/shop?filter=new' },
   { name: 'Limited Drops', href: '/shop?filter=limited' },
-  { name: 'By Creator', href: '/creators' },
-  { name: 'By Category', href: '/collections' },
 ];
 
 const howItWorksItems = [
@@ -41,9 +39,7 @@ const howItWorksItems = [
 
 const creatorsItems = [
   { name: 'Become a Creator', href: '/creator/login' },
-  { name: 'Creator Stories', href: '/creators/stories' },
   { name: 'Creator Guidelines', href: '/creators/guidelines' },
-  { name: 'Creator Login', href: '/creator/login' },
 ];
 
 const aboutItems = [
