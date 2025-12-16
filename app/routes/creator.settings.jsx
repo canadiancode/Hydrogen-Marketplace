@@ -42,10 +42,26 @@ export async function loader({context, request}) {
   context.session.set('csrf_token', csrfToken);
   // Note: Session will be committed automatically by React Router when isPending is true
   
+  // Construct cover image URL from storage path if available
+  let coverImageUrl = '';
+  if (profile?.cover_image_storage_path) {
+    const storagePath = profile.cover_image_storage_path;
+    // If it's already a full URL, use it as-is
+    if (storagePath.startsWith('http://') || storagePath.startsWith('https://')) {
+      coverImageUrl = storagePath;
+    } else if (context.env.SUPABASE_URL) {
+      // Construct the public URL from storage path
+      // Format: https://{project}.supabase.co/storage/v1/object/public/{bucket}/{path}
+      const supabaseUrl = context.env.SUPABASE_URL.replace(/\/$/, ''); // Remove trailing slash
+      coverImageUrl = `${supabaseUrl}/storage/v1/object/public/creator-cover-images/${storagePath}`;
+    }
+  }
+  
   // Map database fields to form field names
   return {
     user,
     csrfToken,
+    supabaseUrl: context.env.SUPABASE_URL || '',
     profile: profile
       ? {
           firstName: profile.first_name || '',
@@ -56,6 +72,8 @@ export async function loader({context, request}) {
           bio: profile.bio || '',
           payoutMethod: profile.payout_method || '',
           profileImageUrl: profile.profile_image_url || '',
+          coverImageStoragePath: profile.cover_image_storage_path || '',
+          coverImageUrl: coverImageUrl,
         }
       : {
           firstName: '',
@@ -66,6 +84,8 @@ export async function loader({context, request}) {
           bio: '',
           payoutMethod: '',
           profileImageUrl: '',
+          coverImageStoragePath: '',
+          coverImageUrl: '',
         },
   };
 }
@@ -114,7 +134,7 @@ export async function action({request, context}) {
   context.session.unset('csrf_token');
   
   try {
-    // Handle image upload if provided
+    // Handle profile image upload if provided
     const imageFile = formData.get('profileImage');
     let imageUrl = null;
     
@@ -184,6 +204,76 @@ export async function action({request, context}) {
       }
     }
     
+    // Handle cover image upload if provided
+    const coverImageFile = formData.get('coverImage');
+    let coverImageUrl = null;
+    
+    if (coverImageFile && coverImageFile instanceof File && coverImageFile.size > 0) {
+      // Validate file before upload
+      const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+      const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+      
+      // Check file size
+      if (coverImageFile.size > MAX_IMAGE_SIZE) {
+        return {
+          success: false,
+          error: 'Cover image file size exceeds 5MB limit. Please choose a smaller image.',
+        };
+      }
+      
+      // Check file is not empty
+      if (coverImageFile.size === 0) {
+        return {
+          success: false,
+          error: 'Cover image file is empty. Please select a valid image.',
+        };
+      }
+      
+      // Validate MIME type
+      if (!ALLOWED_IMAGE_TYPES.includes(coverImageFile.type)) {
+        return {
+          success: false,
+          error: 'Invalid cover image type. Only JPEG, PNG, WebP, and GIF are allowed.',
+        };
+      }
+      
+      try {
+        const {uploadCoverImage} = await import('~/lib/image-upload');
+        const uploadResult = await uploadCoverImage(
+          coverImageFile,
+          user.email,
+          context.env.SUPABASE_URL,
+          context.env.SUPABASE_ANON_KEY,
+          session.access_token,
+        );
+        
+        if (uploadResult.error) {
+          return {
+            success: false,
+            error: uploadResult.error.message || 'Failed to upload cover image',
+          };
+        }
+        
+        coverImageUrl = uploadResult.url;
+      } catch (error) {
+        // Log full error server-side only
+        console.error('Error uploading cover image:', {
+          error: error.message,
+          errorStack: error.stack,
+          fileName: coverImageFile.name,
+          fileSize: coverImageFile.size,
+          fileType: coverImageFile.type,
+          timestamp: new Date().toISOString(),
+        });
+        
+        // Return generic error to client
+        return {
+          success: false,
+          error: 'Failed to upload cover image. Please try again.',
+        };
+      }
+    }
+    
     // Extract form fields with explicit empty string handling
     const fieldErrors = {};
     const rawUpdates = {
@@ -196,9 +286,35 @@ export async function action({request, context}) {
       // Note: email is intentionally excluded - it's read-only and tied to auth
     };
     
-    // Add image URL if uploaded
+    // Add image URLs if uploaded
     if (imageUrl) {
       rawUpdates.profileImageUrl = imageUrl;
+    }
+    if (coverImageUrl) {
+      // Store the storage path, not the full URL
+      // Extract path from URL: https://...supabase.co/storage/v1/object/public/creator-cover-images/{path}
+      try {
+        const urlObj = new URL(coverImageUrl);
+        // More specific regex: must match /storage/v1/object/public/creator-cover-images/ followed by valid path
+        const pathMatch = urlObj.pathname.match(/^\/storage\/v1\/object\/public\/creator-cover-images\/([^\/]+(?:\/[^\/]+)*)$/);
+        if (pathMatch && pathMatch[1]) {
+          const extractedPath = pathMatch[1];
+          // Additional security: validate path doesn't contain dangerous patterns
+          if (!extractedPath.includes('..') && !extractedPath.includes('//') && !extractedPath.startsWith('/')) {
+            rawUpdates.coverImageStoragePath = extractedPath;
+          } else {
+            // Invalid path detected - store full URL as fallback
+            rawUpdates.coverImageStoragePath = coverImageUrl;
+          }
+        } else {
+          // Fallback: store the full URL if path extraction fails
+          rawUpdates.coverImageStoragePath = coverImageUrl;
+        }
+      } catch (urlError) {
+        // If URL parsing fails, store as-is
+        console.error('Error parsing cover image URL:', urlError);
+        rawUpdates.coverImageStoragePath = coverImageUrl;
+      }
     }
     
     // Input validation constants
@@ -316,6 +432,34 @@ export async function action({request, context}) {
             fieldErrors.profileImageUrl = 'Invalid image URL. Please upload a new image.';
             sanitized = null;
           }
+        } else if (key === 'coverImageStoragePath') {
+          // Validate cover image storage path
+          // Can be a storage path (e.g., "user_email/cover.jpg") or a full URL
+          if (value.includes('http://') || value.includes('https://')) {
+            // If it's a URL, validate it
+            try {
+              const url = new URL(value);
+              if (!url.hostname.includes('supabase.co') && !url.hostname.includes('supabase.in')) {
+                throw new Error('Invalid cover image URL origin');
+              }
+              if (url.protocol !== 'https:') {
+                throw new Error('Cover image URL must use HTTPS');
+              }
+              sanitized = value;
+            } catch (urlError) {
+              console.error('Invalid cover image URL:', urlError);
+              fieldErrors.coverImageStoragePath = 'Invalid cover image URL. Please upload a new image.';
+              sanitized = null;
+            }
+          } else {
+            // It's a storage path - validate it doesn't contain dangerous characters
+            if (value.includes('..') || value.includes('//') || value.startsWith('/')) {
+              fieldErrors.coverImageStoragePath = 'Invalid cover image path. Please upload a new image.';
+              sanitized = null;
+            } else {
+              sanitized = value;
+            }
+          }
         } else {
           sanitized = sanitizeInput(value, 'default');
         }
@@ -406,10 +550,37 @@ export async function action({request, context}) {
       session.access_token,
     );
     
+    // Construct cover image URL for response
+    let responseCoverImageUrl = null;
+    const finalCoverImageStoragePath = updatedProfile?.cover_image_storage_path || (coverImageUrl ? (() => {
+      try {
+        const urlObj = new URL(coverImageUrl);
+        // More specific regex matching the expected storage path structure
+        const pathMatch = urlObj.pathname.match(/^\/storage\/v1\/object\/public\/creator-cover-images\/([^\/]+(?:\/[^\/]+)*)$/);
+        if (pathMatch && pathMatch[1] && !pathMatch[1].includes('..') && !pathMatch[1].includes('//')) {
+          return pathMatch[1];
+        }
+        return coverImageUrl;
+      } catch {
+        return coverImageUrl;
+      }
+    })() : null);
+    
+    if (finalCoverImageStoragePath && context.env.SUPABASE_URL) {
+      if (finalCoverImageStoragePath.startsWith('http://') || finalCoverImageStoragePath.startsWith('https://')) {
+        responseCoverImageUrl = finalCoverImageStoragePath;
+      } else {
+        const supabaseUrl = context.env.SUPABASE_URL.replace(/\/$/, '');
+        responseCoverImageUrl = `${supabaseUrl}/storage/v1/object/public/creator-cover-images/${finalCoverImageStoragePath}`;
+      }
+    }
+    
     return {
       success: true,
       message: 'Profile updated successfully',
       profileImageUrl: updatedProfile?.profile_image_url || imageUrl || null,
+      coverImageStoragePath: finalCoverImageStoragePath,
+      coverImageUrl: responseCoverImageUrl,
     };
   } catch (error) {
     // Log full error details server-side only (don't expose to client)
@@ -451,10 +622,15 @@ export async function action({request, context}) {
 }
 
 export default function CreatorSettings() {
-  const {profile, user, csrfToken} = useLoaderData();
+  const loaderData = useLoaderData();
+  const {profile, user, csrfToken, supabaseUrl: loaderSupabaseUrl} = loaderData;
   const actionData = useActionData();
   const navigation = useNavigation();
   const isSubmitting = navigation.state === 'submitting';
+  
+  // Track which image is being uploaded
+  const [uploadingProfileImage, setUploadingProfileImage] = useState(false);
+  const [uploadingCoverImage, setUploadingCoverImage] = useState(false);
   
   // Default placeholder image (SVG data URI - account/user icon)
   // Simple account icon: gray rounded square with user silhouette
@@ -467,27 +643,77 @@ export default function CreatorSettings() {
   // State for image error handling - reset when profile image URL changes
   const [imageError, setImageError] = useState(false);
   
-  // Reset error state when image URL changes (new image uploaded or profile loaded)
+  // Track when form submission completes successfully to force image reload
+  const [imageVersion, setImageVersion] = useState(0);
+  
+  // Reset error state and increment version when image URL changes (new image uploaded or profile loaded)
   useEffect(() => {
     if (currentImageUrl) {
       setImageError(false);
+      // Increment version to force image reload when URL changes
+      setImageVersion(prev => prev + 1);
     }
   }, [currentImageUrl]);
   
+  // Also increment version when action completes successfully
+  useEffect(() => {
+    if (actionData?.success && (actionData?.profileImageUrl || actionData?.coverImageUrl)) {
+      setImageVersion(prev => prev + 1);
+      setUploadingProfileImage(false);
+      setUploadingCoverImage(false);
+    }
+    // Reset loading states if there's an error or when navigation completes
+    if (actionData?.error || navigation.state === 'idle') {
+      setUploadingProfileImage(false);
+      setUploadingCoverImage(false);
+    }
+  }, [actionData, navigation.state]);
+  
+  // Cover image handling
+  const currentCoverImageUrl = actionData?.coverImageUrl || profile.coverImageUrl || '';
+  const [coverImageError, setCoverImageError] = useState(false);
+  
+  // Construct cover image URL if we have storage path but no URL
+  const coverImageUrl = currentCoverImageUrl || (profile.coverImageStoragePath && loaderSupabaseUrl
+    ? `${loaderSupabaseUrl.replace(/\/$/, '')}/storage/v1/object/public/creator-cover-images/${profile.coverImageStoragePath}`
+    : '');
+  
+  // Reset cover image error state when URL changes
+  useEffect(() => {
+    if (coverImageUrl) {
+      setCoverImageError(false);
+    }
+  }, [coverImageUrl]);
+  
   // Add cache-busting query parameter to force browser to reload image
   // This helps when the image URL hasn't changed but the file has been updated
-  // Use useMemo to ensure we only regenerate the cache-bust param when URL changes
+  // Include imageVersion to force reload after successful save
   const imageUrlToDisplay = useMemo(() => {
     if (!currentImageUrl || imageError) return null;
     try {
       const urlObj = new URL(currentImageUrl);
-      // Add timestamp as cache-busting parameter - regenerates only when URL changes
+      // Add timestamp and version as cache-busting parameters
       urlObj.searchParams.set('t', Date.now().toString());
+      urlObj.searchParams.set('v', imageVersion.toString());
       return urlObj.toString();
     } catch {
       return currentImageUrl;
     }
-  }, [currentImageUrl, imageError]);
+  }, [currentImageUrl, imageError, imageVersion]);
+  
+  // Add cache-busting for cover image as well
+  const coverImageUrlToDisplay = useMemo(() => {
+    if (!coverImageUrl || coverImageError) return null;
+    try {
+      const urlObj = new URL(coverImageUrl);
+      // Add timestamp and version as cache-busting parameters
+      urlObj.searchParams.set('t', Date.now().toString());
+      urlObj.searchParams.set('v', imageVersion.toString());
+      return urlObj.toString();
+    } catch {
+      return coverImageUrl;
+    }
+  }, [coverImageUrl, coverImageError, imageVersion]);
   
   // Input sanitization functions for security
   
@@ -590,7 +816,7 @@ export default function CreatorSettings() {
                     </div>
                   ) : (
                     <img
-                      key={currentImageUrl} // Force React to recreate img element when URL changes
+                      key={`${currentImageUrl}-${imageVersion}`} // Force React to recreate img element when URL or version changes
                       alt="Profile"
                       src={imageUrlToDisplay || currentImageUrl}
                       onError={() => {
@@ -602,6 +828,18 @@ export default function CreatorSettings() {
                       }}
                       className="size-24 flex-none rounded-lg bg-gray-100 object-cover outline -outline-offset-1 outline-black/5 dark:bg-gray-800 dark:outline-white/10"
                     />
+                  )}
+                  {/* Loading overlay */}
+                  {uploadingProfileImage && (
+                    <div className="absolute inset-0 bg-black/50 dark:bg-black/70 rounded-lg flex items-center justify-center z-10">
+                      <div className="flex flex-col items-center gap-2">
+                        <svg className="animate-spin h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <p className="text-xs text-white">Uploading...</p>
+                      </div>
+                    </div>
                   )}
                 </div>
                 <div className="flex flex-col gap-4">
@@ -619,6 +857,7 @@ export default function CreatorSettings() {
                       onChange={(e) => {
                         // Auto-submit form when image is selected
                         if (e.target.files && e.target.files[0]) {
+                          setUploadingProfileImage(true);
                           const form = e.target.closest('form');
                           if (form) {
                             form.requestSubmit();
@@ -630,6 +869,85 @@ export default function CreatorSettings() {
                   <p className="text-xs/5 text-gray-500 dark:text-gray-300">
                     JPG, PNG, WebP or GIF. 5MB max.
                   </p>
+                </div>
+              </div>
+
+              {/* Cover Image Section */}
+              <div className="col-span-full">
+                <label htmlFor="coverImage" className="block text-sm/6 font-medium text-gray-900 dark:text-white mb-2">
+                  Cover Image
+                </label>
+                <div className="space-y-4">
+                  {/* Cover Image Preview - Wide and Short */}
+                  <div className="relative w-full h-32 sm:h-48 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-white/10">
+                    {coverImageUrl && !coverImageError ? (
+                      <img
+                        key={`${coverImageUrl}-${imageVersion}`} // Force React to recreate img element when URL or version changes
+                        alt="Cover"
+                        src={coverImageUrlToDisplay || coverImageUrl}
+                        onError={() => {
+                          setCoverImageError(true);
+                        }}
+                        onLoad={() => {
+                          setCoverImageError(false);
+                        }}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gray-100 dark:bg-gray-800">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400 dark:text-gray-500">
+                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                          <circle cx="8.5" cy="8.5" r="1.5"/>
+                          <polyline points="21 15 16 10 5 21"/>
+                        </svg>
+                      </div>
+                    )}
+                    {/* Loading overlay */}
+                    {uploadingCoverImage && (
+                      <div className="absolute inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-10">
+                        <div className="flex flex-col items-center gap-2">
+                          <svg className="animate-spin h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          <p className="text-xs text-white">Uploading...</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label
+                      htmlFor="coverImage"
+                      className="cursor-pointer inline-flex items-center justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs inset-ring-1 inset-ring-gray-300 hover:bg-gray-100 dark:bg-white/10 dark:text-white dark:shadow-none dark:inset-ring-white/5 dark:hover:bg-white/20 w-fit"
+                    >
+                      {coverImageUrl ? 'Change cover image' : 'Upload cover image'}
+                      <input
+                        id="coverImage"
+                        name="coverImage"
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        className="sr-only"
+                        onChange={(e) => {
+                          // Auto-submit form when image is selected
+                          if (e.target.files && e.target.files[0]) {
+                            setUploadingCoverImage(true);
+                            const form = e.target.closest('form');
+                            if (form) {
+                              form.requestSubmit();
+                            }
+                          }
+                        }}
+                      />
+                    </label>
+                    <p className="text-xs/5 text-gray-500 dark:text-gray-300">
+                      JPG, PNG, WebP or GIF. 5MB max. Recommended: 1920x640px (3:1 ratio)
+                    </p>
+                    {actionData?.fieldErrors?.coverImageStoragePath && (
+                      <p className="text-sm text-red-600 dark:text-red-400">
+                        {actionData.fieldErrors.coverImageStoragePath}
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -670,6 +988,9 @@ export default function CreatorSettings() {
                     }}
                     className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
                   />
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Not displayed publicly
+                  </p>
                 </div>
               </div>
 
@@ -710,6 +1031,9 @@ export default function CreatorSettings() {
                     }}
                     className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
                   />
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Not displayed publicly
+                  </p>
                 </div>
               </div>
 

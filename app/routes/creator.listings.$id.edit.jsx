@@ -1,4 +1,4 @@
-import {useState, useRef, useEffect} from 'react';
+import {useState, useRef, useEffect, useMemo} from 'react';
 import {Form, redirect, useSubmit, useLoaderData, useNavigate, useActionData, useNavigation, data} from 'react-router';
 import {requireAuth, generateCSRFToken, getClientIP} from '~/lib/auth-helpers';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
@@ -515,6 +515,16 @@ export default function EditListing() {
   const [price, setPrice] = useState(listing.price || '');
   const [imageErrors, setImageErrors] = useState(new Set());
   const [isDragging, setIsDragging] = useState(false);
+  
+  // Track when form submission completes successfully to force image reload
+  const [imageVersion, setImageVersion] = useState(0);
+  
+  // Increment version when action completes successfully (if redirect behavior changes)
+  useEffect(() => {
+    if (actionData && !actionData.error) {
+      setImageVersion(prev => prev + 1);
+    }
+  }, [actionData]);
   const categoryRef = useRef(null);
   const dropdownRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -763,11 +773,28 @@ export default function EditListing() {
     );
   }
 
-  // Combine all photos for display
-  const allPhotos = [
-    ...existingPhotos.map(p => ({...p, isExisting: true})),
-    ...newPhotos.map(p => ({...p, isExisting: false})),
-  ];
+  // Combine all photos for display (filter out deleted existing photos)
+  const allPhotos = useMemo(() => {
+    return [
+      ...existingPhotos.filter(p => !deletedPhotoIds.has(p.id)).map(p => ({...p, isExisting: true})),
+      ...newPhotos.map(p => ({...p, isExisting: false})),
+    ];
+  }, [existingPhotos, newPhotos, deletedPhotoIds]);
+  
+  // Add cache-busting to image URLs
+  const getImageUrlWithCacheBust = (url) => {
+    if (!url) return url;
+    // Don't add cache-busting to blob URLs (previews)
+    if (url.startsWith('blob:')) return url;
+    try {
+      const urlObj = new URL(url);
+      urlObj.searchParams.set('t', Date.now().toString());
+      urlObj.searchParams.set('v', imageVersion.toString());
+      return urlObj.toString();
+    } catch {
+      return url;
+    }
+  };
 
   return (
     <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
@@ -1042,28 +1069,43 @@ export default function EditListing() {
                               }}
                             >
                               {(photo.url || photo.preview) && !imageErrors.has(photo.id) ? (
-                                <img
-                                  src={photo.url || photo.preview}
-                                  alt={`Preview ${index + 1}`}
-                                  className="absolute inset-0 w-full h-full object-cover"
-                                  style={{
-                                    display: 'block'
-                                  }}
-                                  onError={(e) => {
-                                    console.error('Failed to load image preview:', {
-                                      preview: photo.url || photo.preview,
-                                      id: photo.id,
-                                    });
-                                    setImageErrors(prev => new Set(prev).add(photo.id));
-                                  }}
-                                  onLoad={(e) => {
-                                    setImageErrors(prev => {
-                                      const next = new Set(prev);
-                                      next.delete(photo.id);
-                                      return next;
-                                    });
-                                  }}
-                                />
+                                <>
+                                  <img
+                                    key={`${photo.id}-${imageVersion}`}
+                                    src={getImageUrlWithCacheBust(photo.url || photo.preview)}
+                                    alt={`Preview ${index + 1}`}
+                                    className="absolute inset-0 w-full h-full object-cover"
+                                    style={{
+                                      display: 'block'
+                                    }}
+                                    onError={(e) => {
+                                      console.error('Failed to load image preview:', {
+                                        preview: photo.url || photo.preview,
+                                        id: photo.id,
+                                      });
+                                      setImageErrors(prev => new Set(prev).add(photo.id));
+                                    }}
+                                    onLoad={(e) => {
+                                      setImageErrors(prev => {
+                                        const next = new Set(prev);
+                                        next.delete(photo.id);
+                                        return next;
+                                      });
+                                    }}
+                                  />
+                                  {/* Loading overlay when submitting */}
+                                  {isSubmitting && (
+                                    <div className="absolute inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-10">
+                                      <div className="flex flex-col items-center gap-1">
+                                        <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        <p className="text-xs text-white">Uploading...</p>
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
                               ) : (photo.url || photo.preview) && imageErrors.has(photo.id) ? (
                                 <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-gray-200 dark:bg-white/5 text-gray-500 dark:text-gray-400 text-xs p-2">
                                   <div className="text-center">

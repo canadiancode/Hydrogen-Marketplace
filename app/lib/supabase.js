@@ -585,6 +585,7 @@ export async function updateCreatorProfile(userEmail, updates, supabaseUrl, anon
   if (updates.firstName !== undefined) dbUpdates.first_name = updates.firstName;
   if (updates.lastName !== undefined) dbUpdates.last_name = updates.lastName;
   if (updates.profileImageUrl !== undefined) dbUpdates.profile_image_url = updates.profileImageUrl;
+  if (updates.coverImageStoragePath !== undefined) dbUpdates.cover_image_storage_path = updates.coverImageStoragePath;
   
   const isNewProfile = !existingProfile;
   
@@ -1395,12 +1396,29 @@ export async function fetchPublicListingById(listingId, supabaseUrl, serviceRole
   if (listing.creator_id) {
     const {data: creatorData, error: creatorError} = await supabase
       .from('creators')
-      .select('id, email, display_name, handle, bio, profile_image_url, first_name, last_name')
+      .select('id, email, display_name, handle, bio, profile_image_url, cover_image_storage_path, first_name, last_name')
       .eq('id', listing.creator_id)
       .single();
     
     if (!creatorError && creatorData) {
-      creator = creatorData;
+      // Construct cover image URL from storage path if available
+      let coverImageUrl = null;
+      if (creatorData.cover_image_storage_path) {
+        const storagePath = creatorData.cover_image_storage_path;
+        // If it's already a full URL, use it as-is
+        if (storagePath.startsWith('http://') || storagePath.startsWith('https://')) {
+          coverImageUrl = storagePath;
+        } else {
+          // Construct the public URL from storage path
+          const supabaseUrlClean = supabaseUrl.replace(/\/$/, ''); // Remove trailing slash
+          coverImageUrl = `${supabaseUrlClean}/storage/v1/object/public/creator-cover-images/${storagePath}`;
+        }
+      }
+      
+      creator = {
+        ...creatorData,
+        coverImageUrl,
+      };
     }
   }
 
@@ -1436,5 +1454,156 @@ export async function fetchPublicListingById(listingId, supabaseUrl, serviceRole
     priceDollars: listing.price_cents / 100,
     creator,
   };
+}
+
+/**
+ * Fetches a creator profile by handle (public access)
+ * Used for displaying public creator profile pages
+ * 
+ * @param {string} handle - Creator's handle/username
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} serviceRoleKey - Supabase service role key (for public operations)
+ * @returns {Promise<object | null>} Creator profile object or null if not found
+ */
+export async function fetchCreatorByHandle(handle, supabaseUrl, serviceRoleKey) {
+  if (!handle || !supabaseUrl || !serviceRoleKey) {
+    return null;
+  }
+
+  const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
+  
+  // Fetch creator by handle
+  const {data: creator, error: creatorError} = await supabase
+    .from('creators')
+    .select('id, email, display_name, handle, bio, profile_image_url, cover_image_storage_path, first_name, last_name, verification_status, created_at')
+    .eq('handle', handle)
+    .single();
+  
+  if (creatorError || !creator) {
+    console.error('Error fetching creator by handle:', creatorError);
+    return null;
+  }
+  
+  return creator;
+}
+
+/**
+ * Fetches all live listings for a specific creator (public access)
+ * Used for displaying creator's products on their profile page
+ * 
+ * @param {string} creatorId - Creator's UUID
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} serviceRoleKey - Supabase service role key (for public operations)
+ * @param {object} options - Optional filters and sorting
+ * @param {string} options.sortBy - Sort order ('newest', 'oldest', 'price_high', 'price_low', 'title')
+ * @returns {Promise<Array>} Array of listing objects with photos
+ */
+export async function fetchListingsByCreatorId(creatorId, supabaseUrl, serviceRoleKey, options = {}) {
+  if (!creatorId || !supabaseUrl || !serviceRoleKey) {
+    return [];
+  }
+
+  const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
+  
+  // Build query for listings
+  let query = supabase
+    .from('listings')
+    .select('*')
+    .eq('creator_id', creatorId)
+    .eq('status', 'live'); // Only show live listings
+  
+  // Apply sorting
+  const sortBy = options.sortBy || 'newest';
+  switch (sortBy) {
+    case 'oldest':
+      query = query.order('created_at', {ascending: true});
+      break;
+    case 'price_high':
+      query = query.order('price_cents', {ascending: false});
+      break;
+    case 'price_low':
+      query = query.order('price_cents', {ascending: true});
+      break;
+    case 'title':
+      query = query.order('title', {ascending: true});
+      break;
+    case 'newest':
+    default:
+      query = query.order('created_at', {ascending: false});
+      break;
+  }
+  
+  const {data: listings, error: listingsError} = await query;
+
+  if (listingsError) {
+    console.error('Error fetching creator listings:', listingsError);
+    return [];
+  }
+
+  if (!listings || listings.length === 0) {
+    return [];
+  }
+
+  // Fetch photos for all listings
+  const listingIds = listings.map(l => l.id);
+  const {data: photos, error: photosError} = await supabase
+    .from('listing_photos')
+    .select('*')
+    .in('listing_id', listingIds)
+    .eq('photo_type', 'reference'); // Only get reference photos for display
+
+  if (photosError) {
+    console.error('Error fetching listing photos:', photosError);
+  }
+
+  // Group photos by listing_id
+  const photosByListing = {};
+  if (photos) {
+    photos.forEach(photo => {
+      if (!photosByListing[photo.listing_id]) {
+        photosByListing[photo.listing_id] = [];
+      }
+      photosByListing[photo.listing_id].push(photo);
+    });
+  }
+
+  // Combine listings with their photos and format for display
+  const listingsWithPhotos = listings.map(listing => {
+    const listingPhotos = photosByListing[listing.id] || [];
+    
+    // Get public URL for thumbnail
+    let thumbnailUrl = null;
+    if (listingPhotos.length > 0) {
+      const {data} = supabase.storage
+        .from('listing-photos')
+        .getPublicUrl(listingPhotos[0].storage_path);
+      thumbnailUrl = data?.publicUrl || null;
+    }
+    
+    return {
+      ...listing,
+      photos: listingPhotos.map(photo => {
+        const {data} = supabase.storage
+          .from('listing-photos')
+          .getPublicUrl(photo.storage_path);
+        return {
+          ...photo,
+          publicUrl: data?.publicUrl || null,
+        };
+      }),
+      // Format price for display
+      price: (listing.price_cents / 100).toFixed(2),
+      priceFormatted: `$${(listing.price_cents / 100).toFixed(2)}`,
+      thumbnailUrl,
+      createdAt: listing.created_at,
+    };
+  });
+
+  // Apply additional client-side sorting if needed (for title sorting)
+  if (sortBy === 'title') {
+    listingsWithPhotos.sort((a, b) => a.title.localeCompare(b.title));
+  }
+
+  return listingsWithPhotos;
 }
 

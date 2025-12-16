@@ -239,9 +239,6 @@ export default function ListingDetail() {
                   <Tab className="border-b-2 border-transparent py-6 text-sm font-medium whitespace-nowrap text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-white/20 hover:text-gray-800 dark:hover:text-gray-200 data-selected:border-indigo-600 dark:data-selected:border-indigo-400 data-selected:text-indigo-600 dark:data-selected:text-indigo-400">
                     Creator Reviews
                   </Tab>
-                  <Tab className="border-b-2 border-transparent py-6 text-sm font-medium whitespace-nowrap text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-white/20 hover:text-gray-800 dark:hover:text-gray-200 data-selected:border-indigo-600 dark:data-selected:border-indigo-400 data-selected:text-indigo-600 dark:data-selected:text-indigo-400">
-                    Creator Links
-                  </Tab>
                 </TabList>
               </div>
               <TabPanels as={Fragment}>
@@ -262,38 +259,106 @@ export default function ListingDetail() {
                 <TabPanel className="pt-10">
                   <h3 className="sr-only">Creator Profile</h3>
                   {listing.creator ? (
-                    <div className="space-y-4">
-                      <div className="flex items-center space-x-4">
-                        {listing.creator.profile_image_url && (
+                    <div className="space-y-0">
+                      {/* Header/Banner Area - Twitter-like */}
+                      <div className="bg-gray-200 dark:bg-gray-800 h-48 sm:h-64 relative overflow-hidden">
+                        {listing.creator.coverImageUrl ? (
                           <img
-                            src={listing.creator.profile_image_url}
-                            alt={listing.creator.display_name || 'Creator'}
-                            className="size-16 rounded-full object-cover"
+                            src={listing.creator.coverImageUrl}
+                            alt={`${listing.creator.display_name || 'Creator'} cover`}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              // Fallback to gray background if image fails to load
+                              e.target.style.display = 'none';
+                            }}
                           />
+                        ) : (
+                          <div className="w-full h-full bg-gray-200 dark:bg-gray-800" />
                         )}
-                        <div>
-                          <h4 className="text-lg font-medium text-gray-900 dark:text-white">
-                            {listing.creator.display_name || 'Unknown Creator'}
-                          </h4>
-                          {listing.creator.handle && (
-                            <p className="text-sm text-gray-500 dark:text-gray-400">
-                              @{listing.creator.handle}
-                            </p>
+                      </div>
+                      
+                      {/* Profile Section - Overlapping Cover */}
+                      <div className="relative -mt-20 sm:-mt-24">
+                        {/* Profile Image */}
+                        <div className="relative inline-block">
+                          {listing.creator.profile_image_url ? (
+                            <img
+                              src={listing.creator.profile_image_url}
+                              alt={listing.creator.display_name || 'Creator'}
+                              className="size-32 sm:size-40 rounded-full border-4 border-white dark:border-gray-900 bg-white dark:bg-gray-800 object-cover"
+                              onError={(e) => {
+                                e.target.src = 'https://via.placeholder.com/150?text=No+Image';
+                              }}
+                            />
+                          ) : (
+                            <div className="size-32 sm:size-40 rounded-full border-4 border-white dark:border-gray-900 bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+                              <svg className="size-16 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                              </svg>
+                            </div>
                           )}
                         </div>
                       </div>
-                      {listing.creator.bio && (
-                        <p className="text-sm text-gray-500 dark:text-gray-400">
-                          {listing.creator.bio}
-                        </p>
-                      )}
-                      <div>
-                        <Link
-                          to={`/creators/${listing.creator.handle || listing.creator.id}`}
-                          className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300"
-                        >
-                          View full profile →
-                        </Link>
+                      
+                      {/* Creator Info */}
+                      <div className="mt-4 pb-6 border-b border-gray-200 dark:border-white/10">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
+                                {listing.creator.display_name || 'Unknown Creator'}
+                              </h4>
+                            </div>
+                            
+                            {listing.creator.handle && (
+                              <p className="text-gray-500 dark:text-gray-400 mb-3">
+                                @{listing.creator.handle}
+                              </p>
+                            )}
+                            
+                            {listing.creator.bio && (
+                              <p className="text-gray-900 dark:text-white mb-3 whitespace-pre-wrap">
+                                {listing.creator.bio}
+                              </p>
+                            )}
+                          </div>
+                          
+                          {/* Social Share Links */}
+                          <div className="ml-4 flex items-center gap-4 flex-shrink-0">
+                            <a
+                              href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-gray-400 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-400 transition-colors"
+                              aria-label="Share on Facebook"
+                            >
+                              <svg className="size-5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M20 10c0-5.523-4.477-10-10-10S0 4.477 0 10c0 4.991 3.657 9.128 8.438 9.878v-6.987h-2.54V10h2.54V7.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V10h2.773l-.443 2.89h-2.33v6.988C16.343 19.128 20 14.991 20 10z" clipRule="evenodd" />
+                              </svg>
+                            </a>
+                            <a
+                              href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`${listing.creator.display_name || 'Creator'} on WornVault`)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-gray-400 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-400 transition-colors"
+                              aria-label="Share on X"
+                            >
+                              <svg className="size-5" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M11.4678 8.77491L17.2961 2H15.915L10.8543 7.88256L6.81232 2H2.15039L8.26263 10.8955L2.15039 18H3.53159L8.87581 11.7878L13.1444 18H17.8063L11.4675 8.77491H11.4678ZM9.57608 10.9738L8.95678 10.0881L4.02925 3.03974H6.15068L10.1273 8.72795L10.7466 9.61374L15.9156 17.0075H13.7942L9.57608 10.9742V10.9738Z" />
+                              </svg>
+                            </a>
+                          </div>
+                        </div>
+                        
+                        {/* View Full Profile Link */}
+                        <div className="mt-4">
+                          <Link
+                            to={`/creators/${listing.creator.handle || listing.creator.id}`}
+                            className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300"
+                          >
+                            View full profile →
+                          </Link>
+                        </div>
                       </div>
                     </div>
                   ) : (
@@ -309,30 +374,6 @@ export default function ListingDetail() {
                   </p>
                 </TabPanel>
 
-                {/* Creator Links Tab */}
-                <TabPanel className="pt-10">
-                  <h3 className="sr-only">Creator Links</h3>
-                  {listing.creator ? (
-                    <div className="space-y-4">
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        Connect with {listing.creator.display_name || 'this creator'}:
-                      </p>
-                      <ul className="space-y-2">
-                        <li>
-                          <Link
-                            to={`/creators/${listing.creator.handle || listing.creator.id}`}
-                            className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300"
-                          >
-                            View Profile on WornVault
-                          </Link>
-                        </li>
-                        {/* Add more social links here when available in creator profile */}
-                      </ul>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Creator links not available.</p>
-                  )}
-                </TabPanel>
               </TabPanels>
             </TabGroup>
           </div>

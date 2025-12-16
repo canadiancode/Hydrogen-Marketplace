@@ -1,4 +1,4 @@
-import {useState, useRef, useEffect} from 'react';
+import {useState, useRef, useEffect, useMemo} from 'react';
 import {Form, redirect, useSubmit, useLoaderData} from 'react-router';
 import {requireAuth, generateCSRFToken, getClientIP} from '~/lib/auth-helpers';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
@@ -351,6 +351,9 @@ export default function CreateListing() {
   const [imageErrors, setImageErrors] = useState(new Set());
   const [isDragging, setIsDragging] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Track image version for refresh (for consistency, though this page redirects after save)
+  const [imageVersion, setImageVersion] = useState(0);
   const categoryRef = useRef(null);
   const dropdownRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -818,33 +821,48 @@ export default function CreateListing() {
                               }}
                             >
                               {photo.preview && !imageErrors.has(photo.id) ? (
-                                <img
-                                  src={photo.preview}
-                                  alt={`Preview ${index + 1}: ${photo.file?.name || 'image'}`}
-                                  className="absolute inset-0 w-full h-full object-cover"
-                                  style={{
-                                    display: 'block'
-                                  }}
-                                  onError={(e) => {
-                                    console.error('Failed to load image preview:', {
-                                      preview: photo.preview,
-                                      id: photo.id,
-                                      fileName: photo.file?.name,
-                                      error: e
-                                    });
-                                    // Mark this image as having an error
-                                    setImageErrors(prev => new Set(prev).add(photo.id));
-                                  }}
-                                  onLoad={(e) => {
-                                    // Image loaded successfully
-                                    // Remove from errors if it was there
-                                    setImageErrors(prev => {
-                                      const next = new Set(prev);
-                                      next.delete(photo.id);
-                                      return next;
-                                    });
-                                  }}
-                                />
+                                <>
+                                  <img
+                                    key={`${photo.id}-${imageVersion}`}
+                                    src={photo.preview}
+                                    alt={`Preview ${index + 1}: ${photo.file?.name || 'image'}`}
+                                    className="absolute inset-0 w-full h-full object-cover"
+                                    style={{
+                                      display: 'block'
+                                    }}
+                                    onError={(e) => {
+                                      console.error('Failed to load image preview:', {
+                                        preview: photo.preview,
+                                        id: photo.id,
+                                        fileName: photo.file?.name,
+                                        error: e
+                                      });
+                                      // Mark this image as having an error
+                                      setImageErrors(prev => new Set(prev).add(photo.id));
+                                    }}
+                                    onLoad={(e) => {
+                                      // Image loaded successfully
+                                      // Remove from errors if it was there
+                                      setImageErrors(prev => {
+                                        const next = new Set(prev);
+                                        next.delete(photo.id);
+                                        return next;
+                                      });
+                                    }}
+                                  />
+                                  {/* Loading overlay when submitting */}
+                                  {isSubmitting && (
+                                    <div className="absolute inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-10">
+                                      <div className="flex flex-col items-center gap-1">
+                                        <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        <p className="text-xs text-white">Uploading...</p>
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
                               ) : photo.preview && imageErrors.has(photo.id) ? (
                                 // Error fallback - shown when image fails to load
                                 <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-gray-200 dark:bg-white/5 text-gray-500 dark:text-gray-400 text-xs p-2">

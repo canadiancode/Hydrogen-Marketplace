@@ -1,76 +1,27 @@
-import {Await, useLoaderData, Link} from 'react-router';
-import {Suspense} from 'react';
-import {Image} from '@shopify/hydrogen';
-import {ProductItem} from '~/components/ProductItem';
+import {useRouteError, isRouteErrorResponse} from 'react-router';
 import {HeroSection} from '~/components/HeroSection';
 import {WhatIsWornVault} from '~/components/WhatIsWornVault';
 import {HowMarketplaceWorks} from '~/components/HowMarketplaceWorks';
-import {WhyWornVaultIsDifferent} from '~/components/WhyWornVaultIsDifferent';
-import {FeesThatActuallyDoSomething} from '~/components/FeesThatActuallyDoSomething';
-import {BuiltOnShopify} from '~/components/BuiltOnShopify';
 
 /**
  * @type {Route.MetaFunction}
  */
 export const meta = () => {
-  return [{title: 'Hydrogen | Home'}];
+  return [{title: 'WornVault | Home'}];
 };
 
 /**
  * @param {Route.LoaderArgs} args
  */
-export async function loader(args) {
-  // Start fetching non-critical data without blocking time to first byte
-  const deferredData = loadDeferredData(args);
-
-  // Await the critical data required to render initial state of the page
-  const criticalData = await loadCriticalData(args);
-
-  return {...deferredData, ...criticalData};
-}
-
-/**
- * Load data necessary for rendering content above the fold. This is the critical data
- * needed to render the page. If it's unavailable, the whole page should 400 or 500 error.
- * @param {Route.LoaderArgs}
- */
-async function loadCriticalData({context}) {
-  const [{collections}] = await Promise.all([
-    context.storefront.query(FEATURED_COLLECTION_QUERY),
-    // Add other queries here, so that they are loaded in parallel
-  ]);
-
-  return {
-    featuredCollection: collections.nodes[0],
-  };
-}
-
-/**
- * Load data for rendering content below the fold. This data is deferred and will be
- * fetched after the initial page load. If it's unavailable, the page should still 200.
- * Make sure to not throw any errors here, as it will cause the page to 500.
- * @param {Route.LoaderArgs}
- */
-function loadDeferredData({context}) {
-  const recommendedProducts = context.storefront
-    .query(RECOMMENDED_PRODUCTS_QUERY)
-    .catch((error) => {
-      // Log query errors, but don't throw them so the page can still render
-      console.error(error);
-      return null;
-    });
-
-  return {
-    recommendedProducts,
-  };
+export async function loader() {
+  // Homepage doesn't require any data fetching currently
+  // All components are static or fetch their own data
+  return {};
 }
 
 export default function Homepage() {
-  /** @type {LoaderReturnData} */
-  const data = useLoaderData();
-
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-white dark:bg-gray-900">
       <HeroSection />
       <WhatIsWornVault />
       <HowMarketplaceWorks />
@@ -78,60 +29,50 @@ export default function Homepage() {
   );
 }
 
-
-const FEATURED_COLLECTION_QUERY = `#graphql
-  fragment FeaturedCollection on Collection {
-    id
-    title
-    image {
-      id
-      url
-      altText
-      width
-      height
-    }
-    handle
+/**
+ * Error boundary for homepage
+ * Catches errors during rendering and provides fallback UI
+ */
+export function ErrorBoundary() {
+  const error = useRouteError();
+  const isDev = process.env.NODE_ENV === 'development';
+  
+  let errorMessage = 'Something went wrong';
+  let errorStatus = 500;
+  
+  if (isRouteErrorResponse(error)) {
+    errorStatus = error.status;
+    errorMessage = isDev 
+      ? (error?.data?.message ?? error.data ?? 'An error occurred')
+      : 'We encountered an error loading the homepage. Please try refreshing the page.';
+  } else if (error instanceof Error && isDev) {
+    errorMessage = error.message;
   }
-  query FeaturedCollection($country: CountryCode, $language: LanguageCode)
-    @inContext(country: $country, language: $language) {
-    collections(first: 1, sortKey: UPDATED_AT, reverse: true) {
-      nodes {
-        ...FeaturedCollection
-      }
-    }
+  
+  // Log full error server-side but don't expose to client in production
+  if (!isDev) {
+    console.error('ErrorBoundary caught:', error);
   }
-`;
-
-const RECOMMENDED_PRODUCTS_QUERY = `#graphql
-  fragment RecommendedProduct on Product {
-    id
-    title
-    handle
-    priceRange {
-      minVariantPrice {
-        amount
-        currencyCode
-      }
-    }
-    featuredImage {
-      id
-      url
-      altText
-      width
-      height
-    }
-  }
-  query RecommendedProducts ($country: CountryCode, $language: LanguageCode)
-    @inContext(country: $country, language: $language) {
-    products(first: 4, sortKey: UPDATED_AT, reverse: true) {
-      nodes {
-        ...RecommendedProduct
-      }
-    }
-  }
-`;
+  
+  return (
+    <div className="min-h-screen bg-white dark:bg-gray-900">
+      <div className="mx-auto max-w-7xl px-6 py-24 sm:py-32 lg:px-8">
+        <div className="text-center">
+          <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
+            Something went wrong
+          </h1>
+          <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">
+            {errorMessage}
+          </p>
+          {isDev && error instanceof Error && error.stack && (
+            <pre className="mt-8 text-xs overflow-auto text-left max-w-2xl mx-auto bg-gray-100 dark:bg-gray-800 p-4 rounded">
+              {error.stack}
+            </pre>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /** @typedef {import('./+types/_index').Route} Route */
-/** @typedef {import('storefrontapi.generated').FeaturedCollectionFragment} FeaturedCollectionFragment */
-/** @typedef {import('storefrontapi.generated').RecommendedProductsQuery} RecommendedProductsQuery */
-/** @typedef {import('@shopify/remix-oxygen').SerializeFrom<typeof loader>} LoaderReturnData */

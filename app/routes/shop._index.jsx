@@ -1,4 +1,4 @@
-import {useLoaderData, Link, useSearchParams} from 'react-router';
+import {useLoaderData, Link, useSearchParams, useRouteError, isRouteErrorResponse} from 'react-router';
 import {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import {fetchAllListings} from '~/lib/supabase';
 import {ALL_CATEGORIES} from '~/lib/categories';
@@ -87,6 +87,31 @@ function validatePrice(value) {
   const num = parseFloat(value);
   if (isNaN(num) || num < 0 || num > 1000000) return '';
   return value;
+}
+
+/**
+ * Validates image URLs to prevent XSS and ensure security
+ * Only allows HTTPS URLs from trusted domains
+ * @param {string} url - The image URL to validate
+ * @returns {boolean} - True if URL is valid and safe
+ */
+function validateImageUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  try {
+    const parsed = new URL(url);
+    // Only allow HTTPS protocol
+    if (parsed.protocol !== 'https:') return false;
+    // Allow Supabase storage URLs, Shopify CDN, and placeholder service
+    const allowedDomains = [
+      'supabase.co',
+      'via.placeholder.com',
+      'cdn.shopify.com',
+    ];
+    return allowedDomains.some(domain => parsed.hostname.includes(domain));
+  } catch {
+    // Invalid URL format
+    return false;
+  }
 }
 
 export default function Shop() {
@@ -407,7 +432,7 @@ export default function Shop() {
                         type="text"
                         id="creatorName"
                         value={creatorName}
-                        onChange={(e) => setCreatorName(e.target.value)}
+                        onChange={handleCreatorNameChange}
                         placeholder="Filter by creator..."
                         className="block w-full rounded-md border border-gray-300 dark:border-white/20 bg-white dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-2 focus:outline-offset-2 focus:outline-indigo-600 dark:focus:outline-indigo-400"
                       />
@@ -442,7 +467,7 @@ export default function Shop() {
                         type="number"
                         id="priceMin"
                         value={priceMin}
-                        onChange={(e) => setPriceMin(e.target.value)}
+                        onChange={handlePriceMinChange}
                         placeholder="0"
                         min="0"
                         step="0.01"
@@ -530,21 +555,28 @@ export default function Shop() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-4 xl:gap-x-8">
-            {filteredProducts.map((product, index) => (
-              <div key={product.id} className="group relative">
-                <Link to={product.href} prefetch="intent" className="block">
-                  <img
-                    alt={product.imageAlt}
-                    src={product.imageSrc}
-                    loading={index < 8 ? 'eager' : 'lazy'}
-                    decoding="async"
-                    className="aspect-square w-full rounded-md bg-gray-200 dark:bg-gray-800 object-cover group-hover:opacity-75 lg:aspect-auto lg:h-80"
-                    onError={(e) => {
-                      // Fallback to placeholder if image fails to load
-                      e.target.src = 'https://via.placeholder.com/400x400?text=No+Image';
-                    }}
-                  />
-                </Link>
+            {filteredProducts.map((product, index) => {
+              // Validate image URL before rendering to prevent XSS
+              const isValidImage = validateImageUrl(product.imageSrc);
+              const imageUrl = isValidImage 
+                ? product.imageSrc 
+                : 'https://via.placeholder.com/400x400?text=No+Image';
+              
+              return (
+                <div key={product.id} className="group relative">
+                  <Link to={product.href} prefetch="intent" className="block">
+                    <img
+                      alt={product.imageAlt}
+                      src={imageUrl}
+                      loading={index < 8 ? 'eager' : 'lazy'}
+                      decoding="async"
+                      className="aspect-square w-full rounded-md bg-gray-200 dark:bg-gray-800 object-cover group-hover:opacity-75 lg:aspect-auto lg:h-80"
+                      onError={(e) => {
+                        // Fallback to placeholder if image fails to load
+                        e.target.src = 'https://via.placeholder.com/400x400?text=No+Image';
+                      }}
+                    />
+                  </Link>
                 <div className="mt-4 flex justify-between">
                   <div className="min-w-0 flex-1">
                     <h3 className="text-sm text-gray-700 dark:text-gray-300">
@@ -558,7 +590,8 @@ export default function Shop() {
                   <p className="text-sm font-medium text-gray-900 dark:text-white ml-2 flex-shrink-0">{product.priceFormatted}</p>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -571,6 +604,26 @@ export default function Shop() {
  * Catches errors during rendering and provides fallback UI
  */
 export function ErrorBoundary() {
+  const error = useRouteError();
+  const isDev = process.env.NODE_ENV === 'development';
+  
+  let errorMessage = 'Something went wrong';
+  let errorStatus = 500;
+  
+  if (isRouteErrorResponse(error)) {
+    errorStatus = error.status;
+    errorMessage = isDev 
+      ? (error?.data?.message ?? error.data ?? 'An error occurred')
+      : 'We encountered an error loading the shop page. Please try refreshing the page.';
+  } else if (error instanceof Error && isDev) {
+    errorMessage = error.message;
+  }
+  
+  // Log full error server-side but don't expose to client in production
+  if (!isDev) {
+    console.error('ErrorBoundary caught:', error);
+  }
+  
   return (
     <div className="bg-white dark:bg-gray-900 min-h-screen">
       <div className="mx-auto max-w-2xl px-4 pt-8 pb-16 sm:px-6 sm:pt-12 sm:pb-24 lg:max-w-7xl lg:px-8">
@@ -579,8 +632,13 @@ export function ErrorBoundary() {
             Something went wrong
           </h2>
           <p className="text-sm text-red-700 dark:text-red-300">
-            We encountered an error loading the shop page. Please try refreshing the page.
+            {errorMessage}
           </p>
+          {isDev && error instanceof Error && error.stack && (
+            <pre className="mt-4 text-xs overflow-auto text-red-600 dark:text-red-400">
+              {error.stack}
+            </pre>
+          )}
         </div>
       </div>
     </div>
