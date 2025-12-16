@@ -3,6 +3,7 @@ import {Form, redirect, useSubmit, useLoaderData} from 'react-router';
 import {requireAuth, generateCSRFToken, getClientIP} from '~/lib/auth-helpers';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
 import {sanitizeHTML} from '~/lib/sanitize';
+import {ALL_CATEGORIES} from '~/lib/categories';
 import {ChevronDownIcon, ChevronUpIcon, XMarkIcon} from '@heroicons/react/16/solid';
 import {PhotoIcon} from '@heroicons/react/24/solid';
 
@@ -61,6 +62,7 @@ export async function action({request, context}) {
     // Extract form data
     const title = formData.get('title')?.toString().trim();
     const category = formData.get('category')?.toString().trim();
+    const condition = formData.get('condition')?.toString().trim();
     const story = formData.get('description')?.toString().trim();
     const price = formData.get('price')?.toString();
     const photos = formData.getAll('photos');
@@ -84,14 +86,7 @@ export async function action({request, context}) {
     }
 
     // Validate category against allowed list
-    const VALID_CATEGORIES = [
-      'Tops & Blouses', 'Dresses', 'Bottoms & Pants', 'Skirts', 'Outerwear',
-      'Activewear', 'Swimwear', 'Lingerie & Underwear', 'Intimate Apparel',
-      'Adult Content Clothing', 'Accessories', 'Shoes', 'Jewelry',
-      'Electronics', 'Home & Garden', 'Beauty & Personal Care', 'Health & Wellness',
-      'Sports & Outdoors', 'Toys & Games', 'Books & Media', 'Automotive',
-      'Pet Supplies', 'Office Supplies', 'Food & Beverages', 'Other',
-    ];
+    const {VALID_CATEGORIES} = await import('~/lib/categories');
     
     if (!VALID_CATEGORIES.includes(sanitizedCategory)) {
       return new Response('Invalid category selected', {status: 400});
@@ -163,6 +158,7 @@ export async function action({request, context}) {
         creator_id: creatorId,
         title: sanitizedTitle,
         category: sanitizedCategory,
+        condition: sanitizedCondition,
         story: sanitizedStory,
         price_cents: priceCents,
         currency: 'USD',
@@ -342,44 +338,6 @@ export async function action({request, context}) {
   }
 }
 
-// Category options organized by type
-const CATEGORIES = {
-  clothing: [
-    'Tops & Blouses',
-    'Dresses',
-    'Bottoms & Pants',
-    'Skirts',
-    'Outerwear',
-    'Activewear',
-    'Swimwear',
-    'Lingerie & Underwear',
-    'Intimate Apparel',
-    'Adult Content Clothing',
-    'Accessories',
-    'Shoes',
-    'Jewelry',
-  ],
-  marketplace: [
-    'Electronics',
-    'Home & Garden',
-    'Beauty & Personal Care',
-    'Health & Wellness',
-    'Sports & Outdoors',
-    'Toys & Games',
-    'Books & Media',
-    'Automotive',
-    'Pet Supplies',
-    'Office Supplies',
-    'Food & Beverages',
-    'Other',
-  ],
-};
-
-// Flatten categories for search
-const ALL_CATEGORIES = [
-  ...CATEGORIES.clothing.map(cat => ({value: cat, type: 'clothing'})),
-  ...CATEGORIES.marketplace.map(cat => ({value: cat, type: 'marketplace'})),
-];
 
 export default function CreateListing() {
   const loaderData = useLoaderData();
@@ -387,6 +345,7 @@ export default function CreateListing() {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [categorySearch, setCategorySearch] = useState('');
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
+  const [selectedCondition, setSelectedCondition] = useState('');
   const [selectedPhotos, setSelectedPhotos] = useState([]);
   const [price, setPrice] = useState('');
   const [imageErrors, setImageErrors] = useState(new Set());
@@ -556,6 +515,11 @@ export default function CreateListing() {
       return;
     }
     
+    if (!selectedCondition) {
+      alert('Please select a condition');
+      return;
+    }
+    
     if (!price || parseFloat(price) <= 0) {
       alert('Please enter a valid price');
       return;
@@ -586,6 +550,7 @@ export default function CreateListing() {
     
     if (titleInput) formData.append('title', titleInput.value);
     formData.append('category', selectedCategory);
+    formData.append('condition', selectedCondition);
     if (descriptionInput) formData.append('description', descriptionInput.value);
     if (priceInput) formData.append('price', priceInput.value);
     
@@ -709,6 +674,29 @@ export default function CreateListing() {
                       </div>
                     )}
                   </div>
+                </div>
+
+                {/* Condition Dropdown */}
+                <div className="col-span-full">
+                  <label htmlFor="condition" className="block text-sm/6 font-medium text-gray-900 dark:text-white">
+                    Condition *
+                  </label>
+                  <div className="mt-2">
+                    <select
+                      id="condition"
+                      name="condition"
+                      value={selectedCondition}
+                      onChange={(e) => setSelectedCondition(e.target.value)}
+                      required
+                      className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:focus:outline-indigo-500"
+                    >
+                      <option value="">Select condition...</option>
+                      <option value="Barely worn">Barely worn</option>
+                      <option value="Lightly worn">Lightly worn</option>
+                      <option value="Heavily worn">Heavily worn</option>
+                    </select>
+                  </div>
+                  <p className="mt-3 text-sm/6 text-gray-600 dark:text-gray-400">Select the condition of your item.</p>
                 </div>
 
                 {/* Description Field */}

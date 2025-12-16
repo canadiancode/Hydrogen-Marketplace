@@ -1360,3 +1360,81 @@ export async function fetchCreatorDashboardStats(creatorId, supabaseUrl, anonKey
   };
 }
 
+/**
+ * Fetches a single live listing by ID for public viewing
+ * Only returns listings with status 'live'
+ * Includes listing photos, creator info, and formats data for display
+ * 
+ * @param {string} listingId - Listing UUID
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} serviceRoleKey - Supabase service role key (for public operations)
+ * @returns {Promise<object | null>} Listing object with photos and creator info or null if not found/not live
+ */
+export async function fetchPublicListingById(listingId, supabaseUrl, serviceRoleKey) {
+  if (!listingId || !supabaseUrl || !serviceRoleKey) {
+    return null;
+  }
+
+  const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
+  
+  // Fetch the listing - only return if status is 'live'
+  const {data: listing, error: listingError} = await supabase
+    .from('listings')
+    .select('*')
+    .eq('id', listingId)
+    .eq('status', 'live')
+    .single();
+
+  if (listingError || !listing) {
+    console.error('Error fetching public listing:', listingError);
+    return null;
+  }
+
+  // Fetch creator information
+  let creator = null;
+  if (listing.creator_id) {
+    const {data: creatorData, error: creatorError} = await supabase
+      .from('creators')
+      .select('id, email, display_name, handle, bio, profile_image_url, first_name, last_name')
+      .eq('id', listing.creator_id)
+      .single();
+    
+    if (!creatorError && creatorData) {
+      creator = creatorData;
+    }
+  }
+
+  // Fetch reference photos for this listing (public-facing photos only)
+  const {data: photos, error: photosError} = await supabase
+    .from('listing_photos')
+    .select('*')
+    .eq('listing_id', listingId)
+    .eq('photo_type', 'reference')
+    .order('created_at', {ascending: true});
+
+  if (photosError) {
+    console.error('Error fetching listing photos:', photosError);
+  }
+
+  // Get public URLs for photos
+  const photosWithUrls = (photos || []).map(photo => {
+    const {data} = supabase.storage
+      .from('listing-photos')
+      .getPublicUrl(photo.storage_path);
+    
+    return {
+      ...photo,
+      publicUrl: data?.publicUrl || null,
+    };
+  });
+
+  // Format listing data for display
+  return {
+    ...listing,
+    photos: photosWithUrls,
+    price: (listing.price_cents / 100).toFixed(2),
+    priceDollars: listing.price_cents / 100,
+    creator,
+  };
+}
+

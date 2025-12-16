@@ -2,6 +2,7 @@ import {useState, useRef, useEffect} from 'react';
 import {Form, redirect, useSubmit, useLoaderData, useNavigate, useActionData, useNavigation, data} from 'react-router';
 import {requireAuth, generateCSRFToken, getClientIP} from '~/lib/auth-helpers';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
+import {ALL_CATEGORIES} from '~/lib/categories';
 import {ChevronDownIcon, ChevronUpIcon, XMarkIcon} from '@heroicons/react/16/solid';
 import {PhotoIcon} from '@heroicons/react/24/solid';
 import {fetchCreatorProfile, fetchCreatorListingById, createUserSupabaseClient} from '~/lib/supabase';
@@ -110,6 +111,7 @@ export async function action({request, context, params}) {
     // Extract form data
     const title = formData.get('title')?.toString().trim();
     const category = formData.get('category')?.toString().trim();
+    const condition = formData.get('condition')?.toString().trim();
     const story = formData.get('description')?.toString().trim();
     const price = formData.get('price')?.toString();
     
@@ -152,17 +154,20 @@ export async function action({request, context, params}) {
     }
 
     // Validate category against allowed list
-    const VALID_CATEGORIES = [
-      'Tops & Blouses', 'Dresses', 'Bottoms & Pants', 'Skirts', 'Outerwear',
-      'Activewear', 'Swimwear', 'Lingerie & Underwear', 'Intimate Apparel',
-      'Adult Content Clothing', 'Accessories', 'Shoes', 'Jewelry',
-      'Electronics', 'Home & Garden', 'Beauty & Personal Care', 'Health & Wellness',
-      'Sports & Outdoors', 'Toys & Games', 'Books & Media', 'Automotive',
-      'Pet Supplies', 'Office Supplies', 'Food & Beverages', 'Other',
-    ];
+    const {VALID_CATEGORIES} = await import('~/lib/categories');
     
     if (!VALID_CATEGORIES.includes(sanitizedCategory)) {
       return data({error: 'Invalid category selected'}, {status: 400});
+    }
+
+    // Validate condition
+    const VALID_CONDITIONS = ['Barely Worn', 'Lightly worn', 'Heavily worn'];
+    const sanitizedCondition = condition
+      ? condition.replace(/[^a-zA-Z0-9\s]/g, '').substring(0, 50)
+      : '';
+    
+    if (!sanitizedCondition || !VALID_CONDITIONS.includes(sanitizedCondition)) {
+      return data({error: 'Invalid condition selected'}, {status: 400});
     }
 
     // Validate price
@@ -243,6 +248,7 @@ export async function action({request, context, params}) {
       .update({
         title: sanitizedTitle,
         category: sanitizedCategory,
+        condition: sanitizedCondition,
         story: sanitizedStory,
         price_cents: priceCents,
         status: newStatus,
@@ -439,44 +445,6 @@ export async function action({request, context, params}) {
   }
 }
 
-// Category options organized by type (same as create page)
-const CATEGORIES = {
-  clothing: [
-    'Tops & Blouses',
-    'Dresses',
-    'Bottoms & Pants',
-    'Skirts',
-    'Outerwear',
-    'Activewear',
-    'Swimwear',
-    'Lingerie & Underwear',
-    'Intimate Apparel',
-    'Adult Content Clothing',
-    'Accessories',
-    'Shoes',
-    'Jewelry',
-  ],
-  marketplace: [
-    'Electronics',
-    'Home & Garden',
-    'Beauty & Personal Care',
-    'Health & Wellness',
-    'Sports & Outdoors',
-    'Toys & Games',
-    'Books & Media',
-    'Automotive',
-    'Pet Supplies',
-    'Office Supplies',
-    'Food & Beverages',
-    'Other',
-  ],
-};
-
-// Flatten categories for search
-const ALL_CATEGORIES = [
-  ...CATEGORIES.clothing.map(cat => ({value: cat, type: 'clothing'})),
-  ...CATEGORIES.marketplace.map(cat => ({value: cat, type: 'marketplace'})),
-];
 
 export default function EditListing() {
   const loaderData = useLoaderData();
@@ -528,6 +496,7 @@ export default function EditListing() {
   }
   
   const [selectedCategory, setSelectedCategory] = useState(listing.category || '');
+  const [selectedCondition, setSelectedCondition] = useState(listing.condition || '');
   const [categorySearch, setCategorySearch] = useState('');
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
   
@@ -706,6 +675,11 @@ export default function EditListing() {
       return;
     }
     
+    if (!selectedCondition) {
+      alert('Please select a condition');
+      return;
+    }
+    
     if (!price || parseFloat(price) <= 0) {
       alert('Please enter a valid price');
       return;
@@ -734,6 +708,7 @@ export default function EditListing() {
     
     if (titleInput) formData.append('title', titleInput.value);
     formData.append('category', selectedCategory);
+    formData.append('condition', selectedCondition);
     if (descriptionInput) formData.append('description', descriptionInput.value);
     if (priceInput) formData.append('price', priceInput.value);
     
@@ -922,6 +897,29 @@ export default function EditListing() {
                       </div>
                     )}
                   </div>
+                </div>
+
+                {/* Condition Dropdown */}
+                <div className="col-span-full">
+                  <label htmlFor="condition" className="block text-sm/6 font-medium text-gray-900 dark:text-white">
+                    Condition *
+                  </label>
+                  <div className="mt-2">
+                    <select
+                      id="condition"
+                      name="condition"
+                      value={selectedCondition}
+                      onChange={(e) => setSelectedCondition(e.target.value)}
+                      required
+                      className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:focus:outline-indigo-500"
+                    >
+                      <option value="">Select condition...</option>
+                      <option value="Barely worn">Barely worn</option>
+                      <option value="Lightly worn">Lightly worn</option>
+                      <option value="Heavily worn">Heavily worn</option>
+                    </select>
+                  </div>
+                  <p className="mt-3 text-sm/6 text-gray-600 dark:text-gray-400">Select the condition of your item.</p>
                 </div>
 
                 {/* Description Field */}
