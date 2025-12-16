@@ -2,28 +2,29 @@ import {Link} from 'react-router';
 
 const navigation = {
   thingsYouCanBuy: [
-    { name: 'Shop All', href: '/shop' },
-    { name: 'Collections', href: '/collections' },
-    { name: 'New Arrivals', href: '/shop?filter=new' },
     { name: 'Search', href: '/search' },
+    { name: 'Shop All', href: '/shop' },
+    { name: 'Find a Creator', href: '/shop?filter=find-creator' },
+    { name: 'Shop by Category', href: '/shop?filter=find-category' },
+
   ],
   howItWorks: [
     { name: 'For Buyers', href: '/#buyers' },
     { name: 'For Creators', href: '/#creators' },
-    { name: 'Marketplace Process', href: '/#how-it-works' },
-    { name: 'Trust & Safety', href: '/#trust' },
+    { name: 'Fees & Payouts', href: '/#fees' },
+    { name: 'Verification & Trust', href: '/#trust' },
   ],
   creators: [
-    { name: 'Become a Creator', href: '/creator/signup' },
     { name: 'Creator Login', href: '/creator/login' },
-    { name: 'Creator Guidelines', href: '/creators/guidelines' },
+    { name: 'Become a Creator', href: '/creator/login' },
     { name: 'Browse Creators', href: '/creators' },
+    { name: 'Creator Guidelines', href: '/creators/guidelines' },
   ],
   about: [
     { name: 'Our Mission', href: '/about/mission' },
-    { name: 'Contact Us', href: '/about/contact' },
-    { name: 'Privacy Policy', href: '/policies/privacy-policy' },
-    { name: 'Terms of Service', href: '/policies/terms-of-service' },
+    { name: 'Trust & Safety', href: '/about/trust' },
+    { name: 'Privacy & Discretion', href: '/about/privacy' },
+    { name: 'Contact & Support', href: '/about/contact' },
   ],
   social: [
     {

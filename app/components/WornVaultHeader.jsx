@@ -26,15 +26,15 @@ import {useOptimisticCart} from '@shopify/hydrogen';
 
 const shopItems = [
   { name: 'Explore All', href: '/shop' },
-  { name: 'New Arrivals', href: '/shop?filter=new' },
-  { name: 'Limited Drops', href: '/shop?filter=limited' },
+  { name: 'Find a Creator', href: '/shop?filter=find-creator' },
+  { name: 'Shop by Category', href: '/shop?filter=find-category' },
 ];
 
 const howItWorksItems = [
   { name: 'For Buyers', href: '/#buyers' },
   { name: 'For Creators', href: '/#creators' },
-  { name: 'Verification & Trust', href: '/#trust' },
   { name: 'Fees & Payouts', href: '/#fees' },
+  { name: 'Verification & Trust', href: '/#trust' },
 ];
 
 const creatorsItems = [
@@ -44,9 +44,9 @@ const creatorsItems = [
 
 const aboutItems = [
   { name: 'Our Mission', href: '/about/mission' },
-  { name: 'Privacy & Discretion', href: '/about/privacy' },
   { name: 'Trust & Safety', href: '/about/trust' },
-  { name: 'Contact / Support', href: '/about/contact' },
+  { name: 'Privacy & Discretion', href: '/about/privacy' },
+  { name: 'Contact & Support', href: '/about/contact' },
 ];
 
 const buyerAccountItems = [
