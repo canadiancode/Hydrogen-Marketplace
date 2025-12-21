@@ -2,6 +2,7 @@ import {useLoaderData, Link, useSearchParams, useRouteError, isRouteErrorRespons
 import {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import {fetchAllListings} from '~/lib/supabase';
 import {ALL_CATEGORIES} from '~/lib/categories';
+import {decodeHTMLEntities} from '~/lib/html-entities';
 import {ChevronDownIcon, FunnelIcon} from '@heroicons/react/20/solid';
 import {Disclosure, DisclosureButton, DisclosurePanel, Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/react';
 
@@ -50,7 +51,9 @@ export async function loader({context, request}) {
         imageAlt: listing.title ? `${String(listing.title).substring(0, 100)} product image` : 'Product image',
         price: isValidPrice ? price : 0,
         priceFormatted: isValidPrice ? `$${price.toFixed(2)}` : '$0.00',
-        creatorName: String(listing.creator?.display_name || 'Unknown Creator').substring(0, 100),
+        creatorName: listing.creator?.display_name 
+          ? decodeHTMLEntities(String(listing.creator.display_name).substring(0, 100))
+          : 'Unknown Creator',
         creatorId: listing.creator?.id || null,
         createdAt: listing.created_at || null,
         category: listing.category ? String(listing.category).substring(0, 100) : null,

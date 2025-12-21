@@ -92,6 +92,16 @@ export async function action({request, context}) {
       return new Response('Invalid category selected', {status: 400});
     }
 
+    // Validate condition
+    const VALID_CONDITIONS = ['Barely worn', 'Lightly worn', 'Heavily worn'];
+    const sanitizedCondition = condition
+      ? condition.replace(/[^a-zA-Z0-9\s]/g, '').substring(0, 50)
+      : '';
+    
+    if (!sanitizedCondition || !VALID_CONDITIONS.includes(sanitizedCondition)) {
+      return new Response('Invalid condition selected', {status: 400});
+    }
+
     // Validate price
     const priceFloat = parseFloat(price);
     if (isNaN(priceFloat) || priceFloat <= 0) {

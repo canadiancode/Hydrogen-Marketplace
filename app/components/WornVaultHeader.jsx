@@ -21,8 +21,11 @@ import {
   ArrowRightOnRectangleIcon,
 } from '@heroicons/react/24/outline';
 import {ChevronDownIcon} from '@heroicons/react/20/solid';
+import {useCartDrawer, CartDrawerContext} from '~/components/CartDrawer';
+import {useOptimisticCart, useAnalytics} from '@shopify/hydrogen';
 import {useAside} from '~/components/Aside';
-import {useOptimisticCart} from '@shopify/hydrogen';
+import {useContext, startTransition, useMemo} from 'react';
+import {useNavigate} from 'react-router';
 
 const shopItems = [
   { name: 'Explore All', href: '/shop' },
@@ -63,16 +66,56 @@ const creatorAccountItems = [
 ];
 
 function CartBadge({cart}) {
-  const {open} = useAside();
+  // Safely get cart drawer context - may be null in error boundaries
+  const cartDrawerContext = useContext(CartDrawerContext);
+  const navigate = useNavigate();
+  
   // useOptimisticCart must be called unconditionally (Rules of Hooks)
   // Pass null if cart is not available - useOptimisticCart should handle this gracefully
   const optimisticCart = useOptimisticCart(cart);
   const count = optimisticCart?.totalQuantity ?? 0;
+  
+  // Analytics for cart view tracking
+  const analytics = useAnalytics();
+  const {publish, shop, cart: analyticsCart, prevCart} = analytics || {};
+
+  // Memoize the setOpen function to avoid recreating on each render
+  const setOpen = useMemo(() => {
+    return cartDrawerContext?.setOpen;
+  }, [cartDrawerContext]);
+
+  const handleClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Check if context is available and has setOpen function
+    if (setOpen && typeof setOpen === 'function') {
+      startTransition(() => {
+        setOpen(true);
+      });
+      // Track cart view event for analytics
+      if (publish && shop && analyticsCart) {
+        publish('cart_viewed', {
+          cart: analyticsCart,
+          prevCart,
+          shop,
+          url: typeof window !== 'undefined' ? window.location.href : '',
+        });
+      }
+    } else {
+      // Fallback: navigate to cart page if drawer context not available
+      console.warn('CartDrawer context not available, falling back to /cart page', {
+        hasContext: !!cartDrawerContext,
+        hasSetOpen: !!setOpen
+      });
+      navigate('/cart');
+    }
+  };
 
   return (
     <button
       type="button"
-      onClick={() => open('cart')}
+      onClick={handleClick}
       className="relative -m-2.5 inline-flex items-center justify-center rounded-md p-2.5 text-gray-700 dark:text-gray-400"
     >
       <span className="sr-only">Shopping cart</span>
@@ -97,6 +140,8 @@ function CartBadgeWrapper({cartPromise}) {
 }
 
 function SearchButton() {
+  // Note: Search still uses Aside system - keeping it as is for now
+  // If you want to migrate search to a drawer too, we can do that separately
   const {open} = useAside();
   return (
     <button
@@ -130,7 +175,8 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
             <span className="text-2xl font-bold text-gray-900 dark:text-white">WornVault</span>
           </Link>
         </div>
-        <div className="flex lg:hidden">
+        <div className="flex lg:hidden items-center gap-x-2">
+          {cart ? <CartBadgeWrapper cartPromise={cart} /> : <CartBadge cart={null} />}
           <button
             type="button"
             onClick={() => setMobileMenuOpen(true)}

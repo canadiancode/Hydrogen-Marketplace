@@ -3,6 +3,7 @@ import {useLoaderData, Link} from 'react-router';
 import {Tab, TabGroup, TabList, TabPanel, TabPanels} from '@headlessui/react';
 import {fetchPublicListingById} from '~/lib/supabase';
 import {sanitizeHTML} from '~/lib/sanitize';
+import {decodeHTMLEntities} from '~/lib/html-entities';
 
 export const meta = ({data}) => {
   return [
@@ -265,7 +266,7 @@ export default function ListingDetail() {
                         {listing.creator.coverImageUrl ? (
                           <img
                             src={listing.creator.coverImageUrl}
-                            alt={`${listing.creator.display_name || 'Creator'} cover`}
+                            alt={`${listing.creator.display_name ? decodeHTMLEntities(listing.creator.display_name) : 'Creator'} cover`}
                             className="w-full h-full object-cover"
                             onError={(e) => {
                               // Fallback to gray background if image fails to load
@@ -284,7 +285,7 @@ export default function ListingDetail() {
                           {listing.creator.profile_image_url ? (
                             <img
                               src={listing.creator.profile_image_url}
-                              alt={listing.creator.display_name || 'Creator'}
+                              alt={listing.creator.display_name ? decodeHTMLEntities(listing.creator.display_name) : 'Creator'}
                               className="size-32 sm:size-40 rounded-full border-4 border-white dark:border-gray-900 bg-white dark:bg-gray-800 object-cover"
                               onError={(e) => {
                                 e.target.src = 'https://via.placeholder.com/150?text=No+Image';
@@ -306,7 +307,7 @@ export default function ListingDetail() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
                               <h4 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
-                                {listing.creator.display_name || 'Unknown Creator'}
+                                {listing.creator.display_name ? decodeHTMLEntities(listing.creator.display_name) : 'Unknown Creator'}
                               </h4>
                             </div>
                             
@@ -318,7 +319,7 @@ export default function ListingDetail() {
                             
                             {listing.creator.bio && (
                               <p className="text-gray-900 dark:text-white mb-3 whitespace-pre-wrap">
-                                {listing.creator.bio}
+                                {decodeHTMLEntities(listing.creator.bio)}
                               </p>
                             )}
                           </div>
@@ -337,7 +338,7 @@ export default function ListingDetail() {
                               </svg>
                             </a>
                             <a
-                              href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`${listing.creator.display_name || 'Creator'} on WornVault`)}`}
+                              href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`${listing.creator.display_name ? decodeHTMLEntities(listing.creator.display_name) : 'Creator'} on WornVault`)}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-gray-400 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-400 transition-colors"

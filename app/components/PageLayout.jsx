@@ -4,7 +4,7 @@ import {Aside} from '~/components/Aside';
 import {Footer} from '~/components/Footer';
 import {Header, HeaderMenu} from '~/components/Header';
 import {WornVaultHeader} from '~/components/WornVaultHeader';
-import {CartMain} from '~/components/CartMain';
+import {CartDrawerProvider} from '~/components/CartDrawer';
 import {
   SEARCH_ENDPOINT,
   SearchFormPredictive,
@@ -55,54 +55,39 @@ export function PageLayout({
   
   return (
     <Aside.Provider>
-      <CartAside cart={cart} />
-      <SearchAside />
-      <MobileMenuAside header={header} publicStoreDomain={publicStoreDomain} />
-      {!hideHeaderFooter && (
-        <Suspense fallback={<div className="h-16" />}>
-          <Await resolve={isLoggedIn} errorElement={<WornVaultHeader isLoggedIn={false} isCreator={false} cart={cart} />}>
-            {(loggedIn) => (
-              <Await resolve={isCreator} errorElement={<WornVaultHeader isLoggedIn={loggedIn} isCreator={false} cart={cart} />}>
-                {(creator) => (
-                  <WornVaultHeader 
-                    isLoggedIn={loggedIn} 
-                    isCreator={creator} 
-                    cart={cart}
-                  />
-                )}
-              </Await>
-            )}
-          </Await>
-        </Suspense>
-      )}
-      <main className="pb-32 sm:pb-12">{children}</main>
-      {!hideHeaderFooter && (
-        <Footer
-          footer={footer}
-          header={header}
-          publicStoreDomain={publicStoreDomain}
-        />
-      )}
+      <CartDrawerProvider cart={cart}>
+        <SearchAside />
+        <MobileMenuAside header={header} publicStoreDomain={publicStoreDomain} />
+        {!hideHeaderFooter && (
+          <Suspense fallback={<div className="h-16" />}>
+            <Await resolve={isLoggedIn} errorElement={<WornVaultHeader isLoggedIn={false} isCreator={false} cart={cart} />}>
+              {(loggedIn) => (
+                <Await resolve={isCreator} errorElement={<WornVaultHeader isLoggedIn={loggedIn} isCreator={false} cart={cart} />}>
+                  {(creator) => (
+                    <WornVaultHeader 
+                      isLoggedIn={loggedIn} 
+                      isCreator={creator} 
+                      cart={cart}
+                    />
+                  )}
+                </Await>
+              )}
+            </Await>
+          </Suspense>
+        )}
+        <main className="pb-32 sm:pb-12">{children}</main>
+        {!hideHeaderFooter && (
+          <Footer
+            footer={footer}
+            header={header}
+            publicStoreDomain={publicStoreDomain}
+          />
+        )}
+      </CartDrawerProvider>
     </Aside.Provider>
   );
 }
 
-/**
- * @param {{cart: PageLayoutProps['cart']}}
- */
-function CartAside({cart}) {
-  return (
-    <Aside type="cart" heading="CART">
-      <Suspense fallback={<p>Loading cart ...</p>}>
-        <Await resolve={cart}>
-          {(cart) => {
-            return <CartMain cart={cart} layout="aside" />;
-          }}
-        </Await>
-      </Suspense>
-    </Aside>
-  );
-}
 
 function SearchAside() {
   const queriesDatalistId = useId();

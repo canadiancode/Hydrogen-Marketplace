@@ -9,7 +9,10 @@ import {CartSummary} from './CartSummary';
  * It is used by both the /cart route and the cart aside dialog.
  * @param {CartMainProps}
  */
-export function CartMain({layout, cart: originalCart}) {
+/**
+ * @param {CartMainProps}
+ */
+export function CartMain({layout, cart: originalCart, hideSummary = false}) {
   // The useOptimisticCart hook applies pending actions to the cart
   // so the user immediately sees feedback when they modify the cart.
   const cart = useOptimisticCart(originalCart);
@@ -32,7 +35,7 @@ export function CartMain({layout, cart: originalCart}) {
             ))}
           </ul>
         </div>
-        {cartHasItems && <CartSummary cart={cart} layout={layout} />}
+        {cartHasItems && !hideSummary && <CartSummary cart={cart} layout={layout} />}
       </div>
     </div>
   );
@@ -66,6 +69,7 @@ function CartEmpty({hidden = false}) {
  * @typedef {{
  *   cart: CartApiQueryFragment | null;
  *   layout: CartLayout;
+ *   hideSummary?: boolean;
  * }} CartMainProps
  */
 

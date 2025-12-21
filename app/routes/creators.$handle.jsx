@@ -3,15 +3,17 @@ import {useLoaderData, Link, useRouteError, isRouteErrorResponse, useSearchParam
 import {fetchCreatorByHandle, fetchListingsByCreatorId} from '~/lib/supabase';
 import {ChevronDownIcon} from '@heroicons/react/20/solid';
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/react';
+import {decodeHTMLEntities} from '~/lib/html-entities';
 
 export const meta = ({data}) => {
   if (!data?.creator) {
     return [{title: 'Creator Not Found | WornVault'}];
   }
   
+  const decodedDisplayName = data.creator.display_name ? decodeHTMLEntities(data.creator.display_name) : data.creator.handle;
   return [
-    {title: `${data.creator.display_name || data.creator.handle} | WornVault`},
-    {name: 'description', content: data.creator.bio || `View ${data.creator.display_name || data.creator.handle}'s profile and products on WornVault`},
+    {title: `${decodedDisplayName} | WornVault`},
+    {name: 'description', content: data.creator.bio ? decodeHTMLEntities(data.creator.bio) : `View ${decodedDisplayName}'s profile and products on WornVault`},
     {rel: 'canonical', href: `/creators/${data.creator.handle}`},
   ];
 };
@@ -141,9 +143,10 @@ export default function CreatorProfile() {
   const handleShare = async () => {
     if (typeof navigator !== 'undefined' && navigator.share) {
       try {
+        const decodedDisplayName = creator.display_name ? decodeHTMLEntities(creator.display_name) : creator.handle;
         await navigator.share({
-          title: `${creator.display_name} on WornVault`,
-          text: `Check out ${creator.display_name}'s profile on WornVault`,
+          title: `${decodedDisplayName} on WornVault`,
+          text: `Check out ${decodedDisplayName}'s profile on WornVault`,
           url: shareUrl,
         });
       } catch (err) {
@@ -196,7 +199,7 @@ export default function CreatorProfile() {
         {creator.coverImageUrl ? (
           <img
             src={creator.coverImageUrl}
-            alt={`${creator.display_name || creator.handle} cover`}
+            alt={`${creator.display_name ? decodeHTMLEntities(creator.display_name) : creator.handle} cover`}
             className="w-full h-full object-cover"
             onError={(e) => {
               // Fallback to gray background if image fails to load
@@ -215,7 +218,7 @@ export default function CreatorProfile() {
           <div className="relative inline-block">
             <img
               src={profileImageUrl}
-              alt={creator.display_name || creator.handle}
+              alt={creator.display_name ? decodeHTMLEntities(creator.display_name) : creator.handle}
               className="size-32 sm:size-40 rounded-full border-4 border-white dark:border-gray-900 bg-white dark:bg-gray-800 object-cover"
               onError={(e) => {
                 e.target.src = 'https://via.placeholder.com/150?text=No+Image';
@@ -261,7 +264,7 @@ export default function CreatorProfile() {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
-                  {creator.display_name || creator.handle}
+                  {creator.display_name ? decodeHTMLEntities(creator.display_name) : creator.handle}
                 </h1>
                 {isVerified && (
                   <span className="inline-flex items-center" title="Verified Creator">
@@ -278,7 +281,7 @@ export default function CreatorProfile() {
               
               {creator.bio && (
                 <p className="text-gray-900 dark:text-white mb-3 whitespace-pre-wrap">
-                  {creator.bio}
+                  {decodeHTMLEntities(creator.bio)}
                 </p>
               )}
               
@@ -308,7 +311,7 @@ export default function CreatorProfile() {
               </svg>
             </a>
             <a
-              href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`${creator.display_name} on WornVault`)}`}
+              href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`${creator.display_name ? decodeHTMLEntities(creator.display_name) : creator.handle} on WornVault`)}`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-gray-400 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-400 transition-colors"

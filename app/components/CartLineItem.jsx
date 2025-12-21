@@ -2,7 +2,9 @@ import {CartForm, Image} from '@shopify/hydrogen';
 import {useVariantUrl} from '~/lib/variants';
 import {Link} from 'react-router';
 import {ProductPrice} from './ProductPrice';
-import {useAside} from './Aside';
+import {useContext} from 'react';
+import {CartDrawerContext} from './CartDrawer';
+import {AsideContext} from './Aside';
 
 /**
  * A single line item in the cart. It displays the product image, title, price.
@@ -16,46 +18,92 @@ export function CartLineItem({layout, line}) {
   const {id, merchandise} = line;
   const {product, title, image, selectedOptions} = merchandise;
   const lineItemUrl = useVariantUrl(product.handle, selectedOptions);
-  const {close} = useAside();
+  
+  // Try to use cart drawer first, fallback to aside for backward compatibility
+  // Both hooks are called unconditionally (React rules), but contexts may be null
+  const cartDrawerContext = useContext(CartDrawerContext);
+  const asideContext = useContext(AsideContext);
+  
+  const closeDrawer = cartDrawerContext 
+    ? () => cartDrawerContext.setOpen(false)
+    : asideContext?.close || (() => {});
+
+  // Use Tailwind classes when in drawer (new design), keep custom classes for page layout
+  const isDrawer = cartDrawerContext !== null;
+  const listItemClass = isDrawer ? 'flex py-6' : 'cart-line';
+  const imageWrapperClass = isDrawer ? 'size-24 shrink-0 overflow-hidden rounded-md border border-gray-200 dark:border-gray-700' : '';
+  const contentClass = isDrawer ? 'ml-4 flex flex-1 flex-col' : '';
 
   return (
-    <li key={id} className="cart-line">
+    <li key={id} className={listItemClass}>
       {image && (
-        <Image
-          alt={title}
-          aspectRatio="1/1"
-          data={image}
-          height={100}
-          loading="lazy"
-          width={100}
-        />
+        <div className={imageWrapperClass}>
+          <Image
+            alt={title}
+            aspectRatio="1/1"
+            data={image}
+            height={isDrawer ? 96 : 100}
+            loading="lazy"
+            width={isDrawer ? 96 : 100}
+            className={isDrawer ? 'size-full object-cover' : ''}
+          />
+        </div>
       )}
 
-      <div>
-        <Link
-          prefetch="intent"
-          to={lineItemUrl}
-          onClick={() => {
-            if (layout === 'aside') {
-              close();
-            }
-          }}
-        >
-          <p>
-            <strong>{product.title}</strong>
-          </p>
-        </Link>
-        <ProductPrice price={line?.cost?.totalAmount} />
-        <ul>
-          {selectedOptions.map((option) => (
-            <li key={option.name}>
-              <small>
-                {option.name}: {option.value}
-              </small>
-            </li>
-          ))}
-        </ul>
-        <CartLineQuantity line={line} />
+      <div className={contentClass}>
+        <div>
+          <div className={isDrawer ? 'flex justify-between text-base font-medium text-gray-900 dark:text-white' : ''}>
+            <h3 className={isDrawer ? '' : undefined}>
+              <Link
+                prefetch="intent"
+                to={lineItemUrl}
+                onClick={() => {
+                  if (layout === 'aside' && closeDrawer) {
+                    closeDrawer();
+                  }
+                }}
+                className={isDrawer ? 'text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300' : undefined}
+              >
+                {isDrawer ? product.title : <strong>{product.title}</strong>}
+              </Link>
+            </h3>
+            {isDrawer && (
+              <p className="ml-4 text-gray-900 dark:text-white">
+                <ProductPrice price={line?.cost?.totalAmount} />
+              </p>
+            )}
+          </div>
+          {!isDrawer && <ProductPrice price={line?.cost?.totalAmount} />}
+          {selectedOptions.length > 0 && (
+            <p className={isDrawer ? 'mt-1 text-sm text-gray-500 dark:text-gray-400' : ''}>
+              {isDrawer ? (
+                selectedOptions.map((option) => `${option.name}: ${option.value}`).join(', ')
+              ) : (
+                <ul>
+                  {selectedOptions.map((option) => (
+                    <li key={option.name}>
+                      <small>
+                        {option.name}: {option.value}
+                      </small>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </p>
+          )}
+        </div>
+        <div className={isDrawer ? 'flex flex-1 items-end justify-between text-sm' : ''}>
+          {isDrawer ? (
+            <>
+              <p className="text-gray-500 dark:text-gray-400">Qty {line.quantity}</p>
+              <div className="flex">
+                <CartLineRemoveButton lineIds={[line.id]} disabled={!!line.isOptimistic} />
+              </div>
+            </>
+          ) : (
+            <CartLineQuantity line={line} />
+          )}
+        </div>
       </div>
     </li>
   );
@@ -110,9 +158,10 @@ function CartLineQuantity({line}) {
  * @param {{
  *   lineIds: string[];
  *   disabled: boolean;
+ *   className?: string;
  * }}
  */
-function CartLineRemoveButton({lineIds, disabled}) {
+function CartLineRemoveButton({lineIds, disabled, className = ''}) {
   return (
     <CartForm
       fetcherKey={getUpdateKey(lineIds)}
@@ -120,7 +169,11 @@ function CartLineRemoveButton({lineIds, disabled}) {
       action={CartForm.ACTIONS.LinesRemove}
       inputs={{lineIds}}
     >
-      <button disabled={disabled} type="submit">
+      <button 
+        disabled={disabled} 
+        type="submit"
+        className={className || 'font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300'}
+      >
         Remove
       </button>
     </CartForm>

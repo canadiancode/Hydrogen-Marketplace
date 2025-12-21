@@ -161,7 +161,7 @@ export async function action({request, context, params}) {
     }
 
     // Validate condition
-    const VALID_CONDITIONS = ['Barely Worn', 'Lightly worn', 'Heavily worn'];
+    const VALID_CONDITIONS = ['Barely worn', 'Lightly worn', 'Heavily worn'];
     const sanitizedCondition = condition
       ? condition.replace(/[^a-zA-Z0-9\s]/g, '').substring(0, 50)
       : '';

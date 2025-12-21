@@ -56,7 +56,7 @@ export function Aside({children, heading, type}) {
   );
 }
 
-const AsideContext = createContext(null);
+export const AsideContext = createContext(null);
 
 Aside.Provider = function AsideProvider({children}) {
   const [type, setType] = useState('closed');

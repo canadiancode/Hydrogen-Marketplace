@@ -4,6 +4,7 @@ import {requireAuth, generateCSRFToken, validateCSRFToken, getClientIP} from '~/
 import {fetchCreatorProfile, updateCreatorProfile} from '~/lib/supabase';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
 import {sanitizeHTML} from '~/lib/sanitize';
+import {decodeHTMLEntities} from '~/lib/html-entities';
 import {ChevronDownIcon} from '@heroicons/react/16/solid';
 
 export const meta = () => {
@@ -1127,7 +1128,7 @@ export default function CreatorSettings() {
                     id="displayName"
                     name="displayName"
                     type="text"
-                    defaultValue={profile.displayName}
+                    defaultValue={profile.displayName ? decodeHTMLEntities(profile.displayName) : ''}
                     required
                     maxLength={100}
                     onInput={handleDisplayNameInput}
@@ -1178,7 +1179,7 @@ export default function CreatorSettings() {
                     id="bio"
                     name="bio"
                     rows={4}
-                    defaultValue={profile.bio}
+                    defaultValue={profile.bio ? decodeHTMLEntities(profile.bio) : ''}
                     maxLength={1000}
                     onInput={handleBioInput}
                     onPaste={(e) => {
