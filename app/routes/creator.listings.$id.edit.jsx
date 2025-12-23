@@ -1,6 +1,6 @@
 import {useState, useRef, useEffect, useMemo} from 'react';
 import {Form, redirect, useSubmit, useLoaderData, useNavigate, useActionData, useNavigation, data} from 'react-router';
-import {requireAuth, generateCSRFToken, getClientIP} from '~/lib/auth-helpers';
+import {requireAuth, generateCSRFToken, getClientIP, constantTimeEquals} from '~/lib/auth-helpers';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
 import {ALL_CATEGORIES} from '~/lib/categories';
 import {ChevronDownIcon, ChevronUpIcon, XMarkIcon} from '@heroicons/react/16/solid';
@@ -97,11 +97,11 @@ export async function action({request, context, params}) {
 
     const formData = await request.formData();
     
-    // Validate CSRF token
-    const csrfToken = formData.get('csrf_token');
+    // Validate CSRF token using constant-time comparison to prevent timing attacks
+    const csrfToken = formData.get('csrf_token')?.toString();
     const storedCSRFToken = context.session.get('csrf_token');
     
-    if (!csrfToken || !storedCSRFToken || csrfToken !== storedCSRFToken) {
+    if (!csrfToken || !storedCSRFToken || !constantTimeEquals(csrfToken, storedCSRFToken)) {
       return data({error: 'Invalid security token. Please refresh the page and try again.'}, {status: 403});
     }
     
@@ -202,7 +202,9 @@ export async function action({request, context, params}) {
     // Get creator_id from email
     const creatorProfile = await fetchCreatorProfile(user.email, supabaseUrl, anonKey, accessToken);
     if (!creatorProfile || !creatorProfile.id) {
-      console.error('Action: Creator profile not found', {email: user.email});
+      // Log without exposing email in production
+      const isProduction = context.env.NODE_ENV === 'production';
+      console.error('Action: Creator profile not found', isProduction ? {} : {email: user.email});
       return data({error: 'Creator profile not found. Please complete your profile first.'}, {status: 404});
     }
 
@@ -436,10 +438,21 @@ export async function action({request, context, params}) {
     // Success - redirect to listings page with success parameter
     return redirect('/creator/listings?updated=true');
   } catch (error) {
-    console.error('Action: Unexpected error updating listing:', error);
-    console.error('Action: Error stack:', error.stack);
+    // Log error details server-side only (no stack trace in production)
+    const isProduction = context.env.NODE_ENV === 'production';
+    if (isProduction) {
+      console.error('Action: Unexpected error updating listing:', {
+        message: error.message || 'Unknown error',
+        name: error.name || 'Error',
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      console.error('Action: Unexpected error updating listing:', error);
+    }
+    
+    // Return generic error message to client (never expose stack traces)
     return data(
-      {error: `An unexpected error occurred: ${error.message || 'Unknown error'}`},
+      {error: 'An unexpected error occurred. Please try again later.'},
       {status: 500}
     );
   }

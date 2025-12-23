@@ -1,6 +1,6 @@
 import {useState, useEffect, useMemo} from 'react';
 import {Form, useLoaderData, useActionData, useNavigation} from 'react-router';
-import {requireAuth, generateCSRFToken, validateCSRFToken, getClientIP} from '~/lib/auth-helpers';
+import {requireAuth, generateCSRFToken, validateCSRFToken, getClientIP, constantTimeEquals} from '~/lib/auth-helpers';
 import {fetchCreatorProfile, updateCreatorProfile} from '~/lib/supabase';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
 import {sanitizeHTML} from '~/lib/sanitize';
@@ -119,12 +119,12 @@ export async function action({request, context}) {
   
   const formData = await request.formData();
   
-  // Validate CSRF token
-  const csrfToken = formData.get('csrf_token');
+  // Validate CSRF token using constant-time comparison to prevent timing attacks
+  const csrfToken = formData.get('csrf_token')?.toString();
   // Get CSRF token from session (stored during loader)
   const storedCSRFToken = context.session.get('csrf_token');
   
-  if (!csrfToken || !storedCSRFToken || csrfToken !== storedCSRFToken) {
+  if (!csrfToken || !storedCSRFToken || !constantTimeEquals(csrfToken, storedCSRFToken)) {
     return {
       success: false,
       error: 'Invalid security token. Please refresh the page and try again.',
@@ -187,14 +187,16 @@ export async function action({request, context}) {
         
         imageUrl = uploadResult.url;
       } catch (error) {
-        // Log full error server-side only
+        // Log error server-side only (no stack trace in production)
+        const isProduction = context.env.NODE_ENV === 'production';
         console.error('Error uploading image:', {
-          error: error.message,
-          errorStack: error.stack,
+          error: error.message || 'Unknown error',
+          errorName: error.name || 'Error',
           fileName: imageFile.name,
           fileSize: imageFile.size,
           fileType: imageFile.type,
           timestamp: new Date().toISOString(),
+          ...(isProduction ? {} : {errorStack: error.stack}),
         });
         
         // Return generic error to client
@@ -257,14 +259,16 @@ export async function action({request, context}) {
         
         coverImageUrl = uploadResult.url;
       } catch (error) {
-        // Log full error server-side only
+        // Log error server-side only (no stack trace in production)
+        const isProduction = context.env.NODE_ENV === 'production';
         console.error('Error uploading cover image:', {
-          error: error.message,
-          errorStack: error.stack,
+          error: error.message || 'Unknown error',
+          errorName: error.name || 'Error',
           fileName: coverImageFile.name,
           fileSize: coverImageFile.size,
           fileType: coverImageFile.type,
           timestamp: new Date().toISOString(),
+          ...(isProduction ? {} : {errorStack: error.stack}),
         });
         
         // Return generic error to client
@@ -584,13 +588,14 @@ export async function action({request, context}) {
       coverImageUrl: responseCoverImageUrl,
     };
   } catch (error) {
-    // Log full error details server-side only (don't expose to client)
+    // Log error details server-side only (no stack trace or email in production)
+    const isProduction = context.env.NODE_ENV === 'production';
     console.error('Error updating creator profile:', {
-      error: error.message,
+      error: error.message || 'Unknown error',
+      errorName: error.name || 'Error',
       errorCode: error.code,
-      errorStack: error.stack,
-      userEmail: user.email,
       timestamp: new Date().toISOString(),
+      ...(isProduction ? {} : {errorStack: error.stack, userEmail: user.email}),
     });
     
     // Sanitize error messages for client - don't expose internal details

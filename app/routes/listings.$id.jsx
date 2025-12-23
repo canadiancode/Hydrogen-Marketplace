@@ -4,6 +4,7 @@ import {Tab, TabGroup, TabList, TabPanel, TabPanels} from '@headlessui/react';
 import {fetchPublicListingById} from '~/lib/supabase';
 import {sanitizeHTML} from '~/lib/sanitize';
 import {decodeHTMLEntities} from '~/lib/html-entities';
+import {BuyNowButton} from '~/components/BuyNowButton';
 
 export const meta = ({data}) => {
   return [
@@ -159,12 +160,24 @@ export default function ListingDetail() {
 
             {/* Action Buttons */}
             <div className="mt-10 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
-              <button
-                type="button"
-                className="flex w-full items-center justify-center rounded-md border border-transparent bg-indigo-600 dark:bg-indigo-500 px-8 py-3 text-base font-medium text-white hover:bg-indigo-700 dark:hover:bg-indigo-600 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:outline-hidden"
-              >
-                Buy Now
-              </button>
+              {listing.shopify_variant_id ? (
+                <BuyNowButton
+                  variantId={listing.shopify_variant_id}
+                  quantity={1}
+                  className="flex w-full items-center justify-center rounded-md border border-transparent bg-indigo-600 dark:bg-indigo-500 px-8 py-3 text-base font-medium text-white hover:bg-indigo-700 dark:hover:bg-indigo-600 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:outline-hidden disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Buy Now
+                </BuyNowButton>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="flex w-full items-center justify-center rounded-md border border-transparent bg-gray-400 dark:bg-gray-600 px-8 py-3 text-base font-medium text-white cursor-not-allowed opacity-50"
+                  title="This item is not available for purchase yet"
+                >
+                  Buy Now (Unavailable)
+                </button>
+              )}
               <button
                 type="button"
                 className="flex w-full items-center justify-center rounded-md border border-transparent bg-indigo-50 dark:bg-indigo-900/20 px-8 py-3 text-base font-medium text-indigo-700 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:outline-hidden"

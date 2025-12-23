@@ -202,7 +202,13 @@ export async function getSupabaseSession(request, supabaseUrl, anonKey, isProduc
       return {session, user, needsRefresh: false};
     }
   } catch (error) {
-    console.error('Error parsing Supabase auth token:', error);
+    // Log error without exposing token details
+    const isProduction = typeof process !== 'undefined' && process.env?.NODE_ENV === 'production';
+    console.error('Error parsing Supabase auth token:', {
+      message: error.message || 'Unknown error',
+      name: error.name || 'Error',
+      ...(isProduction ? {} : {stack: error.stack}),
+    });
     return {session: null, user: null, needsRefresh: false};
   }
 }

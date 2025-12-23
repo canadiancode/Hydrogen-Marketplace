@@ -149,19 +149,8 @@ export async function action({request, context}) {
   }
   
   // Constant-time comparison to prevent timing attacks
-  // Simple implementation: ensure tokens match exactly
-  if (csrfToken.length !== storedCSRFToken.length) {
-    return new Response('Invalid security token. Please refresh the page and try again.', {
-      status: 403,
-    });
-  }
-  
-  let result = 0;
-  for (let i = 0; i < csrfToken.length; i++) {
-    result |= csrfToken.charCodeAt(i) ^ storedCSRFToken.charCodeAt(i);
-  }
-  
-  if (result !== 0) {
+  const {constantTimeEquals} = await import('~/lib/auth-helpers');
+  if (!constantTimeEquals(csrfToken.toString(), storedCSRFToken)) {
     return new Response('Invalid security token. Please refresh the page and try again.', {
       status: 403,
     });

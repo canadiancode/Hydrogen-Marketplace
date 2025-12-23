@@ -110,11 +110,13 @@ export async function action({request, context}) {
       customer: data?.customerUpdate?.customer,
     };
   } catch (error) {
-    // Log full error details server-side only
+    // Log error details server-side only (no stack trace in production)
+    const isProduction = context.env.NODE_ENV === 'production';
     console.error('Account profile update error:', {
-      error: error.message,
-      errorStack: error.stack,
+      error: error.message || 'Unknown error',
+      errorName: error.name || 'Error',
       timestamp: new Date().toISOString(),
+      ...(isProduction ? {} : {errorStack: error.stack}),
     });
     
     // Return generic error to client

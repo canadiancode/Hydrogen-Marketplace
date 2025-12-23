@@ -133,7 +133,13 @@ export async function refreshSessionIfNeeded(response, session, supabaseUrl, ano
 
     if (error || !newSession) {
       // Refresh failed - session may be expired, but don't break the response
-      console.warn('Session refresh failed:', error);
+      // Log without exposing token details
+      const isProduction = typeof process !== 'undefined' && process.env?.NODE_ENV === 'production';
+      console.warn('Session refresh failed:', {
+        message: error?.message || 'Unknown error',
+        name: error?.name || 'Error',
+        ...(isProduction ? {} : {stack: error?.stack}),
+      });
       return response;
     }
 
@@ -145,7 +151,13 @@ export async function refreshSessionIfNeeded(response, session, supabaseUrl, ano
 
     return response;
   } catch (error) {
-    console.error('Error refreshing session:', error);
+    // Log error without exposing token details
+    const isProduction = typeof process !== 'undefined' && process.env?.NODE_ENV === 'production';
+    console.error('Error refreshing session:', {
+      message: error.message || 'Unknown error',
+      name: error.name || 'Error',
+      ...(isProduction ? {} : {stack: error.stack}),
+    });
     return response;
   }
 }
@@ -211,7 +223,7 @@ export async function generateCSRFToken(request, sessionSecret = null) {
  * @param {string} b - Second string
  * @returns {boolean} - True if strings are equal
  */
-function constantTimeEquals(a, b) {
+export function constantTimeEquals(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
   if (a.length !== b.length) return false;
   

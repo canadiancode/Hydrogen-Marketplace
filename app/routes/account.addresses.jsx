@@ -191,12 +191,14 @@ export async function action({request, context}) {
             defaultAddress,
           };
         } catch (error) {
-          // Log full error server-side only
+          // Log error server-side only (no stack trace in production)
+          const isProduction = context.env.NODE_ENV === 'production';
           console.error('Address create error:', {
-            error: error.message,
-            errorStack: error.stack,
+            error: error.message || 'Unknown error',
+            errorName: error.name || 'Error',
             addressId,
             timestamp: new Date().toISOString(),
+            ...(isProduction ? {} : {errorStack: error.stack}),
           });
           
           let userFriendlyError = 'Operation failed. Please try again.';
@@ -268,12 +270,14 @@ export async function action({request, context}) {
             defaultAddress,
           };
         } catch (error) {
-          // Log full error server-side only
+          // Log error server-side only (no stack trace in production)
+          const isProduction = context.env.NODE_ENV === 'production';
           console.error('Address update error:', {
-            error: error.message,
-            errorStack: error.stack,
+            error: error.message || 'Unknown error',
+            errorName: error.name || 'Error',
             addressId,
             timestamp: new Date().toISOString(),
+            ...(isProduction ? {} : {errorStack: error.stack}),
           });
           
           let userFriendlyError = 'Operation failed. Please try again.';
@@ -339,12 +343,14 @@ export async function action({request, context}) {
 
           return {error: null, deletedAddress: addressId};
         } catch (error) {
-          // Log full error server-side only
+          // Log error server-side only (no stack trace in production)
+          const isProduction = context.env.NODE_ENV === 'production';
           console.error('Address delete error:', {
-            error: error.message,
-            errorStack: error.stack,
+            error: error.message || 'Unknown error',
+            errorName: error.name || 'Error',
             addressId,
             timestamp: new Date().toISOString(),
+            ...(isProduction ? {} : {errorStack: error.stack}),
           });
           
           let userFriendlyError = 'Operation failed. Please try again.';
@@ -375,11 +381,13 @@ export async function action({request, context}) {
       }
     }
   } catch (error) {
-    // Log full error server-side only
+    // Log error server-side only (no stack trace in production)
+    const isProduction = context.env.NODE_ENV === 'production';
     console.error('Address action error:', {
-      error: error.message,
-      errorStack: error.stack,
+      error: error.message || 'Unknown error',
+      errorName: error.name || 'Error',
       timestamp: new Date().toISOString(),
+      ...(isProduction ? {} : {errorStack: error.stack}),
     });
     
     // Return generic error to client

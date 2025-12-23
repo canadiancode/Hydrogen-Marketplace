@@ -326,7 +326,7 @@ function ListingItem({listing}) {
       </div>
       <div className="flex flex-none items-center gap-x-4">
         <Link
-          to={`/creator/listings/${listing.id}`}
+          to={`/listings/${listing.id}`}
           className="hidden rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs inset-ring inset-ring-gray-300 hover:bg-gray-50 sm:block dark:bg-white/10 dark:text-white dark:shadow-none dark:inset-ring-white/5 dark:hover:bg-white/20"
         >
           View listing<span className="sr-only">, {listing.title}</span>
