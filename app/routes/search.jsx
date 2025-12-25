@@ -394,6 +394,59 @@ const PREDICTIVE_SEARCH_QUERY = `#graphql
 `;
 
 /**
+ * Searches Supabase creators for predictive search
+ * Returns creators that match the search term by handle or display_name
+ * Searches all creators regardless of status
+ * 
+ * @param {string} searchTerm - The search query term
+ * @param {string} supabaseUrl - Supabase project URL
+ * @param {string} serviceRoleKey - Supabase service role key
+ * @param {number} limit - Maximum number of results to return
+ * @returns {Promise<Array>} Array of formatted creator objects
+ */
+async function searchSupabaseCreators(searchTerm, supabaseUrl, serviceRoleKey, limit = 10) {
+  if (!supabaseUrl || !serviceRoleKey) {
+    return [];
+  }
+
+  const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
+  
+  // Search creators by handle and display_name (case-insensitive)
+  // Using ilike for case-insensitive pattern matching
+  // No status filter - search all creators as requested
+  const searchPattern = `%${searchTerm}%`;
+  
+  // Supabase .or() format: "column1.ilike.value1,column2.ilike.value2"
+  const {data: creators, error: creatorsError} = await supabase
+    .from('creators')
+    .select('id, handle, display_name, bio, profile_image_url, verification_status')
+    .or(`handle.ilike.${searchPattern},display_name.ilike.${searchPattern}`)
+    .limit(limit)
+    .order('created_at', {ascending: false});
+
+  if (creatorsError) {
+    console.error('Error searching Supabase creators:', creatorsError);
+    return [];
+  }
+
+  if (!creators || creators.length === 0) {
+    return [];
+  }
+
+  // Transform creators to match a format that can be displayed in search results
+  // We'll create a simple structure that can be rendered
+  return creators.map(creator => ({
+    __typename: 'Creator',
+    id: creator.id,
+    handle: creator.handle,
+    displayName: creator.display_name || creator.handle,
+    bio: creator.bio || null,
+    profileImageUrl: creator.profile_image_url || null,
+    verificationStatus: creator.verification_status || null,
+  }));
+}
+
+/**
  * Searches Supabase listings for predictive search
  * Only returns live listings that match the search term
  * 
@@ -420,7 +473,7 @@ async function searchSupabaseListings(searchTerm, supabaseUrl, serviceRoleKey, l
   // Using 'story' column instead of 'description' (per schema)
   const {data: listings, error: listingsError} = await supabase
     .from('listings')
-    .select('id, title, story, price_cents, shopify_product_id, created_at')
+    .select('id, title, story, price_cents, shopify_product_id, created_at, creator_id')
     .eq('status', 'live') // Only return live listings
     .or(`title.ilike.${searchPattern},story.ilike.${searchPattern}`)
     .limit(limit)
@@ -459,6 +512,23 @@ async function searchSupabaseListings(searchTerm, supabaseUrl, serviceRoleKey, l
     });
   }
 
+  // Fetch creator information for all listings
+  const creatorIds = [...new Set(listings.map(l => l.creator_id).filter(Boolean))];
+  let creatorsMap = {};
+  
+  if (creatorIds.length > 0) {
+    const {data: creators, error: creatorsError} = await supabase
+      .from('creators')
+      .select('id, display_name, handle')
+      .in('id', creatorIds);
+    
+    if (!creatorsError && creators) {
+      creators.forEach(creator => {
+        creatorsMap[creator.id] = creator;
+      });
+    }
+  }
+
   // Transform listings to match Shopify product format expected by SearchResultsPredictive
   const products = listings.map(listing => {
     const listingPhotos = photosByListing[listing.id] || [];
@@ -484,12 +554,20 @@ async function searchSupabaseListings(searchTerm, supabaseUrl, serviceRoleKey, l
     // Convert price_cents to Shopify price format
     const priceAmount = (listing.price_cents / 100).toFixed(2);
     
+    // Get creator information
+    const creator = listing.creator_id ? creatorsMap[listing.creator_id] : null;
+    
     return {
       __typename: 'Product',
       id: listing.id,
       title: listing.title || 'Untitled Listing',
       handle: handle,
       trackingParameters: null, // Not used for Supabase listings
+      creator: creator ? {
+        id: creator.id,
+        displayName: creator.display_name || creator.handle,
+        handle: creator.handle,
+      } : null,
       selectedOrFirstAvailableVariant: {
         id: `${listing.id}-variant`, // Create a variant ID
         image: imageUrl ? {
@@ -559,20 +637,24 @@ async function predictiveSearch({request, context}) {
   }
 
   try {
-    // Search Supabase listings (only live products)
-    const products = await searchSupabaseListings(term, supabaseUrl, serviceRoleKey, limit);
+    // Search Supabase listings (only live products) and creators in parallel
+    const [products, creators] = await Promise.all([
+      searchSupabaseListings(term, supabaseUrl, serviceRoleKey, limit),
+      searchSupabaseCreators(term, supabaseUrl, serviceRoleKey, limit),
+    ]);
 
     // Return results in the format expected by SearchResultsPredictive
-    // We're only returning products, so articles, collections, pages, and queries are empty
+    // We're returning products and creators, so articles, collections, pages, and queries are empty
     const items = {
       articles: [],
       collections: [],
       pages: [],
       products: products,
+      creators: creators, // Add creators to results
       queries: [], // No query suggestions for now
     };
 
-    const total = products.length;
+    const total = products.length + creators.length;
 
     return {type, term, result: {items, total}};
   } catch (error) {

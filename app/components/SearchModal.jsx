@@ -155,7 +155,7 @@ function SearchModalContent() {
                   <div className="flex-1 min-h-0 overflow-y-auto">
                     <SearchResultsPredictive>
                       {({items, total, term, state, closeSearch}) => {
-                        const {articles, collections, pages, products, queries} = items;
+                        const {articles, collections, pages, products, creators, queries} = items;
 
                         if (state === 'loading' && term.current) {
                           return (
@@ -190,6 +190,11 @@ function SearchModalContent() {
                               queriesDatalistId={queriesDatalistId}
                             />
                             <div className="space-y-4">
+                              <SearchResultsPredictive.Creators
+                                creators={creators}
+                                closeSearch={handleClose}
+                                term={term}
+                              />
                               <SearchResultsPredictive.Products
                                 products={products}
                                 closeSearch={handleClose}

@@ -5,6 +5,7 @@ import {
   getEmptyPredictiveSearchResult,
   urlWithTrackingParams,
 } from '~/lib/search';
+import {decodeHTMLEntities} from '~/lib/html-entities';
 import {useAside} from './Aside';
 
 /**
@@ -48,6 +49,7 @@ SearchResultsPredictive.Articles = SearchResultsPredictiveArticles;
 SearchResultsPredictive.Collections = SearchResultsPredictiveCollections;
 SearchResultsPredictive.Pages = SearchResultsPredictivePages;
 SearchResultsPredictive.Products = SearchResultsPredictiveProducts;
+SearchResultsPredictive.Creators = SearchResultsPredictiveCreators;
 SearchResultsPredictive.Queries = SearchResultsPredictiveQueries;
 SearchResultsPredictive.Empty = SearchResultsPredictiveEmpty;
 
@@ -223,12 +225,101 @@ function SearchResultsPredictiveProducts({term, products, closeSearch}) {
                   <p className="text-sm font-medium text-gray-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors line-clamp-2">
                     {product.title}
                   </p>
+                  {product.creator && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      {decodeHTMLEntities(product.creator.displayName)}
+                    </p>
+                  )}
                   {price && (
                     <div className="mt-1">
                       <small className="text-sm font-semibold text-gray-600 dark:text-gray-300">
                         <Money data={price} />
                       </small>
                     </div>
+                  )}
+                </div>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * @param {PartialPredictiveSearchResult<'creators'>}
+ */
+function SearchResultsPredictiveCreators({term, creators, closeSearch}) {
+  if (!creators || creators.length === 0) return null;
+
+  return (
+    <div className="mb-6" key="creators">
+      <h5 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">
+        Creators
+      </h5>
+      <ul className="space-y-2">
+        {creators.map((creator) => {
+          const creatorUrl = `/creators/${creator.handle}`;
+          // Decode HTML entities for display name and bio
+          const displayName = creator.displayName 
+            ? decodeHTMLEntities(creator.displayName) 
+            : creator.handle;
+          const decodedBio = creator.bio ? decodeHTMLEntities(creator.bio) : null;
+          const isVerified = creator.verificationStatus === 'verified';
+
+          return (
+            <li key={creator.id}>
+              <Link 
+                to={creatorUrl} 
+                onClick={closeSearch}
+                className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group"
+              >
+                {creator.profileImageUrl && (
+                  <div className="flex-shrink-0 w-16 h-16 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 [&>img]:w-full [&>img]:h-full [&>img]:object-cover relative">
+                    <img
+                      src={creator.profileImageUrl}
+                      alt={displayName}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        // Fallback to placeholder if image fails to load
+                        e.target.src = 'https://via.placeholder.com/64?text=' + encodeURIComponent(displayName.charAt(0).toUpperCase());
+                      }}
+                    />
+                    {isVerified && (
+                      <div className="absolute bottom-0 right-0 bg-blue-500 rounded-full p-1 border-2 border-white dark:border-gray-700">
+                        <svg className="size-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {!creator.profileImageUrl && (
+                  <div className="flex-shrink-0 w-16 h-16 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center border border-gray-200 dark:border-gray-600">
+                    <span className="text-xl font-semibold text-indigo-600 dark:text-indigo-400">
+                      {displayName.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                      {displayName}
+                    </p>
+                    {isVerified && (
+                      <svg className="size-4 text-blue-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" title="Verified Creator">
+                        <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    @{creator.handle}
+                  </p>
+                  {decodedBio && (
+                    <p className="text-xs text-gray-600 dark:text-gray-300 mt-1 line-clamp-1">
+                      {decodedBio}
+                    </p>
                   )}
                 </div>
               </Link>

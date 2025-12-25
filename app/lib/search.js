@@ -9,6 +9,7 @@ export function getEmptyPredictiveSearchResult() {
       collections: [],
       products: [],
       pages: [],
+      creators: [],
       queries: [],
     },
   };
