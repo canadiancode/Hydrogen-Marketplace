@@ -79,7 +79,7 @@ async function loadCriticalData({context, params, request}) {
  */
 function loadDeferredData({context, params}) {
   // Put any API calls that is not critical to be available on first page render
-  // For example: product reviews, product recommendations, social feeds.
+  // For example: product recommendations, social feeds.
 
   return {};
 }

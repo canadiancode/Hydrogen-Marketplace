@@ -12,6 +12,19 @@
  * Note: Access tokens are obtained via OAuth client credentials flow and cached for 24 hours
  */
 
+// Add a mapping function at the top of the file
+const CONDITION_DISPLAY_TO_API = {
+  'Barely worn': 'barely-worn',
+  'Lightly worn': 'lightly-worn',
+  'Heavily worn': 'heavily-worn',
+};
+
+const CONDITION_API_TO_DISPLAY = {
+  'barely-worn': 'Barely worn',
+  'lightly-worn': 'Lightly worn',
+  'heavily-worn': 'Heavily worn',
+};
+
 // In-memory token cache (valid for 24 hours)
 let tokenCache = {
   accessToken: null,
@@ -509,6 +522,9 @@ export async function createShopifyProduct(
 
     // Step 4: Create metafield separately (after product creation to avoid uniqueness issues)
     if (condition) {
+      // Trim and validate condition value to ensure exact match with Shopify choice list
+      const trimmedCondition = condition.trim();
+
       const metafieldMutation = `
         mutation metafieldsSet($metafields: [MetafieldsSetInput!]!) {
           metafieldsSet(metafields: $metafields) {
@@ -532,7 +548,7 @@ export async function createShopifyProduct(
             ownerId: productId,
             namespace: 'custom',
             key: 'worn_level',
-            value: condition,
+            value: trimmedCondition, // Use trimmed value, keeping spaces as-is
             type: 'single_line_text_field',
           },
         ],
@@ -553,25 +569,49 @@ export async function createShopifyProduct(
         }
       );
 
-      const metafieldText = await metafieldResponse.text();
-      let metafieldResult;
-      
-      try {
-        metafieldResult = JSON.parse(metafieldText);
-      } catch (parseError) {
-        console.warn('Failed to parse metafield response (non-critical):', metafieldText);
-        // Metafield creation is not critical - continue
-      }
-
-      if (metafieldResult && (metafieldResult.errors || metafieldResult.data?.metafieldsSet?.userErrors?.length > 0)) {
-        const metafieldErrors = metafieldResult.errors || metafieldResult.data.metafieldsSet.userErrors;
-        console.warn('Metafield creation failed (non-critical):', {
-          errors: metafieldErrors,
-          condition,
+      // Check HTTP response status first
+      if (!metafieldResponse.ok) {
+        const errorText = await metafieldResponse.text();
+        const isProduction = process.env.NODE_ENV === 'production';
+        console.error('Metafield API HTTP error:', {
+          status: metafieldResponse.status,
+          statusText: metafieldResponse.statusText,
+          ...(isProduction ? {} : {body: errorText}),
         });
-        // Metafield creation is not critical - product and variant are created successfully
-      } else if (metafieldResult?.data?.metafieldsSet?.metafields) {
-        console.log('Metafield created successfully:', metafieldResult.data.metafieldsSet.metafields[0]);
+        // Continue - metafield is non-critical but log the error
+      } else {
+        const metafieldText = await metafieldResponse.text();
+        let metafieldResult;
+        
+        try {
+          metafieldResult = JSON.parse(metafieldText);
+        } catch (parseError) {
+          console.error('Failed to parse metafield response:', {
+            parseError: parseError.message,
+            responseText: metafieldText.substring(0, 500),
+          });
+          // Continue - metafield is non-critical
+        }
+
+        // Check for GraphQL errors
+        if (metafieldResult?.errors) {
+          const isProduction = process.env.NODE_ENV === 'production';
+          console.error('Metafield GraphQL errors:', isProduction
+            ? metafieldResult.errors.map(e => e.message).join('; ')
+            : metafieldResult.errors
+          );
+        }
+
+        // Check for user errors (validation errors from Shopify)
+        if (metafieldResult?.data?.metafieldsSet?.userErrors?.length > 0) {
+          const userErrors = metafieldResult.data.metafieldsSet.userErrors;
+          const isProduction = process.env.NODE_ENV === 'production';
+          console.error('Metafield validation errors:', isProduction
+            ? userErrors.map(e => e.message).join('; ')
+            : userErrors
+          );
+          // These are validation errors - might indicate value doesn't match choice list
+        }
       }
     }
 
@@ -646,13 +686,16 @@ export async function updateProductMetafield(
     }
   `;
 
+  // Trim and validate condition value to ensure exact match with Shopify choice list
+  const trimmedCondition = condition.trim();
+
   const variables = {
     metafields: [
       {
         ownerId: productId,
         namespace: 'custom',
         key: 'worn_level',
-        value: condition,
+        value: trimmedCondition, // Use trimmed value, keeping spaces as-is
         type: 'single_line_text_field',
       },
     ],
@@ -677,7 +720,7 @@ export async function updateProductMetafield(
     if (!response.ok) {
       const errorText = await response.text();
       const isProduction = process.env.NODE_ENV === 'production';
-      console.error('Shopify metafield API error:', {
+      console.error('Shopify metafield API HTTP error:', {
         status: response.status,
         statusText: response.statusText,
         ...(isProduction ? {} : {body: errorText}),
@@ -692,26 +735,399 @@ export async function updateProductMetafield(
 
     const result = await response.json();
 
-    if (result.errors || result.data?.metafieldsSet?.userErrors?.length > 0) {
-      const errors = result.errors || result.data.metafieldsSet.userErrors;
+    // Check for GraphQL errors
+    if (result.errors) {
       const isProduction = process.env.NODE_ENV === 'production';
-      console.error('Shopify metafield errors:', isProduction
-        ? errors.map(e => e.message).join('; ')
-        : errors
+      console.error('Shopify metafield GraphQL errors:', isProduction
+        ? result.errors.map(e => e.message).join('; ')
+        : result.errors
       );
-      const errorMessages = errors
+      const errorMessages = result.errors
         .map((e) => e.message)
         .filter(msg => msg && typeof msg === 'string')
         .map(msg => msg.substring(0, 200))
         .join(', ');
       return {
         success: false,
-        error: new Error(`Shopify errors: ${errorMessages || 'Unknown error'}`),
+        error: new Error(`Shopify GraphQL errors: ${errorMessages || 'Unknown error'}`),
       };
     }
 
-    return { success: true, error: null };
+    // Check for user errors (validation errors)
+    if (result.data?.metafieldsSet?.userErrors?.length > 0) {
+      const userErrors = result.data.metafieldsSet.userErrors;
+      const isProduction = process.env.NODE_ENV === 'production';
+      console.error('Shopify metafield validation errors:', isProduction
+        ? userErrors.map(e => e.message).join('; ')
+        : userErrors
+      );
+      const errorMessages = userErrors
+        .map((e) => e.message)
+        .filter(msg => msg && typeof msg === 'string')
+        .map(msg => msg.substring(0, 200))
+        .join(', ');
+      return {
+        success: false,
+        error: new Error(`Shopify validation errors: ${errorMessages || 'Unknown error'}`),
+      };
+    }
+
+    // Verify metafield was created/updated successfully
+    if (result.data?.metafieldsSet?.metafields?.length > 0) {
+      return { success: true, error: null };
+    } else {
+      return {
+        success: false,
+        error: new Error('Metafield update succeeded but no metafield returned'),
+      };
+    }
   } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error : new Error(String(error)),
+    };
+  }
+}
+
+/**
+ * Updates a Shopify product (title, description, variant price, SKU, and metafield)
+ * Used when editing existing listings
+ * 
+ * @param {object} productData - Product data object
+ * @param {string} productData.productId - Shopify product GID (e.g., "gid://shopify/Product/123")
+ * @param {string} productData.title - Product title
+ * @param {string} productData.productType - Product type/category
+ * @param {string} productData.description - Product description (HTML)
+ * @param {string} productData.vendor - Product vendor (creator display name)
+ * @param {string} productData.price - Price as string (e.g., "29.99")
+ * @param {string} productData.sku - SKU (listing UUID)
+ * @param {string} productData.condition - Condition value for metafield
+ * @param {string} clientId - Shopify app Client ID
+ * @param {string} clientSecret - Shopify app Client Secret
+ * @param {string} storeDomain - Shopify store domain
+ * @returns {Promise<{success: boolean, error: Error | null}>}
+ */
+export async function updateShopifyProduct(
+  productData,
+  clientId,
+  clientSecret,
+  storeDomain
+) {
+  if (!clientId || !clientSecret || !storeDomain) {
+    return {
+      success: false,
+      error: new Error('Shopify Client ID, Client Secret, and store domain are required'),
+    };
+  }
+
+  const {
+    productId,
+    title,
+    productType,
+    description,
+    vendor,
+    price,
+    sku,
+    condition,
+  } = productData;
+
+  // Validate required fields
+  if (!productId || !title || !price || !sku || !vendor) {
+    return {
+      success: false,
+      error: new Error('Missing required product fields: productId, title, price, sku, or vendor'),
+    };
+  }
+
+  // Get access token using OAuth client credentials flow
+  const {accessToken, error: tokenError} = await getAdminAccessToken(
+    clientId,
+    clientSecret,
+    storeDomain
+  );
+
+  if (tokenError || !accessToken) {
+    return {
+      success: false,
+      error: tokenError || new Error('Failed to obtain access token'),
+    };
+  }
+
+  try {
+    // Step 1: Update the product (title, description, vendor, productType)
+    const productUpdateMutation = `
+      mutation productUpdate($input: ProductInput!) {
+        productUpdate(input: $input) {
+          product {
+            id
+            title
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const productUpdateVariables = {
+      input: {
+        id: productId,
+        title: title.trim(),
+        productType: productType || '',
+        vendor: vendor.trim(),
+        descriptionHtml: description || '',
+      },
+    };
+
+    const productUpdateResponse = await fetch(
+      `https://${storeDomain}/admin/api/2024-10/graphql.json`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': accessToken,
+        },
+        body: JSON.stringify({
+          query: productUpdateMutation,
+          variables: productUpdateVariables,
+        }),
+      }
+    );
+
+    if (!productUpdateResponse.ok) {
+      const errorText = await productUpdateResponse.text();
+      const isProduction = process.env.NODE_ENV === 'production';
+      console.error('Shopify product update API error:', {
+        status: productUpdateResponse.status,
+        statusText: productUpdateResponse.statusText,
+        ...(isProduction ? {} : {body: errorText}),
+      });
+      return {
+        success: false,
+        error: new Error(
+          `Shopify API error: ${productUpdateResponse.status} ${productUpdateResponse.statusText}`
+        ),
+      };
+    }
+
+    const productUpdateResult = await productUpdateResponse.json();
+
+    // Check for GraphQL errors
+    if (productUpdateResult.errors) {
+      const isProduction = process.env.NODE_ENV === 'production';
+      console.error('Shopify GraphQL errors:', isProduction
+        ? productUpdateResult.errors.map(e => e.message).join('; ')
+        : productUpdateResult.errors
+      );
+      const errorMessages = productUpdateResult.errors
+        .map((e) => e.message)
+        .filter(msg => msg && typeof msg === 'string')
+        .map(msg => msg.substring(0, 200))
+        .join(', ');
+      return {
+        success: false,
+        error: new Error(`Shopify GraphQL errors: ${errorMessages || 'Unknown error'}`),
+      };
+    }
+
+    // Check for user errors
+    const userErrors = productUpdateResult.data?.productUpdate?.userErrors || [];
+    if (userErrors.length > 0) {
+      const isProduction = process.env.NODE_ENV === 'production';
+      console.error('Shopify user errors:', isProduction
+        ? userErrors.map(e => e.message).join('; ')
+        : userErrors
+      );
+      const errorMessages = userErrors
+        .map((e) => e.message)
+        .filter(msg => msg && typeof msg === 'string')
+        .map(msg => msg.substring(0, 200))
+        .join(', ');
+      return {
+        success: false,
+        error: new Error(`Shopify validation error: ${errorMessages || 'Unknown error'}`),
+      };
+    }
+
+    // Step 2: Get the default variant to update its price and SKU
+    const getProductQuery = `
+      query getProduct($id: ID!) {
+        product(id: $id) {
+          id
+          variants(first: 1) {
+            edges {
+              node {
+                id
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const getProductVariables = {
+      id: productId,
+    };
+
+    const getProductResponse = await fetch(
+      `https://${storeDomain}/admin/api/2024-10/graphql.json`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': accessToken,
+        },
+        body: JSON.stringify({
+          query: getProductQuery,
+          variables: getProductVariables,
+        }),
+      }
+    );
+
+    if (!getProductResponse.ok) {
+      const errorText = await getProductResponse.text();
+      const isProduction = process.env.NODE_ENV === 'production';
+      console.error('Shopify get product error:', {
+        status: getProductResponse.status,
+        statusText: getProductResponse.statusText,
+        ...(isProduction ? {} : {body: errorText}),
+      });
+      return {
+        success: false,
+        error: new Error(
+          `Failed to get variant: ${getProductResponse.status} ${getProductResponse.statusText}`
+        ),
+      };
+    }
+
+    const getProductResult = await getProductResponse.json();
+
+    if (getProductResult.errors) {
+      const isProduction = process.env.NODE_ENV === 'production';
+      console.error('Shopify GraphQL errors getting product:', isProduction
+        ? getProductResult.errors.map(e => e.message).join('; ')
+        : getProductResult.errors
+      );
+      const errorMessages = getProductResult.errors
+        .map((e) => e.message)
+        .filter(msg => msg && typeof msg === 'string')
+        .map(msg => msg.substring(0, 200))
+        .join(', ');
+      return {
+        success: false,
+        error: new Error(`Failed to get variant: ${errorMessages || 'Unknown error'}`),
+      };
+    }
+
+    const variantNode = getProductResult.data?.product?.variants?.edges?.[0]?.node;
+    if (!variantNode || !variantNode.id) {
+      return {
+        success: false,
+        error: new Error('Product updated but no variant found'),
+      };
+    }
+
+    const variantId = variantNode.id;
+
+    // Step 3: Update the variant with price and SKU using REST API
+    const priceFloat = parseFloat(price);
+    if (isNaN(priceFloat) || priceFloat <= 0) {
+      return {
+        success: false,
+        error: new Error(`Invalid price: ${price}. Price must be a positive number.`),
+      };
+    }
+    const formattedPrice = priceFloat.toFixed(2);
+    const skuString = sku ? sku.toString() : null;
+    const variantIdNumber = variantId.split('/').pop();
+
+    const variantUpdateResponse = await fetch(
+      `https://${storeDomain}/admin/api/2024-10/variants/${variantIdNumber}.json`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': accessToken,
+        },
+        body: JSON.stringify({
+          variant: {
+            id: parseInt(variantIdNumber, 10),
+            price: formattedPrice,
+            sku: skuString,
+          },
+        }),
+      }
+    );
+
+    const variantUpdateText = await variantUpdateResponse.text();
+    let variantUpdateResult;
+    
+    try {
+      variantUpdateResult = JSON.parse(variantUpdateText);
+    } catch (parseError) {
+      console.error('Failed to parse variant update response:', variantUpdateText);
+      return {
+        success: false,
+        error: new Error(`Invalid JSON response from Shopify: ${variantUpdateText}`),
+      };
+    }
+
+    if (!variantUpdateResponse.ok) {
+      const isProduction = process.env.NODE_ENV === 'production';
+      console.error('Shopify variant update API error:', {
+        status: variantUpdateResponse.status,
+        statusText: variantUpdateResponse.statusText,
+        ...(isProduction ? {} : {body: variantUpdateText}),
+      });
+      return {
+        success: false,
+        error: new Error(
+          `Variant update failed: ${variantUpdateResponse.status} ${variantUpdateResponse.statusText}`
+        ),
+      };
+    }
+
+    if (variantUpdateResult.errors) {
+      const isProduction = process.env.NODE_ENV === 'production';
+      console.error('Shopify REST API errors updating variant:', isProduction
+        ? 'Error updating variant'
+        : variantUpdateResult.errors
+      );
+      const errorMessages = Array.isArray(variantUpdateResult.errors)
+        ? variantUpdateResult.errors
+            .map(e => typeof e === 'string' ? e : JSON.stringify(e))
+            .map(msg => msg.substring(0, 200))
+            .join(', ')
+        : String(variantUpdateResult.errors).substring(0, 200);
+      return {
+        success: false,
+        error: new Error(`Variant update failed: ${errorMessages || 'Unknown error'}`),
+      };
+    }
+
+    // Step 4: Update metafield if condition is provided
+    if (condition) {
+      const metafieldResult = await updateProductMetafield(
+        productId,
+        condition,
+        clientId,
+        clientSecret,
+        storeDomain
+      );
+
+      if (metafieldResult.error) {
+        // Log but don't fail - metafield update is non-critical
+        console.warn('Metafield update failed (non-critical):', metafieldResult.error.message);
+      }
+    }
+
+    return {
+      success: true,
+      error: null,
+    };
+  } catch (error) {
+    console.error('Error updating Shopify product:', error);
     return {
       success: false,
       error: error instanceof Error ? error : new Error(String(error)),
