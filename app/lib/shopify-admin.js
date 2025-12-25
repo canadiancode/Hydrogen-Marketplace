@@ -1457,23 +1457,132 @@ export async function updateShopifyProduct(
       );
     }
 
-    // Step 5: Add/update images using fileCreate + productCreateMedia
-    // ProductInput doesn't support images field, so we must add them separately
-    // Note: productCreateMedia is deprecated but still functional. Alternative is productSet mutation.
+    // Step 5: Replace all images using fileCreate + productUpdate
+    // First, fetch existing media to delete old images, then add new ones
+    // This ensures images are replaced, not just added
     if (Array.isArray(imageUrls) && imageUrls.length > 0) {
       const validImageUrls = imageUrls.filter(url => url && typeof url === 'string' && url.trim().length > 0);
       
       if (validImageUrls.length > 0) {
-        console.log(`Adding ${validImageUrls.length} image(s) to Shopify product ${productId}`);
+        console.log(`Replacing images for Shopify product ${productId} with ${validImageUrls.length} new image(s)`);
         
         try {
-          // Step 1: Create files from URLs using fileCreate
-          const fileCreateMutation = `
-            mutation fileCreate($files: [FileCreateInput!]!) {
-              fileCreate(files: $files) {
-                files {
+          // Step 5a: Fetch existing media IDs to delete old images
+          const getMediaQuery = `
+            query getProductMedia($id: ID!) {
+              product(id: $id) {
+                id
+                media(first: 20) {
+                  edges {
+                    node {
+                      ... on MediaImage {
+                        id
+                        image {
+                          url
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          `;
+          
+          const getMediaResponse = await fetch(
+            `https://${storeDomain}/admin/api/2024-10/graphql.json`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Shopify-Access-Token': accessToken,
+              },
+              body: JSON.stringify({
+                query: getMediaQuery,
+                variables: {id: productId},
+              }),
+            }
+          );
+          
+          if (getMediaResponse.ok) {
+            const getMediaResult = await getMediaResponse.json();
+            const existingMedia = getMediaResult.data?.product?.media?.edges || [];
+            
+            if (existingMedia.length > 0) {
+              // Delete old media
+              const deleteMediaMutation = `
+                mutation productDeleteMedia($productId: ID!, $mediaIds: [ID!]!) {
+                  productDeleteMedia(productId: $productId, mediaIds: $mediaIds) {
+                    deletedMediaIds
+                    userErrors {
+                      field
+                      message
+                    }
+                  }
+                }
+              `;
+              
+              const mediaIdsToDelete = existingMedia
+                .map(edge => edge.node?.id)
+                .filter(Boolean);
+              
+              if (mediaIdsToDelete.length > 0) {
+                const deleteMediaResponse = await fetch(
+                  `https://${storeDomain}/admin/api/2024-10/graphql.json`,
+                  {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'X-Shopify-Access-Token': accessToken,
+                    },
+                    body: JSON.stringify({
+                      query: deleteMediaMutation,
+                      variables: {
+                        productId: productId,
+                        mediaIds: mediaIdsToDelete,
+                      },
+                    }),
+                  }
+                );
+                
+                if (deleteMediaResponse.ok) {
+                  const deleteMediaResult = await deleteMediaResponse.json();
+                  if (deleteMediaResult.errors) {
+                    console.warn('Error deleting old media (non-critical):', deleteMediaResult.errors);
+                  } else {
+                    console.log(`Deleted ${mediaIdsToDelete.length} old image(s) from product`);
+                  }
+                }
+              }
+            }
+          }
+        } catch (deleteError) {
+          // Log but don't fail - we'll still try to add new images
+          console.warn('Error deleting old media (non-critical, will continue to add new images):', deleteError);
+        }
+        
+        // Step 5b: Add new images using productCreateMedia
+        // Use productCreateMedia directly with URLs (same pattern as createShopifyProduct)
+        // This is deprecated but still the only working method for API 2024-10
+        try {
+          console.log(`Adding ${validImageUrls.length} new image(s) to Shopify product ${productId}`);
+          
+          // Use productCreateMedia directly with URLs (not file IDs)
+          // This is deprecated but still functional and the only way that works
+          const productCreateMediaMutation = `
+            mutation productCreateMedia($productId: ID!, $media: [CreateMediaInput!]!) {
+              productCreateMedia(productId: $productId, media: $media) {
+                media {
                   id
-                  fileStatus
+                  mediaContentType
+                  ... on MediaImage {
+                    image {
+                      url
+                    }
+                  }
+                }
+                mediaUserErrors {
+                  field
+                  message
                 }
                 userErrors {
                   field
@@ -1483,182 +1592,70 @@ export async function updateShopifyProduct(
             }
           `;
           
-          // Process images one at a time to ensure proper error handling
-          let successCount = 0;
-          for (const imageUrl of validImageUrls) {
-            try {
-              const fileCreateVariables = {
-                files: [
-                  {
-                    originalSource: imageUrl.trim(),
-                    alt: title.trim().substring(0, 255),
-                  },
-                ],
-              };
-              
-              const fileCreateResponse = await fetch(
-                `https://${storeDomain}/admin/api/2024-10/graphql.json`,
-                {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'X-Shopify-Access-Token': accessToken,
-                  },
-                  body: JSON.stringify({
-                    query: fileCreateMutation,
-                    variables: fileCreateVariables,
-                  }),
-                }
-              );
-              
-              if (!fileCreateResponse.ok) {
-                const errorText = await fileCreateResponse.text();
-                console.error('Failed to create file from URL:', {
-                  status: fileCreateResponse.status,
-                  statusText: fileCreateResponse.statusText,
-                  body: errorText,
-                  imageUrl: imageUrl.substring(0, 100),
-                });
-                continue;
-              }
-              
-              const fileCreateResult = await fileCreateResponse.json();
-              
-              if (fileCreateResult.errors) {
-                console.error('Error creating file:', {
-                  errors: fileCreateResult.errors,
-                  imageUrl: imageUrl.substring(0, 100),
-                });
-                continue;
-              }
-              
-              if (fileCreateResult.data?.fileCreate?.userErrors?.length > 0) {
-                console.error('File creation user errors:', {
-                  userErrors: fileCreateResult.data.fileCreate.userErrors,
-                  imageUrl: imageUrl.substring(0, 100),
-                });
-                continue;
-              }
-              
-              const fileId = fileCreateResult.data?.fileCreate?.files?.[0]?.id;
-              if (!fileId) {
-                console.error('No file ID returned from fileCreate:', {
-                  result: fileCreateResult.data,
-                  imageUrl: imageUrl.substring(0, 100),
-                });
-                continue;
-              }
-              
-              // Step 2: Attach media to product using productUpdate with media field
-              // This is the recommended approach - productCreateMedia is deprecated
-              const productUpdateMediaMutation = `
-                mutation productUpdate($input: ProductInput!) {
-                  productUpdate(input: $input) {
-                    product {
-                      id
-                      media(first: 10) {
-                        edges {
-                          node {
-                            ... on MediaImage {
-                              id
-                              image {
-                                url
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                    userErrors {
-                      field
-                      message
-                    }
-                  }
-                }
-              `;
-              
-              // Use productUpdate with media field - attach the file ID we got from fileCreate
-              const productUpdateMediaVariables = {
-                input: {
-                  id: productId,
-                  media: [
-                    {
-                      originalSource: fileId, // Use file ID from fileCreate
-                      alt: title.trim().substring(0, 255),
-                    },
-                  ],
-                },
-              };
-              
-              const productUpdateMediaResponse = await fetch(
-                `https://${storeDomain}/admin/api/2024-10/graphql.json`,
-                {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'X-Shopify-Access-Token': accessToken,
-                  },
-                  body: JSON.stringify({
-                    query: productUpdateMediaMutation,
-                    variables: productUpdateMediaVariables,
-                  }),
-                }
-              );
-              
-              if (!productUpdateMediaResponse.ok) {
-                const errorText = await productUpdateMediaResponse.text();
-                console.error('Failed to attach media to product:', {
-                  status: productUpdateMediaResponse.status,
-                  statusText: productUpdateMediaResponse.statusText,
-                  body: errorText,
-                  fileId,
-                });
-                continue;
-              }
-              
-              const productUpdateMediaResult = await productUpdateMediaResponse.json();
-              
-              // Log full response for debugging
-              console.log('productUpdate media response:', JSON.stringify(productUpdateMediaResult, null, 2));
-              
-              if (productUpdateMediaResult.errors) {
-                console.error('Error attaching media to product:', {
-                  errors: productUpdateMediaResult.errors,
-                  errorMessages: productUpdateMediaResult.errors.map(e => e.message),
-                  fileId,
-                });
-                continue;
-              }
-              
-              if (productUpdateMediaResult.data?.productUpdate?.userErrors?.length > 0) {
-                const userErrors = productUpdateMediaResult.data.productUpdate.userErrors;
-                console.error('Media attachment user errors:', {
-                  userErrors,
-                  fileId,
-                });
-                continue;
-              }
-              
-              const addedMedia = productUpdateMediaResult.data?.productUpdate?.product?.media?.edges || [];
-              successCount++;
-              console.log(`Successfully added image ${successCount} of ${validImageUrls.length} to product (${addedMedia.length} total media items)`);
-              
-              // Small delay between images to avoid rate limiting
-              if (validImageUrls.indexOf(imageUrl) < validImageUrls.length - 1) {
-                await new Promise(resolve => setTimeout(resolve, 300));
-              }
-            } catch (imageError) {
-              console.error('Error processing individual image:', {
-                error: imageError,
-                imageUrl: imageUrl.substring(0, 100),
-              });
-            }
-          }
+          // Create media input array directly from URLs
+          // mediaContentType is required - use IMAGE for image files
+          const mediaInputs = validImageUrls.map(url => ({
+            originalSource: url.trim(), // Use URL directly, not file ID
+            alt: title.trim().substring(0, 255),
+            mediaContentType: 'IMAGE', // Required field - must be IMAGE for image files
+          }));
           
-          if (successCount > 0) {
-            console.log(`Successfully added ${successCount} of ${validImageUrls.length} image(s) to product`);
+          const productCreateMediaVariables = {
+            productId: productId,
+            media: mediaInputs,
+          };
+          
+          const productCreateMediaResponse = await fetch(
+            `https://${storeDomain}/admin/api/2024-10/graphql.json`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Shopify-Access-Token': accessToken,
+              },
+              body: JSON.stringify({
+                query: productCreateMediaMutation,
+                variables: productCreateMediaVariables,
+              }),
+            }
+          );
+          
+          if (!productCreateMediaResponse.ok) {
+            const errorText = await productCreateMediaResponse.text();
+            console.error('Failed to add images to product:', {
+              status: productCreateMediaResponse.status,
+              statusText: productCreateMediaResponse.statusText,
+              body: errorText,
+              imageUrls: validImageUrls.slice(0, 3),
+            });
           } else {
-            console.warn(`Failed to add any images to product. Check logs above for details.`);
+            const productCreateMediaResult = await productCreateMediaResponse.json();
+            
+            // Log full response for debugging
+            console.log('productCreateMedia response:', JSON.stringify(productCreateMediaResult, null, 2));
+            
+            if (productCreateMediaResult.errors) {
+              console.error('Error adding images to product:', {
+                errors: productCreateMediaResult.errors,
+                errorMessages: productCreateMediaResult.errors.map(e => e.message),
+                imageUrls: validImageUrls.slice(0, 3),
+              });
+            } else if (productCreateMediaResult.data?.productCreateMedia?.mediaUserErrors?.length > 0) {
+              const userErrors = productCreateMediaResult.data.productCreateMedia.mediaUserErrors;
+              console.error('Media attachment user errors:', {
+                mediaUserErrors: userErrors,
+                imageUrls: validImageUrls.slice(0, 3),
+              });
+            } else if (productCreateMediaResult.data?.productCreateMedia?.userErrors?.length > 0) {
+              const userErrors = productCreateMediaResult.data.productCreateMedia.userErrors;
+              console.error('Media attachment user errors (top level):', {
+                userErrors,
+                imageUrls: validImageUrls.slice(0, 3),
+              });
+            } else {
+              const addedMedia = productCreateMediaResult.data?.productCreateMedia?.media || [];
+              console.log(`Successfully added ${addedMedia.length} of ${validImageUrls.length} image(s) to product`);
+            }
           }
         } catch (imageProcessingError) {
           // Log but don't fail product update - images can be added later
@@ -1667,6 +1664,8 @@ export async function updateShopifyProduct(
             imageUrls: validImageUrls.slice(0, 3),
           });
         }
+      } else {
+        console.log('No valid image URLs provided, skipping image update');
       }
     }
 

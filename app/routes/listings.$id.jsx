@@ -1,12 +1,14 @@
 import {Fragment, useState} from 'react';
 import {useLoaderData, Link} from 'react-router';
 import {Tab, TabGroup, TabList, TabPanel, TabPanels} from '@headlessui/react';
+import {startTransition} from 'react';
 import {fetchPublicListingById} from '~/lib/supabase';
 import {sanitizeHTML} from '~/lib/sanitize';
 import {decodeHTMLEntities} from '~/lib/html-entities';
 import {BuyNowButton} from '~/components/BuyNowButton';
 import {AddToCartButton} from '~/components/AddToCartButton';
 import {useAside} from '~/components/Aside';
+import {useCartDrawer} from '~/components/CartDrawer';
 
 export const meta = ({data}) => {
   return [
@@ -280,6 +282,7 @@ export default function ListingDetail() {
   const {listing, shopifyVariant, variantIdGid} = useLoaderData();
   const [copied, setCopied] = useState(false);
   const {open} = useAside();
+  const {setOpen: setCartDrawerOpen} = useCartDrawer();
   
   if (!listing) {
     return null;
@@ -390,7 +393,14 @@ export default function ListingDetail() {
                   <AddToCartButton
                     disabled={shopifyVariant?.availableForSale === false}
                     onClick={() => {
-                      open('cart');
+                      // Optional: can still open aside if needed for mobile
+                      // open('cart');
+                    }}
+                    onAddToCart={() => {
+                      // Open cart drawer when item is successfully added
+                      startTransition(() => {
+                        setCartDrawerOpen(true);
+                      });
                     }}
                     lines={[
                       {

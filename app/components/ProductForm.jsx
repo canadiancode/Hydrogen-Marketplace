@@ -1,6 +1,8 @@
+import {startTransition} from 'react';
 import {Link, useNavigate} from 'react-router';
 import {AddToCartButton} from './AddToCartButton';
 import {useAside} from './Aside';
+import {useCartDrawer} from './CartDrawer';
 
 /**
  * @param {{
@@ -11,6 +13,8 @@ import {useAside} from './Aside';
 export function ProductForm({productOptions, selectedVariant}) {
   const navigate = useNavigate();
   const {open} = useAside();
+  // Get cart drawer context - should always be available since CartDrawerProvider wraps the app
+  const {setOpen: setCartDrawerOpen} = useCartDrawer();
   return (
     <div className="product-form">
       {productOptions.map((option) => {
@@ -98,7 +102,14 @@ export function ProductForm({productOptions, selectedVariant}) {
       <AddToCartButton
         disabled={!selectedVariant || !selectedVariant.availableForSale}
         onClick={() => {
-          open('cart');
+          // Optional: can still open aside if needed for mobile
+          // open('cart');
+        }}
+        onAddToCart={() => {
+          // Open cart drawer when item is successfully added
+          startTransition(() => {
+            setCartDrawerOpen(true);
+          });
         }}
         lines={
           selectedVariant

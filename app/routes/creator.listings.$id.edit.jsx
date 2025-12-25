@@ -332,15 +332,15 @@ export async function action({request, context, params}) {
       const photo = newPhotos[i];
       
       try {
-        // Upload photo to Supabase Storage
-        const sanitizedEmail = user.email
-          .replace(/[@.]/g, '_')
-          .replace(/[^a-zA-Z0-9_-]/g, '')
-          .substring(0, 100);
-        
-        // Generate unique filename
+        // Generate secure file path using creator_id (matches RLS policy expectations)
+        // This matches the pattern used in new listing creation for consistency
         const timestamp = Date.now();
-        const random = Math.random().toString(36).substring(2, 9);
+        // Use crypto.getRandomValues for secure random generation (available in Cloudflare Workers and Node.js 18+)
+        const randomBytes = typeof crypto !== 'undefined' && crypto.getRandomValues
+          ? crypto.getRandomValues(new Uint8Array(8))
+          : new Uint8Array(8).map(() => Math.floor(Math.random() * 256));
+        const random = randomBytes
+          .reduce((acc, byte) => acc + byte.toString(16).padStart(2, '0'), '');
         
         // Extract file extension safely
         let fileExt = 'jpg'; // default
@@ -367,7 +367,9 @@ export async function action({request, context, params}) {
         }
         
         const fileName = `${timestamp}-${random}.${fileExt}`;
-        const filePath = `listings/${sanitizedEmail}/${id}/${fileName}`;
+        // Use creatorId instead of sanitizedEmail to match RLS policy expectations
+        // RLS policy checks: listings/{creator_id}/{listing_id}/{filename}
+        const filePath = `listings/${creatorId}/${id}/${fileName}`;
 
         // Prepare upload payload
         let uploadPayload;
@@ -529,6 +531,7 @@ export async function action({request, context, params}) {
             console.log(`Action: Successfully updated Shopify product with ${imageUrls.length} image(s)`);
             
             // Update variant ID if it was returned
+            // Handle gracefully if column doesn't exist (for backwards compatibility)
             if (variantId) {
               const {error: variantUpdateError} = await supabase
                 .from('listings')
@@ -537,7 +540,15 @@ export async function action({request, context, params}) {
               
               if (variantUpdateError) {
                 const isProduction = context.env.NODE_ENV === 'production';
-                console.warn('Action: Error updating listing with Shopify variant ID:', isProduction ? variantUpdateError.message : variantUpdateError);
+                // Check if error is due to missing column (PGRST204) - this is non-critical
+                const isMissingColumn = variantUpdateError.code === 'PGRST204' || 
+                                       variantUpdateError.message?.includes("column") ||
+                                       variantUpdateError.message?.includes("schema cache");
+                if (isMissingColumn) {
+                  console.warn('Action: shopify_variant_id column not found in schema (non-critical):', isProduction ? variantUpdateError.message : variantUpdateError);
+                } else {
+                  console.warn('Action: Error updating listing with Shopify variant ID:', isProduction ? variantUpdateError.message : variantUpdateError);
+                }
                 // Non-critical - variant ID update failed but product was updated
               }
             }
@@ -578,7 +589,15 @@ export async function action({request, context, params}) {
               
               if (variantUpdateError) {
                 const isProduction = context.env.NODE_ENV === 'production';
-                console.warn('Action: Error updating listing with Shopify variant ID:', isProduction ? variantUpdateError.message : variantUpdateError);
+                // Check if error is due to missing column (PGRST204) - this is non-critical
+                const isMissingColumn = variantUpdateError.code === 'PGRST204' || 
+                                       variantUpdateError.message?.includes("column") ||
+                                       variantUpdateError.message?.includes("schema cache");
+                if (isMissingColumn) {
+                  console.warn('Action: shopify_variant_id column not found in schema (non-critical):', isProduction ? variantUpdateError.message : variantUpdateError);
+                } else {
+                  console.warn('Action: Error updating listing with Shopify variant ID:', isProduction ? variantUpdateError.message : variantUpdateError);
+                }
               }
             }
           }
