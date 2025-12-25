@@ -21,11 +21,10 @@ import {
   ArrowRightOnRectangleIcon,
 } from '@heroicons/react/24/outline';
 import {ChevronDownIcon} from '@heroicons/react/20/solid';
-import {useCartDrawer, CartDrawerContext} from '~/components/CartDrawer';
+import {useCartDrawer} from '~/components/CartDrawer';
 import {useOptimisticCart, useAnalytics} from '@shopify/hydrogen';
 import {useAside} from '~/components/Aside';
-import {useContext, startTransition, useMemo} from 'react';
-import {useNavigate} from 'react-router';
+import {startTransition} from 'react';
 
 const shopItems = [
   { name: 'Explore All', href: '/shop' },
@@ -66,49 +65,35 @@ const creatorAccountItems = [
 ];
 
 function CartBadge({cart}) {
-  // Safely get cart drawer context - may be null in error boundaries
-  const cartDrawerContext = useContext(CartDrawerContext);
-  const navigate = useNavigate();
-  
   // useOptimisticCart must be called unconditionally (Rules of Hooks)
   // Pass null if cart is not available - useOptimisticCart should handle this gracefully
   const optimisticCart = useOptimisticCart(cart);
   const count = optimisticCart?.totalQuantity ?? 0;
   
+  // Get cart drawer context - should always be available since CartDrawerProvider wraps the app
+  const {setOpen} = useCartDrawer();
+  
   // Analytics for cart view tracking
   const analytics = useAnalytics();
   const {publish, shop, cart: analyticsCart, prevCart} = analytics || {};
-
-  // Memoize the setOpen function to avoid recreating on each render
-  const setOpen = useMemo(() => {
-    return cartDrawerContext?.setOpen;
-  }, [cartDrawerContext]);
 
   const handleClick = (e) => {
     e.preventDefault();
     e.stopPropagation();
     
-    // Check if context is available and has setOpen function
-    if (setOpen && typeof setOpen === 'function') {
-      startTransition(() => {
-        setOpen(true);
+    // Open the cart drawer
+    startTransition(() => {
+      setOpen(true);
+    });
+    
+    // Track cart view event for analytics
+    if (publish && shop && analyticsCart) {
+      publish('cart_viewed', {
+        cart: analyticsCart,
+        prevCart,
+        shop,
+        url: typeof window !== 'undefined' ? window.location.href : '',
       });
-      // Track cart view event for analytics
-      if (publish && shop && analyticsCart) {
-        publish('cart_viewed', {
-          cart: analyticsCart,
-          prevCart,
-          shop,
-          url: typeof window !== 'undefined' ? window.location.href : '',
-        });
-      }
-    } else {
-      // Fallback: navigate to cart page if drawer context not available
-      console.warn('CartDrawer context not available, falling back to /cart page', {
-        hasContext: !!cartDrawerContext,
-        hasSetOpen: !!setOpen
-      });
-      navigate('/cart');
     }
   };
 
@@ -276,8 +261,8 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
           </Popover>
         </PopoverGroup>
         <div className="hidden lg:flex lg:flex-1 lg:items-center lg:justify-end lg:gap-x-4">
-          <SearchButton />
           {cart ? <CartBadgeWrapper cartPromise={cart} /> : <CartBadge cart={null} />}
+          <SearchButton />
           <Suspense fallback={<AuthButtons isLoggedIn={false} isCreator={false} />}>
             <Await resolve={isLoggedIn} errorElement={<AuthButtons isLoggedIn={false} isCreator={false} />}>
               {(loggedIn) => (

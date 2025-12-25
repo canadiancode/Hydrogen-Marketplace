@@ -212,7 +212,7 @@ function CartLoadingState() {
 }
 
 /**
- * Continue shopping button
+ * Link to full cart page
  */
 function ContinueShoppingButton() {
   const {setOpen} = useCartDrawer();
@@ -220,14 +220,15 @@ function ContinueShoppingButton() {
     <div className="mt-6 flex justify-center text-center text-sm text-gray-500 dark:text-gray-400">
       <p>
         or{' '}
-        <button
-          type="button"
+        <Link
+          to="/cart"
           onClick={() => setOpen(false)}
+          prefetch="viewport"
           className="font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300"
         >
-          Continue Shopping
+          view cart details
           <span aria-hidden="true"> &rarr;</span>
-        </button>
+        </Link>
       </p>
     </div>
   );
@@ -243,7 +244,7 @@ function CartEmptyState({onClose}) {
         Looks like you haven&rsquo;t added anything yet, let&rsquo;s get you started!
       </p>
       <Link
-        to="/collections"
+        to="/shop"
         onClick={onClose}
         prefetch="viewport"
         className="font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300"

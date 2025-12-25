@@ -38,7 +38,7 @@ export async function action({request, context}) {
     const {user, session} = await requireAuth(request, context.env);
     
     if (!user?.email || !session?.access_token) {
-      return new Response('Unauthorized', {status: 401});
+      return data({error: 'Unauthorized'}, {status: 401});
     }
 
     // Rate limiting: max 10 requests per minute per user
@@ -62,14 +62,28 @@ export async function action({request, context}) {
     const csrfToken = formData.get('csrf_token')?.toString();
     const storedCSRFToken = context.session.get('csrf_token');
     
+    // Debug logging for CSRF token issues (only in development)
+    if (context.env.NODE_ENV !== 'production') {
+      console.log('CSRF Token Validation:', {
+        hasCsrfToken: !!csrfToken,
+        hasStoredToken: !!storedCSRFToken,
+        tokensMatch: csrfToken && storedCSRFToken ? constantTimeEquals(csrfToken, storedCSRFToken) : false,
+      });
+    }
+    
     if (!csrfToken || !storedCSRFToken || !constantTimeEquals(csrfToken, storedCSRFToken)) {
-      return new Response('Invalid security token. Please refresh the page and try again.', {status: 403});
+      console.error('CSRF token validation failed', {
+        hasCsrfToken: !!csrfToken,
+        hasStoredToken: !!storedCSRFToken,
+      });
+      return data({error: 'Invalid security token. Please refresh the page and try again.'}, {status: 403});
     }
     
     // Check if CSRF token was already used (prevent replay attacks)
     const csrfUsed = context.session.get('csrf_token_used');
     if (csrfUsed === csrfToken) {
-      return new Response('Security token has already been used. Please refresh the page and try again.', {status: 403});
+      console.error('CSRF token already used');
+      return data({error: 'Security token has already been used. Please refresh the page and try again.'}, {status: 403});
     }
     
     // Mark CSRF token as used and clear it (one-time use)
@@ -249,21 +263,185 @@ export async function action({request, context}) {
     listing = listingData;
     listingId = listing.id;
 
+    // Upload photos FIRST so we can include image URLs in Shopify product creation
+    // This ensures images are available when creating the product
+    const uploadedPhotos = [];
+    const photoUploadErrors = [];
+
+    for (let i = 0; i < validatedPhotos.length; i++) {
+      const {file: photo, mimeType, dimensions} = validatedPhotos[i];
+      
+      try {
+        // Generate secure file path using UUID-based structure instead of email
+        // This prevents path injection and improves security
+        const timestamp = Date.now();
+        // Use crypto.getRandomValues for secure random generation (available in Cloudflare Workers and Node.js 18+)
+        const randomBytes = typeof crypto !== 'undefined' && crypto.getRandomValues
+          ? crypto.getRandomValues(new Uint8Array(8))
+          : new Uint8Array(8).map(() => Math.floor(Math.random() * 256));
+        const random = randomBytes
+          .reduce((acc, byte) => acc + byte.toString(16).padStart(2, '0'), '');
+        
+        // Get extension from validated MIME type (more secure than filename)
+        const fileExt = getExtensionFromMimeType(mimeType);
+        
+        const fileName = `${timestamp}-${random}.${fileExt}`;
+        // Use creator_id instead of email for better security and privacy
+        const filePath = `listings/${creatorId}/${listingId}/${fileName}`;
+
+        // Use validated MIME type from file validation (more secure)
+        const contentType = mimeType;
+
+        // Upload to storage bucket (photo is already validated File object)
+        const {data: uploadData, error: uploadError} = await supabase.storage
+          .from('listing-photos')
+          .upload(filePath, photo, {
+            cacheControl: '3600',
+            upsert: false,
+            contentType: contentType,
+          });
+
+        if (uploadError) {
+          const isProduction = context.env.NODE_ENV === 'production';
+          console.error(`Action: Error uploading photo ${i + 1}:`, isProduction ? uploadError.message : uploadError);
+          
+          // Check if this is an RLS policy error
+          const isRLSError = uploadError.message?.includes('row-level security policy') || 
+                            uploadError.message?.includes('RLS') ||
+                            uploadError.statusCode === '42501'; // PostgreSQL permission denied
+          
+          if (isRLSError) {
+            photoUploadErrors.push(`Photo ${i + 1}: Storage permission denied`);
+          } else {
+            photoUploadErrors.push(`Photo ${i + 1}: Upload failed`);
+          }
+          continue;
+        }
+        
+        // Track uploaded file for cleanup if needed
+        uploadedFilePaths.push(filePath);
+
+        // Create listing_photo record
+        const {data: photoRecord, error: photoError} = await supabase
+          .from('listing_photos')
+          .insert({
+            listing_id: listingId,
+            storage_path: filePath,
+            photo_type: 'reference',
+          })
+          .select()
+          .single();
+
+        if (photoError) {
+          const isProduction = context.env.NODE_ENV === 'production';
+          console.error(`Action: Error creating photo record ${i + 1}:`, isProduction ? photoError.message : photoError);
+          photoUploadErrors.push(`Photo ${i + 1}: Failed to save photo record`);
+          // Try to delete uploaded file if record creation failed
+          try {
+            await supabase.storage.from('listing-photos').remove([filePath]);
+          } catch (cleanupError) {
+            // Ignore cleanup errors
+            console.warn('Action: Error cleaning up failed photo upload:', cleanupError.message);
+          }
+          // Remove from tracked paths
+          const pathIndex = uploadedFilePaths.indexOf(filePath);
+          if (pathIndex > -1) {
+            uploadedFilePaths.splice(pathIndex, 1);
+          }
+          continue;
+        }
+
+        // Get public URL for Shopify sync
+        const {data: urlData} = supabase.storage
+          .from('listing-photos')
+          .getPublicUrl(filePath);
+        const publicUrl = urlData?.publicUrl;
+        
+        uploadedPhotos.push({
+          ...photoRecord,
+          publicUrl, // Include public URL for Shopify sync
+        });
+      } catch (err) {
+        const isProduction = context.env.NODE_ENV === 'production';
+        console.error(`Action: Unexpected error processing photo ${i + 1}:`, isProduction ? err.message : err);
+        photoUploadErrors.push(`Photo ${i + 1}: Processing failed`);
+        
+        // Cleanup uploaded file if it exists
+        const filePath = uploadedFilePaths[uploadedFilePaths.length - 1];
+        if (filePath && supabase) {
+          try {
+            await supabase.storage.from('listing-photos').remove([filePath]);
+          } catch (cleanupError) {
+            // Ignore cleanup errors
+            console.warn('Action: Error cleaning up failed photo upload:', cleanupError.message);
+          }
+          uploadedFilePaths.pop();
+        }
+      }
+    }
+
+    // If no photos were successfully uploaded, handle based on whether we should continue
+    if (uploadedPhotos.length === 0) {
+      console.error('Action: No photos uploaded', {listingId});
+      
+      // Check if errors indicate RLS policy issues
+      const hasRLSError = photoUploadErrors.some(err => err.includes('Storage permission denied') || err.includes('row-level security'));
+      
+      // Cleanup uploaded files
+      if (uploadedFilePaths.length > 0 && supabase) {
+        try {
+          await supabase.storage.from('listing-photos').remove(uploadedFilePaths);
+        } catch (cleanupError) {
+          // Ignore cleanup errors
+          console.warn('Action: Error cleaning up uploaded files:', cleanupError.message);
+        }
+      }
+      
+      // Delete listing since no photos were uploaded
+      if (supabase && listingId) {
+        try {
+          await supabase.from('listings').delete().eq('id', listingId);
+        } catch (cleanupError) {
+          // Ignore cleanup errors
+          console.warn('Action: Error cleaning up listing:', cleanupError.message);
+        }
+      }
+      
+      // Return appropriate error based on the issue
+      if (hasRLSError) {
+        return data(
+          {error: 'Unable to upload photos due to storage permissions. Please contact support if this issue persists.'},
+          {status: 403}
+        );
+      }
+      
+      return data(
+        {error: 'Failed to upload photos. Please ensure all photos are valid image files.'},
+        {status: 400}
+      );
+    }
+
+    // Extract public URLs from uploaded photos for Shopify
+    const imageUrls = uploadedPhotos
+      .map(photo => photo.publicUrl)
+      .filter(url => url && typeof url === 'string');
+
     // Create Shopify product with transaction safety
     const shopifyClientId = context.env.SHOPIFY_ADMIN_CLIENT_ID;
     const shopifyClientSecret = context.env.SHOPIFY_ADMIN_CLIENT_SECRET;
     const storeDomain = context.env.PUBLIC_STORE_DOMAIN;
+
+    // Convert price from cents to dollars string (needed for Shopify sync)
+    const priceDollars = (priceCents / 100).toFixed(2);
 
     let shopifyProductId = null;
     let shopifySyncFailed = false;
     
     if (shopifyClientId && shopifyClientSecret && storeDomain) {
       try {
-        // Convert price from cents to dollars string
-        const priceDollars = (priceCents / 100).toFixed(2);
         
-        // Create Shopify product
-        const {productId, error: shopifyError} = await createShopifyProduct(
+        // Create Shopify product WITH images (now that photos are uploaded)
+        const {productId, variantId, error: shopifyError} = await createShopifyProduct(
           {
             title: sanitizedTitle,
             productType: sanitizedCategory,
@@ -272,28 +450,89 @@ export async function action({request, context}) {
             price: priceDollars,
             sku: listingId, // Use listing UUID as SKU
             condition: sanitizedCondition,
+            imageUrls: imageUrls, // Include image URLs during creation
           },
           shopifyClientId,
           shopifyClientSecret,
           storeDomain
         );
 
-        // Save productId if it exists (product was created), even if there's an error
-        // This handles cases where product is created but variant update fails
+        // Save productId and variantId if they exist (product was created), even if there's an error
+        // This handles cases where product was created but variant update fails
         if (productId) {
           shopifyProductId = productId;
           
-          // Update the listing with Shopify product ID
-          const {error: updateError} = await supabase
-            .from('listings')
-            .update({shopify_product_id: shopifyProductId})
-            .eq('id', listingId);
-
-          if (updateError) {
+          // Update the listing with Shopify product ID and variant ID
+          // CRITICAL: This update must succeed to maintain data consistency
+          const updateData = {shopify_product_id: shopifyProductId};
+          if (variantId) {
+            updateData.shopify_variant_id = variantId;
+          }
+          
+          // Retry logic for critical update (up to 3 attempts)
+          let updateSuccess = false;
+          let lastUpdateError = null;
+          const maxRetries = 3;
+          
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            const {error: updateError, data: updateDataResult} = await supabase
+              .from('listings')
+              .update(updateData)
+              .eq('id', listingId)
+              .select('shopify_product_id'); // Select to verify update
+            
+            if (!updateError) {
+              // Verify the update actually succeeded
+              if (updateDataResult && updateDataResult[0]?.shopify_product_id === shopifyProductId) {
+                updateSuccess = true;
+                break;
+              } else {
+                // Update returned no error but data doesn't match - might be RLS or other issue
+                lastUpdateError = new Error('Update succeeded but shopify_product_id not verified');
+                if (attempt < maxRetries) {
+                  // Wait before retry (exponential backoff)
+                  await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 100));
+                  continue;
+                }
+              }
+            } else {
+              lastUpdateError = updateError;
+              if (attempt < maxRetries) {
+                // Wait before retry (exponential backoff)
+                await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 100));
+                continue;
+              }
+            }
+          }
+          
+          if (!updateSuccess) {
             const isProduction = context.env.NODE_ENV === 'production';
-            console.error('Action: Error updating listing with Shopify product ID:', isProduction ? updateError.message : updateError);
-            // Non-critical error - product was created in Shopify but ID wasn't saved
-            // Could be retried later
+            console.error('Action: CRITICAL - Failed to update listing with Shopify product ID after retries:', {
+              listingId,
+              shopifyProductId,
+              attempts: maxRetries,
+              ...(isProduction ? {error: lastUpdateError?.message} : {error: lastUpdateError}),
+            });
+            
+            // This is a critical failure - the Shopify product exists but we can't link it
+            // Store in sync queue for manual intervention
+            try {
+              await supabase.from('shopify_sync_queue').insert({
+                listing_id: listingId,
+                shopify_product_id: shopifyProductId,
+                error_message: `Failed to update listing with shopify_product_id after ${maxRetries} attempts: ${lastUpdateError?.message || 'Unknown error'}`.substring(0, 500),
+                retry_count: 0,
+                created_at: new Date().toISOString(),
+              }).catch(() => {
+                // Table might not exist, that's okay
+              });
+            } catch (queueError) {
+              // Ignore queue errors
+            }
+            
+            // Log warning but don't fail listing creation - admin can fix via sync queue
+            // In production, you might want to alert monitoring systems here
+            shopifySyncFailed = true;
           }
         }
 
@@ -345,176 +584,69 @@ export async function action({request, context}) {
       console.warn('Action: Shopify Admin API credentials not configured. Product will not be created in Shopify. Required: SHOPIFY_ADMIN_CLIENT_ID, SHOPIFY_ADMIN_CLIENT_SECRET, and PUBLIC_STORE_DOMAIN');
     }
 
-    // Upload photos and create listing_photos records
-    const uploadedPhotos = [];
-    const errors = [];
-
-    for (let i = 0; i < validatedPhotos.length; i++) {
-      const {file: photo, mimeType, dimensions} = validatedPhotos[i];
-      
-      try {
-        // Generate secure file path using UUID-based structure instead of email
-        // This prevents path injection and improves security
-        const timestamp = Date.now();
-        // Use crypto.getRandomValues for secure random generation (available in Cloudflare Workers and Node.js 18+)
-        const randomBytes = typeof crypto !== 'undefined' && crypto.getRandomValues
-          ? crypto.getRandomValues(new Uint8Array(8))
-          : new Uint8Array(8).map(() => Math.floor(Math.random() * 256));
-        const random = randomBytes
-          .reduce((acc, byte) => acc + byte.toString(16).padStart(2, '0'), '');
-        
-        // Get extension from validated MIME type (more secure than filename)
-        const fileExt = getExtensionFromMimeType(mimeType);
-        
-        const fileName = `${timestamp}-${random}.${fileExt}`;
-        // Use creator_id instead of email for better security and privacy
-        const filePath = `listings/${creatorId}/${listingId}/${fileName}`;
-
-        // Use validated MIME type from file validation (more secure)
-        const contentType = mimeType;
-
-        // Upload to storage bucket (photo is already validated File object)
-        const {data: uploadData, error: uploadError} = await supabase.storage
-          .from('listing-photos')
-          .upload(filePath, photo, {
-            cacheControl: '3600',
-            upsert: false,
-            contentType: contentType,
-          });
-
-        if (uploadError) {
-          const isProduction = context.env.NODE_ENV === 'production';
-          console.error(`Action: Error uploading photo ${i + 1}:`, isProduction ? uploadError.message : uploadError);
-          
-          // Check if this is an RLS policy error
-          const isRLSError = uploadError.message?.includes('row-level security policy') || 
-                            uploadError.message?.includes('RLS') ||
-                            uploadError.statusCode === '42501'; // PostgreSQL permission denied
-          
-          if (isRLSError) {
-            errors.push(`Photo ${i + 1}: Storage permission denied`);
-          } else {
-            errors.push(`Photo ${i + 1}: Upload failed`);
-          }
-          continue;
-        }
-        
-        // Track uploaded file for cleanup if needed
-        uploadedFilePaths.push(filePath);
-
-        // Create listing_photo record
-        const {data: photoRecord, error: photoError} = await supabase
-          .from('listing_photos')
-          .insert({
-            listing_id: listingId,
-            storage_path: filePath,
-            photo_type: 'reference',
-          })
-          .select()
-          .single();
-
-        if (photoError) {
-          const isProduction = context.env.NODE_ENV === 'production';
-          console.error(`Action: Error creating photo record ${i + 1}:`, isProduction ? photoError.message : photoError);
-          errors.push(`Photo ${i + 1}: Failed to save photo record`);
-          // Try to delete uploaded file if record creation failed
-          try {
-            await supabase.storage.from('listing-photos').remove([filePath]);
-          } catch (cleanupError) {
-            // Ignore cleanup errors
-            console.warn('Action: Error cleaning up failed photo upload:', cleanupError.message);
-          }
-          // Remove from tracked paths
-          const pathIndex = uploadedFilePaths.indexOf(filePath);
-          if (pathIndex > -1) {
-            uploadedFilePaths.splice(pathIndex, 1);
-          }
-          continue;
-        }
-
-        uploadedPhotos.push(photoRecord);
-      } catch (err) {
-        const isProduction = context.env.NODE_ENV === 'production';
-        console.error(`Action: Unexpected error processing photo ${i + 1}:`, isProduction ? err.message : err);
-        errors.push(`Photo ${i + 1}: Processing failed`);
-        
-        // Cleanup uploaded file if it exists
-        const filePath = uploadedFilePaths[uploadedFilePaths.length - 1];
-        if (filePath && supabase) {
-          try {
-            await supabase.storage.from('listing-photos').remove([filePath]);
-          } catch (cleanupError) {
-            // Ignore cleanup errors
-            console.warn('Action: Error cleaning up failed photo upload:', cleanupError.message);
-          }
-          uploadedFilePaths.pop();
-        }
-      }
-    }
-
-    // If no photos were successfully uploaded, handle based on whether Shopify product was created
-    if (uploadedPhotos.length === 0) {
-      console.error('Action: No photos uploaded', {listingId, shopifyProductId});
-      
-      // Check if errors indicate RLS policy issues
-      const hasRLSError = errors.some(err => err.includes('Storage permission denied') || err.includes('row-level security'));
-      
-      // Cleanup uploaded files
-      if (uploadedFilePaths.length > 0 && supabase) {
-        try {
-          await supabase.storage.from('listing-photos').remove(uploadedFilePaths);
-        } catch (cleanupError) {
-          // Ignore cleanup errors
-          console.warn('Action: Error cleaning up uploaded files:', cleanupError.message);
-        }
-      }
-      
-      // If Shopify product was created successfully, allow partial success and redirect
-      // The listing can have photos added later via edit
-      if (shopifyProductId) {
-        console.warn('Action: Shopify product created but photos failed. Allowing partial success.', {
-          listingId,
-          shopifyProductId,
-          hasRLSError
-        });
-        
-        // Listing status remains 'pending_approval' - photos can be added via edit
-        // Redirect to listings page - user can add photos later
-        const redirectUrl = shopifySyncFailed
-          ? '/creator/listings?submitted=true&sync=pending&photos=pending'
-          : '/creator/listings?submitted=true&photos=pending';
-        
-        return redirect(redirectUrl);
-      }
-      
-      // If Shopify product was NOT created, cleanup and return error
-      // Delete listing since nothing was successfully created
-      if (supabase && listingId) {
-        try {
-          await supabase.from('listings').delete().eq('id', listingId);
-        } catch (cleanupError) {
-          // Ignore cleanup errors
-          console.warn('Action: Error cleaning up listing:', cleanupError.message);
-        }
-      }
-      
-      // Return appropriate error based on the issue
-      if (hasRLSError) {
-        return data(
-          {error: 'Unable to upload photos due to storage permissions. Please contact support if this issue persists.'},
-          {status: 403}
-        );
-      }
-      
-      return data(
-        {error: 'Failed to upload photos. Please ensure all photos are valid image files.'},
-        {status: 400}
-      );
-    }
-
     // If some photos failed but at least one succeeded, log warnings but continue
-    if (errors.length > 0) {
-      console.warn('Action: Some photos failed to upload:', errors.length, 'errors');
+    if (photoUploadErrors.length > 0) {
+      console.warn('Action: Some photos failed to upload:', photoUploadErrors.length, 'errors');
+    }
+
+    // Note: Images are now included during product creation, so no separate update is needed
+    // However, if product creation failed but we have images, we can log this for debugging
+    if (!shopifyProductId && imageUrls.length > 0) {
+      console.warn('Action: Images were uploaded but Shopify product was not created. Images will be available when product is created manually or via sync.');
+    }
+
+    // Final verification: Ensure shopify_product_id was saved if Shopify product was created
+    // This is a critical data integrity check
+    if (shopifyProductId && listingId && supabase) {
+      try {
+        const {data: verifyListing, error: verifyError} = await supabase
+          .from('listings')
+          .select('shopify_product_id')
+          .eq('id', listingId)
+          .single();
+        
+        if (verifyError) {
+          const isProduction = context.env.NODE_ENV === 'production';
+          console.error('Action: Failed to verify shopify_product_id:', isProduction ? verifyError.message : verifyError);
+        } else if (!verifyListing?.shopify_product_id) {
+          // Critical: Shopify product was created but shopify_product_id is missing from database
+          const isProduction = context.env.NODE_ENV === 'production';
+          console.error('Action: CRITICAL - shopify_product_id verification failed:', {
+            listingId,
+            expectedShopifyProductId: shopifyProductId,
+            ...(isProduction ? {} : {listingData: verifyListing}),
+          });
+          
+          // Try one more time to update (last attempt)
+          const {error: finalUpdateError} = await supabase
+            .from('listings')
+            .update({shopify_product_id: shopifyProductId})
+            .eq('id', listingId);
+          
+          if (finalUpdateError) {
+            console.error('Action: Final update attempt failed:', isProduction ? finalUpdateError.message : finalUpdateError);
+            // Store in sync queue for manual intervention
+            try {
+              await supabase.from('shopify_sync_queue').insert({
+                listing_id: listingId,
+                shopify_product_id: shopifyProductId,
+                error_message: `Final verification failed - shopify_product_id missing from listing: ${finalUpdateError.message || 'Unknown error'}`.substring(0, 500),
+                retry_count: 0,
+                created_at: new Date().toISOString(),
+              }).catch(() => {
+                // Table might not exist
+              });
+            } catch (queueError) {
+              // Ignore queue errors
+            }
+            shopifySyncFailed = true;
+          }
+        }
+      } catch (verifyException) {
+        // Non-critical: verification failed but don't block success
+        const isProduction = context.env.NODE_ENV === 'production';
+        console.warn('Action: Exception during shopify_product_id verification:', isProduction ? verifyException.message : verifyException);
+      }
     }
 
     // Success - redirect to listings page with success parameter
@@ -790,10 +922,13 @@ export default function CreateListing() {
     // Manually construct FormData with files from state
     const formData = new FormData();
     
-    // Add CSRF token
-    if (csrfToken) {
-      formData.append('csrf_token', csrfToken);
+    // Add CSRF token (required for security)
+    if (!csrfToken) {
+      console.error('CSRF token missing from loader data');
+      alert('Security token missing. Please refresh the page and try again.');
+      return;
     }
+    formData.append('csrf_token', csrfToken);
     
     // Add form fields - use form elements or state values
     const form = e.target;

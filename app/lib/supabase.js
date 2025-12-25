@@ -1396,7 +1396,7 @@ export async function fetchPublicListingById(listingId, supabaseUrl, serviceRole
     console.error('Error fetching public listing:', listingError);
     return null;
   }
-
+  
   // Fetch creator information
   let creator = null;
   if (listing.creator_id) {

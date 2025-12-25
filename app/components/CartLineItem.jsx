@@ -33,6 +33,11 @@ export function CartLineItem({layout, line}) {
   const listItemClass = isDrawer ? 'flex py-6' : 'cart-line';
   const imageWrapperClass = isDrawer ? 'size-24 shrink-0 overflow-hidden rounded-md border border-gray-200 dark:border-gray-700' : '';
   const contentClass = isDrawer ? 'ml-4 flex flex-1 flex-col' : '';
+  
+  // Filter out "Title: Default Title" variant info
+  const filteredOptions = selectedOptions.filter(
+    (option) => !(option.name === 'Title' && option.value === 'Default Title')
+  );
 
   return (
     <li key={id} className={listItemClass}>
@@ -74,13 +79,13 @@ export function CartLineItem({layout, line}) {
             )}
           </div>
           {!isDrawer && <ProductPrice price={line?.cost?.totalAmount} />}
-          {selectedOptions.length > 0 && (
+          {filteredOptions.length > 0 && (
             <p className={isDrawer ? 'mt-1 text-sm text-gray-500 dark:text-gray-400' : ''}>
               {isDrawer ? (
-                selectedOptions.map((option) => `${option.name}: ${option.value}`).join(', ')
+                filteredOptions.map((option) => `${option.name}: ${option.value}`).join(', ')
               ) : (
                 <ul>
-                  {selectedOptions.map((option) => (
+                  {filteredOptions.map((option) => (
                     <li key={option.name}>
                       <small>
                         {option.name}: {option.value}

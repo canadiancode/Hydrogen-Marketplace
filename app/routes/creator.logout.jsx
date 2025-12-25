@@ -9,8 +9,6 @@ export async function loader({request, context}) {
   const csrfToken = await generateCSRFToken(request, env.SESSION_SECRET);
   
   // Store CSRF token in session for validation in action
-  // Note: session.set() marks session as pending, and server.js will commit it automatically
-  // when session.isPending is true (see server.js line 72-76)
   session.set('csrf_token', csrfToken);
   
   return data({csrfToken}, {
@@ -40,7 +38,7 @@ export async function action({request, context}) {
   // Use proper CSRF validation with signature verification
   const isValid = await validateCSRFToken(request, storedToken, env.SESSION_SECRET);
   
-  if (!isValid) {
+  if (!isValid || receivedToken !== storedToken) {
     return redirect('/creator/login?error=csrf_validation_failed');
   }
   

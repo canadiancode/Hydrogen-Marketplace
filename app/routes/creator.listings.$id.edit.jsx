@@ -267,96 +267,25 @@ export async function action({request, context, params}) {
     
     console.log('Action: Listing updated successfully:', updatedListing);
 
-    // Update Shopify product if shopify_product_id exists
+    // Prepare Shopify update data (will be called after photos are processed)
     const shopifyClientId = context.env.SHOPIFY_ADMIN_CLIENT_ID;
     const shopifyClientSecret = context.env.SHOPIFY_ADMIN_CLIENT_SECRET;
     const storeDomain = context.env.PUBLIC_STORE_DOMAIN;
-
-    if (existingListing.shopify_product_id && shopifyClientId && shopifyClientSecret && storeDomain) {
-      try {
-        // Get vendor name (same logic as create flow)
-        const MAX_VENDOR_NAME_LENGTH = 255;
-        let vendorName = creatorProfile.display_name || creatorProfile.email || 'Unknown Creator';
-        vendorName = vendorName
-          .replace(/[\x00-\x1F\x7F]/g, '')
-          .trim()
-          .substring(0, MAX_VENDOR_NAME_LENGTH);
-        
-        if (!vendorName || vendorName.length === 0) {
-          vendorName = 'Unknown Creator';
-        }
-
-        // Convert price from cents to dollars string
-        const priceDollars = (priceCents / 100).toFixed(2);
-
-        // Update Shopify product
-        const {success, error: shopifyError} = await updateShopifyProduct(
-          {
-            productId: existingListing.shopify_product_id,
-            title: sanitizedTitle,
-            productType: sanitizedCategory,
-            description: sanitizedStory,
-            vendor: vendorName,
-            price: priceDollars,
-            sku: id, // Use listing UUID as SKU
-            condition: sanitizedCondition,
-          },
-          shopifyClientId,
-          shopifyClientSecret,
-          storeDomain
-        );
-
-        if (!success) {
-          // Log error but don't fail the listing update
-          // The listing is already updated in Supabase
-          const isProduction = context.env.NODE_ENV === 'production';
-          console.error('Action: Error updating Shopify product:', isProduction 
-            ? shopifyError?.message 
-            : shopifyError
-          );
-          
-          // Optionally store sync failure in queue for retry (non-blocking)
-          try {
-            await supabase.from('shopify_sync_queue').insert({
-              listing_id: id,
-              error_message: shopifyError?.message?.substring(0, 500) || 'Unknown error',
-              retry_count: 0,
-              created_at: new Date().toISOString(),
-            }).catch(() => {
-              // Table might not exist, that's okay
-            });
-          } catch (queueError) {
-            // Ignore queue errors - this is non-critical
-          }
-        } else {
-          console.log('Action: Shopify product updated successfully');
-        }
-      } catch (shopifySyncException) {
-        // Catch any unexpected errors during Shopify sync
-        // Don't fail the entire listing update - the listing is already updated
-        const isProduction = context.env.NODE_ENV === 'production';
-        console.error('Action: Unexpected error during Shopify sync:', isProduction 
-          ? shopifySyncException.message 
-          : shopifySyncException
-        );
-        
-        // Try to store sync failure in queue (non-blocking)
-        try {
-          await supabase.from('shopify_sync_queue').insert({
-            listing_id: id,
-            error_message: shopifySyncException.message?.substring(0, 500) || 'Unexpected error during sync',
-            retry_count: 0,
-            created_at: new Date().toISOString(),
-          }).catch(() => {
-            // Table might not exist, that's okay
-          });
-        } catch (queueError) {
-          // Ignore queue errors - this is non-critical
-        }
-      }
-    } else if (existingListing.shopify_product_id) {
-      console.warn('Action: Shopify Admin API credentials not configured. Product will not be updated in Shopify.');
+    
+    // Get vendor name (same logic as create flow)
+    const MAX_VENDOR_NAME_LENGTH = 255;
+    let vendorName = creatorProfile.display_name || creatorProfile.email || 'Unknown Creator';
+    vendorName = vendorName
+      .replace(/[\x00-\x1F\x7F]/g, '')
+      .trim()
+      .substring(0, MAX_VENDOR_NAME_LENGTH);
+    
+    if (!vendorName || vendorName.length === 0) {
+      vendorName = 'Unknown Creator';
     }
+
+    // Convert price from cents to dollars string
+    const priceDollars = (priceCents / 100).toFixed(2);
 
     // Handle photo deletions
     if (deletedPhotoIds.length > 0) {
@@ -514,7 +443,16 @@ export async function action({request, context, params}) {
           continue;
         }
 
-        uploadedPhotos.push(photoRecord);
+        // Get public URL for Shopify sync
+        const {data: urlData} = supabase.storage
+          .from('listing-photos')
+          .getPublicUrl(filePath);
+        const publicUrl = urlData?.publicUrl;
+        
+        uploadedPhotos.push({
+          ...photoRecord,
+          publicUrl, // Include public URL for Shopify sync
+        });
       } catch (err) {
         console.error(`Action: Unexpected error processing photo ${i + 1}:`, err);
         errors.push(`Photo ${i + 1}: ${err.message || 'Unexpected error'}`);
@@ -524,6 +462,152 @@ export async function action({request, context, params}) {
     // If some photos failed but at least one succeeded, log warnings but continue
     if (errors.length > 0) {
       console.warn('Action: Some photos failed to upload:', errors);
+    }
+
+    // Update Shopify product with all image URLs (existing + newly uploaded) and product data
+    if (existingListing.shopify_product_id && shopifyClientId && shopifyClientSecret && storeDomain) {
+      try {
+        // Fetch all photos for this listing (including existing ones that weren't deleted)
+        const {data: allPhotos, error: photosError} = await supabase
+          .from('listing_photos')
+          .select('storage_path')
+          .eq('listing_id', id)
+          .order('created_at', {ascending: true});
+        
+        if (!photosError && allPhotos && allPhotos.length > 0) {
+          // Get public URLs for all photos
+          const imageUrls = allPhotos
+            .map(photo => {
+              const {data: urlData} = supabase.storage
+                .from('listing-photos')
+                .getPublicUrl(photo.storage_path);
+              return urlData?.publicUrl;
+            })
+            .filter(url => url && typeof url === 'string');
+          
+          // Update Shopify product with all data including images in a single call
+          const {success, variantId, error: shopifyError} = await updateShopifyProduct(
+            {
+              productId: existingListing.shopify_product_id,
+              title: sanitizedTitle,
+              productType: sanitizedCategory,
+              description: sanitizedStory,
+              vendor: vendorName,
+              price: priceDollars,
+              sku: id,
+              condition: sanitizedCondition,
+              imageUrls: imageUrls, // Include all images (existing + new)
+            },
+            shopifyClientId,
+            shopifyClientSecret,
+            storeDomain
+          );
+          
+          if (!success) {
+            // Log error but don't fail the listing update
+            // The listing is already updated in Supabase
+            const isProduction = context.env.NODE_ENV === 'production';
+            console.error('Action: Error updating Shopify product:', isProduction 
+              ? shopifyError?.message 
+              : shopifyError
+            );
+            
+            // Optionally store sync failure in queue for retry (non-blocking)
+            try {
+              await supabase.from('shopify_sync_queue').insert({
+                listing_id: id,
+                error_message: shopifyError?.message?.substring(0, 500) || 'Unknown error',
+                retry_count: 0,
+                created_at: new Date().toISOString(),
+              }).catch(() => {
+                // Table might not exist, that's okay
+              });
+            } catch (queueError) {
+              // Ignore queue errors - this is non-critical
+            }
+          } else {
+            console.log(`Action: Successfully updated Shopify product with ${imageUrls.length} image(s)`);
+            
+            // Update variant ID if it was returned
+            if (variantId) {
+              const {error: variantUpdateError} = await supabase
+                .from('listings')
+                .update({shopify_variant_id: variantId})
+                .eq('id', id);
+              
+              if (variantUpdateError) {
+                const isProduction = context.env.NODE_ENV === 'production';
+                console.warn('Action: Error updating listing with Shopify variant ID:', isProduction ? variantUpdateError.message : variantUpdateError);
+                // Non-critical - variant ID update failed but product was updated
+              }
+            }
+          }
+        } else {
+          // No photos found - update product without images
+          const {success, variantId, error: shopifyError} = await updateShopifyProduct(
+            {
+              productId: existingListing.shopify_product_id,
+              title: sanitizedTitle,
+              productType: sanitizedCategory,
+              description: sanitizedStory,
+              vendor: vendorName,
+              price: priceDollars,
+              sku: id,
+              condition: sanitizedCondition,
+              imageUrls: [], // No images
+            },
+            shopifyClientId,
+            shopifyClientSecret,
+            storeDomain
+          );
+          
+          if (!success) {
+            const isProduction = context.env.NODE_ENV === 'production';
+            console.error('Action: Error updating Shopify product:', isProduction 
+              ? shopifyError?.message 
+              : shopifyError
+            );
+          } else {
+            console.log('Action: Shopify product updated successfully (no images)');
+            
+            if (variantId) {
+              const {error: variantUpdateError} = await supabase
+                .from('listings')
+                .update({shopify_variant_id: variantId})
+                .eq('id', id);
+              
+              if (variantUpdateError) {
+                const isProduction = context.env.NODE_ENV === 'production';
+                console.warn('Action: Error updating listing with Shopify variant ID:', isProduction ? variantUpdateError.message : variantUpdateError);
+              }
+            }
+          }
+        }
+      } catch (shopifySyncException) {
+        // Catch any unexpected errors during Shopify sync
+        // Don't fail the entire listing update - the listing is already updated
+        const isProduction = context.env.NODE_ENV === 'production';
+        console.error('Action: Unexpected error during Shopify sync:', isProduction 
+          ? shopifySyncException.message 
+          : shopifySyncException
+        );
+        
+        // Try to store sync failure in queue (non-blocking)
+        try {
+          await supabase.from('shopify_sync_queue').insert({
+            listing_id: id,
+            error_message: shopifySyncException.message?.substring(0, 500) || 'Unexpected error during sync',
+            retry_count: 0,
+            created_at: new Date().toISOString(),
+          }).catch(() => {
+            // Table might not exist, that's okay
+          });
+        } catch (queueError) {
+          // Ignore queue errors - this is non-critical
+        }
+      }
+    } else if (existingListing.shopify_product_id) {
+      console.warn('Action: Shopify Admin API credentials not configured. Product will not be updated in Shopify.');
     }
 
     console.log('Action: Listing updated successfully, redirecting...');

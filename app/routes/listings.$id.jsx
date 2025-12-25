@@ -5,6 +5,8 @@ import {fetchPublicListingById} from '~/lib/supabase';
 import {sanitizeHTML} from '~/lib/sanitize';
 import {decodeHTMLEntities} from '~/lib/html-entities';
 import {BuyNowButton} from '~/components/BuyNowButton';
+import {AddToCartButton} from '~/components/AddToCartButton';
+import {useAside} from '~/components/Aside';
 
 export const meta = ({data}) => {
   return [
@@ -40,8 +42,223 @@ export async function loader({context, params}) {
     throw new Response('Listing not found', {status: 404});
   }
   
+  // Fetch Shopify variant data if shopify_variant_id or shopify_product_id exists
+  let shopifyVariant = null;
+  let variantIdGid = null;
+  
+  if (!context.storefront) {
+    console.warn('[Listing Loader] Storefront API not available');
+  } else if (listing.shopify_variant_id) {
+    // We have variant ID directly - use it
+    variantIdGid = listing.shopify_variant_id.startsWith('gid://')
+      ? listing.shopify_variant_id
+      : `gid://shopify/ProductVariant/${listing.shopify_variant_id.split('/').pop()}`;
+    
+    // Try to fetch full variant data from Storefront API (optional - for availability check)
+    try {
+      const response = await context.storefront.query(VARIANT_QUERY, {
+        variables: {id: variantIdGid},
+      });
+      
+      // Hydrogen's storefront.query returns data directly
+      const node = response?.node;
+      const errors = response?.errors;
+      
+      if (errors) {
+        console.error('[Listing Loader] Variant query errors:', errors);
+      }
+      
+      if (!errors && node?.__typename === 'ProductVariant') {
+        shopifyVariant = node;
+      } else if (node) {
+        console.warn('[Listing Loader] Node is not ProductVariant:', node.__typename);
+      }
+    } catch (error) {
+      // Log but don't fail - we can still use the variant ID
+      console.error('[Listing Loader] Failed to fetch Shopify variant details:', error);
+    }
+  } else if (listing.shopify_product_id) {
+    // We only have product ID - fetch the first variant from the product
+    try {
+      const productIdGid = listing.shopify_product_id.startsWith('gid://')
+        ? listing.shopify_product_id
+        : `gid://shopify/Product/${listing.shopify_product_id.split('/').pop()}`;
+      
+      console.log('[Listing Loader] Querying Storefront API for product:', productIdGid);
+      
+      // Hydrogen's storefront.query returns data directly, not wrapped in a 'data' property
+      const response = await context.storefront.query(PRODUCT_VARIANT_QUERY, {
+        variables: {id: productIdGid},
+      });
+      
+      // Response structure: {node: {...}, errors: [...]} or {errors: [...]}
+      const node = response?.node;
+      const errors = response?.errors;
+      
+      console.log('[Listing Loader] Storefront API response:', {
+        hasResponse: !!response,
+        responseKeys: response ? Object.keys(response) : [],
+        hasNode: !!node,
+        nodeType: node?.__typename,
+        nodeKeys: node ? Object.keys(node) : [],
+        hasErrors: !!errors,
+        errors: errors,
+        variantsCount: node?.variants?.nodes?.length || 0,
+        fullNode: JSON.stringify(node, null, 2).substring(0, 1000),
+      });
+      
+      if (errors) {
+        console.error('[Listing Loader] Product variant query errors:', JSON.stringify(errors, null, 2));
+      }
+      
+      if (!errors && node?.__typename === 'Product') {
+        const variants = node.variants?.nodes || [];
+        console.log('[Listing Loader] Found variants:', variants.length, variants.map(v => ({id: v.id, available: v.availableForSale})));
+        
+        if (variants.length > 0) {
+          const firstVariant = variants[0];
+          shopifyVariant = firstVariant;
+          variantIdGid = firstVariant.id;
+          
+          console.log('[Listing Loader] Successfully set variant:', variantIdGid);
+          
+          // Optionally update the listing with the variant ID for future requests
+          // (This is a non-blocking operation, don't await it)
+          if (listing.id) {
+            const {createServerSupabaseClient} = await import('~/lib/supabase');
+            const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
+            supabase
+              .from('listings')
+              .update({shopify_variant_id: variantIdGid})
+              .eq('id', listing.id)
+              .then(() => {
+                console.log('[Listing Loader] Updated listing with variant ID:', listing.id);
+              })
+              .catch((err) => {
+                console.warn('[Listing Loader] Failed to update listing with variant ID:', err.message);
+              });
+          }
+        } else {
+          console.warn('[Listing Loader] Product has no variants in response');
+        }
+      } else if (node) {
+        console.warn('[Listing Loader] Node is not Product:', node.__typename);
+      } else if (!node) {
+        console.warn('[Listing Loader] No node returned - product may not be available in Storefront API yet');
+        
+        // Fallback: Try to get variant ID from Admin API if Storefront API fails
+        // This handles cases where product exists but isn't synced to Storefront API yet
+        try {
+          const shopifyClientId = context.env.SHOPIFY_ADMIN_CLIENT_ID;
+          const shopifyClientSecret = context.env.SHOPIFY_ADMIN_CLIENT_SECRET;
+          const storeDomain = context.env.PUBLIC_STORE_DOMAIN;
+          
+          if (shopifyClientId && shopifyClientSecret && storeDomain) {
+            // Import Admin API helper to get access token
+            const {getAdminAccessToken} = await import('~/lib/shopify-admin');
+            
+            // Get access token (this function is not exported, so we'll need to create a helper)
+            // Actually, let's create a simple inline function to get the variant ID
+            const adminTokenResponse = await fetch(
+              `https://${storeDomain}/admin/oauth/access_token`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  client_id: shopifyClientId,
+                  client_secret: shopifyClientSecret,
+                  grant_type: 'client_credentials',
+                }),
+              }
+            );
+            
+            if (adminTokenResponse.ok) {
+              const tokenData = await adminTokenResponse.json();
+              const adminAccessToken = tokenData.access_token;
+              
+              if (adminAccessToken) {
+                // Query Admin API for product variants
+                const adminQuery = `
+                  query getProduct($id: ID!) {
+                    product(id: $id) {
+                      id
+                      variants(first: 1) {
+                        edges {
+                          node {
+                            id
+                          }
+                        }
+                      }
+                    }
+                  }
+                `;
+                
+                const adminResponse = await fetch(
+                  `https://${storeDomain}/admin/api/2024-10/graphql.json`,
+                  {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'X-Shopify-Access-Token': adminAccessToken,
+                    },
+                    body: JSON.stringify({
+                      query: adminQuery,
+                      variables: {id: productIdGid},
+                    }),
+                  }
+                );
+                
+                if (adminResponse.ok) {
+                  const adminResult = await adminResponse.json();
+                  
+                  if (!adminResult.errors && adminResult.data?.product?.variants?.edges?.[0]?.node?.id) {
+                    const adminVariantId = adminResult.data.product.variants.edges[0].node.id;
+                    variantIdGid = adminVariantId;
+                    
+                    console.log('[Listing Loader] Got variant ID from Admin API fallback:', variantIdGid);
+                    
+                    // Save variant ID to database for future requests
+                    if (listing.id) {
+                      const {createServerSupabaseClient} = await import('~/lib/supabase');
+                      const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
+                      supabase
+                        .from('listings')
+                        .update({shopify_variant_id: variantIdGid})
+                        .eq('id', listing.id)
+                        .then(() => {
+                          console.log('[Listing Loader] Updated listing with variant ID from Admin API:', listing.id);
+                        })
+                        .catch((err) => {
+                          console.warn('[Listing Loader] Failed to update listing with variant ID:', err.message);
+                        });
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch (adminError) {
+          console.warn('[Listing Loader] Admin API fallback failed:', adminError.message);
+        }
+      }
+    } catch (error) {
+      // Log but don't fail - listing can still be displayed
+      console.error('[Listing Loader] Exception fetching Shopify product variant:', error);
+    }
+  }
+  
+  console.log('[Listing Loader] Final variant state:', {
+    variantIdGid,
+    hasShopifyVariant: !!shopifyVariant,
+    shopifyProductId: listing.shopify_product_id,
+  });
+  
   return {
     listing,
+    shopifyVariant,
+    variantIdGid,
   };
 }
 
@@ -60,8 +277,9 @@ function formatDate(dateString) {
 }
 
 export default function ListingDetail() {
-  const {listing} = useLoaderData();
+  const {listing, shopifyVariant, variantIdGid} = useLoaderData();
   const [copied, setCopied] = useState(false);
+  const {open} = useAside();
   
   if (!listing) {
     return null;
@@ -160,30 +378,52 @@ export default function ListingDetail() {
 
             {/* Action Buttons */}
             <div className="mt-10 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
-              {listing.shopify_variant_id ? (
-                <BuyNowButton
-                  variantId={listing.shopify_variant_id}
-                  quantity={1}
-                  className="flex w-full items-center justify-center rounded-md border border-transparent bg-indigo-600 dark:bg-indigo-500 px-8 py-3 text-base font-medium text-white hover:bg-indigo-700 dark:hover:bg-indigo-600 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:outline-hidden disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Buy Now
-                </BuyNowButton>
+              {variantIdGid ? (
+                <>
+                  <BuyNowButton
+                    variantId={variantIdGid}
+                    quantity={1}
+                    className="flex w-full items-center justify-center rounded-md border border-transparent bg-indigo-600 dark:bg-indigo-500 px-8 py-3 text-base font-medium text-white hover:bg-indigo-700 dark:hover:bg-indigo-600 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:outline-hidden disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Buy Now
+                  </BuyNowButton>
+                  <AddToCartButton
+                    disabled={shopifyVariant?.availableForSale === false}
+                    onClick={() => {
+                      open('cart');
+                    }}
+                    lines={[
+                      {
+                        merchandiseId: variantIdGid,
+                        quantity: 1,
+                        ...(shopifyVariant ? {selectedVariant: shopifyVariant} : {}),
+                      },
+                    ]}
+                    className="flex w-full items-center justify-center rounded-md border border-transparent bg-indigo-50 dark:bg-indigo-900/20 px-8 py-3 text-base font-medium text-indigo-700 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:outline-hidden disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-400"
+                  >
+                    {shopifyVariant?.availableForSale === false ? 'Sold Out' : 'Add to Cart'}
+                  </AddToCartButton>
+                </>
               ) : (
-                <button
-                  type="button"
-                  disabled
-                  className="flex w-full items-center justify-center rounded-md border border-transparent bg-gray-400 dark:bg-gray-600 px-8 py-3 text-base font-medium text-white cursor-not-allowed opacity-50"
-                  title="This item is not available for purchase yet"
-                >
-                  Buy Now (Unavailable)
-                </button>
+                <>
+                  <button
+                    type="button"
+                    disabled
+                    className="flex w-full items-center justify-center rounded-md border border-transparent bg-gray-400 dark:bg-gray-600 px-8 py-3 text-base font-medium text-white cursor-not-allowed opacity-50"
+                    title="This item is not available for purchase yet"
+                  >
+                    Buy Now (Unavailable)
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    className="flex w-full items-center justify-center rounded-md border border-transparent bg-gray-100 dark:bg-gray-800 px-8 py-3 text-base font-medium text-gray-500 dark:text-gray-400 cursor-not-allowed"
+                    title="This item is not available for purchase yet"
+                  >
+                    Add to Cart (Unavailable)
+                  </button>
+                </>
               )}
-              <button
-                type="button"
-                className="flex w-full items-center justify-center rounded-md border border-transparent bg-indigo-50 dark:bg-indigo-900/20 px-8 py-3 text-base font-medium text-indigo-700 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:outline-hidden"
-              >
-                Add to Cart
-              </button>
             </div>
 
             {/* Share Section */}
@@ -385,6 +625,68 @@ export default function ListingDetail() {
     </div>
   );
 }
+
+const VARIANT_FRAGMENT = `#graphql
+  fragment VariantFragment on ProductVariant {
+    id
+    availableForSale
+    compareAtPrice {
+      amount
+      currencyCode
+    }
+    price {
+      amount
+      currencyCode
+    }
+    title
+    sku
+    image {
+      id
+      url
+      altText
+      width
+      height
+    }
+    product {
+      id
+      title
+      handle
+      vendor
+    }
+    selectedOptions {
+      name
+      value
+    }
+  }
+`;
+
+const VARIANT_QUERY = `#graphql
+  query Variant($id: ID!) {
+    node(id: $id) {
+      ... on ProductVariant {
+        ...VariantFragment
+      }
+    }
+  }
+  ${VARIANT_FRAGMENT}
+`;
+
+const PRODUCT_VARIANT_QUERY = `#graphql
+  query ProductVariant($id: ID!) {
+    node(id: $id) {
+      __typename
+      ... on Product {
+        id
+        variants(first: 1) {
+          nodes {
+            ...VariantFragment
+          }
+        }
+      }
+    }
+  }
+  ${VARIANT_FRAGMENT}
+`;
 
 /** @typedef {import('./+types/listings.$id').Route} Route */
 /** @typedef {import('@shopify/remix-oxygen').SerializeFrom<typeof loader>} LoaderReturnData */
