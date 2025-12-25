@@ -8,7 +8,9 @@ import {
   Scripts,
   ScrollRestoration,
   useRouteLoaderData,
+  useRevalidator,
 } from 'react-router';
+import {useEffect} from 'react';
 import favicon from '~/assets/favicon.svg';
 import {FOOTER_QUERY, HEADER_QUERY} from '~/lib/fragments';
 import resetStyles from '~/styles/reset.css?url';
@@ -18,15 +20,58 @@ import {PageLayout} from './components/PageLayout';
 import {checkAdminAuth, checkCreatorAuth} from '~/lib/supabase';
 
 /**
+ * Detects if the user is returning from Shopify checkout
+ * @param {URL} url - Current or next URL
+ * @param {Request | undefined} request - Optional request object (may not be available)
+ * @returns {boolean}
+ */
+function isReturningFromCheckout(url, request) {
+  // Check for return_from_checkout query parameter (can be set by checkout redirect)
+  const returnFromCheckout = url.searchParams.has('return_from_checkout');
+  
+  // Check referrer header for Shopify checkout domains (if request is available)
+  if (request) {
+    try {
+      const referer = request.headers.get('referer') || request.headers.get('referrer') || '';
+      const checkoutDomains = [
+        'checkout.shopify.com',
+        'checkout.shopifycs.com',
+        'checkout.shopifycdn.com',
+      ];
+      
+      const isCheckoutReferer = checkoutDomains.some(domain => 
+        referer.includes(domain)
+      );
+      
+      if (isCheckoutReferer) {
+        return true;
+      }
+    } catch (e) {
+      // Request headers might not be accessible, continue with other checks
+    }
+  }
+  
+  return returnFromCheckout;
+}
+
+/**
  * This is important to avoid re-fetching root queries on sub-navigations
  * @type {ShouldRevalidateFunction}
  */
-export const shouldRevalidate = ({formMethod, currentUrl, nextUrl}) => {
+export const shouldRevalidate = ({formMethod, currentUrl, nextUrl, request}) => {
   // revalidate when a mutation is performed e.g add to cart, login...
   if (formMethod && formMethod !== 'GET') return true;
 
   // revalidate when manually revalidating via useRevalidator
   if (currentUrl.toString() === nextUrl.toString()) return true;
+
+  // CRITICAL: Always revalidate cart when returning from checkout
+  // This ensures cart state is fresh after checkout navigation
+  // Users may abandon checkout and return, and we need to preserve their cart
+  // Check both currentUrl and nextUrl to catch navigation from checkout
+  if (isReturningFromCheckout(nextUrl, request) || isReturningFromCheckout(currentUrl, request)) {
+    return true;
+  }
 
   // Defaulting to no revalidation for root loader data to improve performance.
   // When using this feature, you risk your UI getting out of sync with your server.
@@ -181,6 +226,42 @@ export function Layout({children}) {
   );
 }
 
+/**
+ * Client-side component to detect returns from checkout and trigger cart revalidation
+ * This is a fallback for cases where server-side detection might not work
+ */
+function CheckoutReturnHandler() {
+  const revalidator = useRevalidator();
+
+  useEffect(() => {
+    // Check if we're returning from Shopify checkout
+    const referrer = document.referrer || '';
+    const checkoutDomains = [
+      'checkout.shopify.com',
+      'checkout.shopifycs.com',
+      'checkout.shopifycdn.com',
+    ];
+    
+    const isFromCheckout = checkoutDomains.some(domain => referrer.includes(domain));
+    
+    // Also check URL params
+    const urlParams = new URLSearchParams(window.location.search);
+    const returnFromCheckout = urlParams.has('return_from_checkout');
+    
+    if (isFromCheckout || returnFromCheckout) {
+      // Trigger revalidation to ensure cart data is fresh
+      // Use a small delay to ensure the page has fully loaded
+      const timeoutId = setTimeout(() => {
+        revalidator.revalidate();
+      }, 100);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [revalidator]);
+
+  return null;
+}
+
 export default function App() {
   /** @type {RootLoader} */
   const data = useRouteLoaderData('root');
@@ -195,6 +276,7 @@ export default function App() {
       shop={data.shop}
       consent={data.consent}
     >
+      <CheckoutReturnHandler />
       <PageLayout {...data} isCreator={data.isCreator}>
         <Outlet />
       </PageLayout>

@@ -124,6 +124,7 @@ function CartDrawerFooterContent({cart}) {
   const checkoutUrl = optimisticCart?.checkoutUrl;
   const discountCodes = optimisticCart?.discountCodes?.filter((code) => code.applicable) || [];
   const appliedGiftCards = optimisticCart?.appliedGiftCards || [];
+  const hasItems = optimisticCart?.totalQuantity ? optimisticCart.totalQuantity > 0 : false;
 
   if (!subtotal) return null;
 
@@ -158,19 +159,41 @@ function CartDrawerFooterContent({cart}) {
       </p>
       <div className="mt-6">
         {checkoutUrl ? (
-          <a
-            href={checkoutUrl}
-            className="flex items-center justify-center rounded-md border border-transparent bg-indigo-600 dark:bg-indigo-500 px-6 py-3 text-base font-medium text-white shadow-xs hover:bg-indigo-700 dark:hover:bg-indigo-400"
-          >
-            Checkout
-          </a>
+          hasItems ? (
+            <a
+              href={checkoutUrl}
+              className="flex items-center justify-center rounded-md border border-transparent bg-indigo-600 dark:bg-indigo-500 px-6 py-3 text-base font-medium text-white shadow-xs hover:bg-indigo-700 dark:hover:bg-indigo-400 transition-colors"
+            >
+              Checkout
+            </a>
+          ) : (
+            <button
+              type="button"
+              disabled
+              aria-disabled="true"
+              className="flex w-full items-center justify-center rounded-md border border-transparent bg-gray-400 dark:bg-gray-600 px-6 py-3 text-base font-medium text-white shadow-xs cursor-not-allowed opacity-60 transition-colors"
+            >
+              Checkout
+            </button>
+          )
         ) : (
-          <Link
-            to="/cart"
-            className="flex items-center justify-center rounded-md border border-transparent bg-indigo-600 dark:bg-indigo-500 px-6 py-3 text-base font-medium text-white shadow-xs hover:bg-indigo-700 dark:hover:bg-indigo-400"
-          >
-            View Cart
-          </Link>
+          hasItems ? (
+            <Link
+              to="/cart"
+              className="flex items-center justify-center rounded-md border border-transparent bg-indigo-600 dark:bg-indigo-500 px-6 py-3 text-base font-medium text-white shadow-xs hover:bg-indigo-700 dark:hover:bg-indigo-400 transition-colors"
+            >
+              View Cart
+            </Link>
+          ) : (
+            <button
+              type="button"
+              disabled
+              aria-disabled="true"
+              className="flex w-full items-center justify-center rounded-md border border-transparent bg-gray-400 dark:bg-gray-600 px-6 py-3 text-base font-medium text-white shadow-xs cursor-not-allowed opacity-60 transition-colors"
+            >
+              View Cart
+            </button>
+          )
         )}
       </div>
       <ContinueShoppingButton />

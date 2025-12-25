@@ -9,48 +9,62 @@ function AddToCartButtonContent({fetcher, analytics, children, disabled, onClick
   const previousDataRef = useRef(null);
   const processedDataRef = useRef(new Set());
   const userInitiatedRef = useRef(false);
-  const mountedRef = useRef(false);
-  
-  // Track component mount to prevent processing on initial mount
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      userInitiatedRef.current = false;
-    };
-  }, []);
+  const hasProcessedInitialMountRef = useRef(false);
+  const submissionStartTimeRef = useRef(null);
   
   // Track when user explicitly clicks the button
   const handleButtonClick = (e) => {
     // Mark that this was user-initiated BEFORE form submission
     userInitiatedRef.current = true;
+    submissionStartTimeRef.current = Date.now();
     
     // Call the onClick callback if provided
     if (onClick) {
       onClick();
     }
+    
+    // Note: We'll also call onAddToCart when form completes
+    // But we don't call it here to avoid opening drawer before item is added
     // Note: The form will submit naturally via type="submit"
   };
   
   // Open cart drawer when form submission succeeds
   useEffect(() => {
-    // Don't process anything until component is mounted
-    if (!mountedRef.current) {
-      return;
-    }
-    
     const currentState = fetcher.state;
     const previousState = previousStateRef.current;
     const currentData = fetcher.data;
     const previousData = previousDataRef.current;
     
+    // On initial mount, if there's already data, mark it as processed to prevent auto-opening
+    // This handles the case where CartForm might have existing state from navigation
+    if (!hasProcessedInitialMountRef.current) {
+      hasProcessedInitialMountRef.current = true;
+      // Initialize refs with current state, but don't process anything
+      previousStateRef.current = currentState;
+      previousDataRef.current = currentData;
+      return;
+    }
+    
+    // Track when submission starts (idle -> submitting) after user click
+    // This ensures we're tracking a user-initiated submission
+    if (userInitiatedRef.current && previousState === 'idle' && currentState === 'submitting') {
+      // Submission started - update refs and continue tracking
+      previousStateRef.current = currentState;
+      previousDataRef.current = currentData;
+      return;
+    }
+    
     // Detect state transition from submitting to idle (form completed)
     const justCompleted = previousState === 'submitting' && currentState === 'idle';
     
+    // Also check if data changed after user click (alternative detection method)
+    const dataChangedAfterClick = userInitiatedRef.current && currentData !== previousData && currentData !== null;
+    
     // Only process if:
     // 1. This was a user-initiated submission (button was clicked)
-    // 2. AND we're seeing a completion transition OR data change after user interaction
-    const shouldProcess = userInitiatedRef.current && justCompleted && currentData;
+    // 2. AND (we're seeing a completion transition OR data changed after click)
+    // 3. AND we have response data
+    const shouldProcess = userInitiatedRef.current && (justCompleted || dataChangedAfterClick) && currentData;
     
     if (shouldProcess) {
       // Create a unique key for this response to avoid processing twice
@@ -64,6 +78,7 @@ function AddToCartButtonContent({fetcher, analytics, children, disabled, onClick
         previousDataRef.current = currentData;
         // Reset user initiated flag after processing
         userInitiatedRef.current = false;
+        submissionStartTimeRef.current = null;
         return;
       }
       
@@ -76,8 +91,9 @@ function AddToCartButtonContent({fetcher, analytics, children, disabled, onClick
       // Check if cart exists and is valid
       const hasCart = !!currentData.cart;
       
-      // Process successful cart addition
-      if (hasNoErrors && hasCart) {
+      // If we have a cart (even with warnings), consider it a successful addition
+      // The cart addition itself is handled by CartForm, we just need to open the drawer
+      if (hasCart && hasNoErrors) {
         processedDataRef.current.add(dataKey);
         
         // Clean up old entries (keep last 5 to prevent memory leaks)
@@ -86,9 +102,14 @@ function AddToCartButtonContent({fetcher, analytics, children, disabled, onClick
           processedDataRef.current.clear();
           entries.slice(-5).forEach(key => processedDataRef.current.add(key));
         }
-        
-        // Cart addition succeeded - call callback to open drawer
-        if (onAddToCart) {
+      }
+      
+      // Always call onAddToCart if provided when form completes
+      // This ensures the drawer opens for user-initiated submissions
+      // We check for cart existence, but if form completed without errors, item was likely added
+      if (onAddToCart) {
+        // Only open drawer if we have a cart or no errors (successful addition)
+        if (hasCart || hasNoErrors) {
           // Use startTransition for smooth UI updates
           startTransition(() => {
             onAddToCart();
@@ -98,9 +119,10 @@ function AddToCartButtonContent({fetcher, analytics, children, disabled, onClick
       
       // Reset user initiated flag after processing
       userInitiatedRef.current = false;
+      submissionStartTimeRef.current = null;
     }
     
-    // Update refs
+    // Always update refs to track state for next render
     previousStateRef.current = currentState;
     previousDataRef.current = currentData;
   }, [fetcher.state, fetcher.data, onAddToCart]);
