@@ -5,6 +5,7 @@ import {SearchResults} from '~/components/SearchResults';
 import {getEmptyPredictiveSearchResult} from '~/lib/search';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
 import {getClientIP} from '~/lib/auth-helpers';
+import {createServerSupabaseClient} from '~/lib/supabase';
 
 /**
  * @type {Route.MetaFunction}
@@ -393,7 +394,126 @@ const PREDICTIVE_SEARCH_QUERY = `#graphql
 `;
 
 /**
+ * Searches Supabase listings for predictive search
+ * Only returns live listings that match the search term
+ * 
+ * @param {string} searchTerm - The search query term
+ * @param {string} supabaseUrl - Supabase project URL
+ * @param {string} serviceRoleKey - Supabase service role key
+ * @param {number} limit - Maximum number of results to return
+ * @returns {Promise<Array>} Array of formatted product objects
+ */
+async function searchSupabaseListings(searchTerm, supabaseUrl, serviceRoleKey, limit = 10) {
+  if (!supabaseUrl || !serviceRoleKey) {
+    return [];
+  }
+
+  const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
+  
+  // Search listings by title and story (case-insensitive)
+  // Using ilike for case-insensitive pattern matching
+  // Filter by status = 'live' to only show active products
+  const searchPattern = `%${searchTerm}%`;
+  
+  // Supabase .or() format: "column1.ilike.value1,column2.ilike.value2"
+  // Note: The pattern needs to be properly escaped for SQL LIKE
+  // Using 'story' column instead of 'description' (per schema)
+  const {data: listings, error: listingsError} = await supabase
+    .from('listings')
+    .select('id, title, story, price_cents, shopify_product_id, created_at')
+    .eq('status', 'live') // Only return live listings
+    .or(`title.ilike.${searchPattern},story.ilike.${searchPattern}`)
+    .limit(limit)
+    .order('created_at', {ascending: false});
+
+  if (listingsError) {
+    console.error('Error searching Supabase listings:', listingsError);
+    return [];
+  }
+
+  if (!listings || listings.length === 0) {
+    return [];
+  }
+
+  // Fetch photos for all listings
+  const listingIds = listings.map(l => l.id);
+  const {data: photos, error: photosError} = await supabase
+    .from('listing_photos')
+    .select('listing_id, storage_path')
+    .in('listing_id', listingIds)
+    .eq('photo_type', 'reference')
+    .order('created_at', {ascending: true});
+
+  if (photosError) {
+    console.error('Error fetching listing photos:', photosError);
+  }
+
+  // Group photos by listing_id (get first photo as thumbnail)
+  const photosByListing = {};
+  if (photos) {
+    photos.forEach(photo => {
+      if (!photosByListing[photo.listing_id]) {
+        photosByListing[photo.listing_id] = [];
+      }
+      photosByListing[photo.listing_id].push(photo);
+    });
+  }
+
+  // Transform listings to match Shopify product format expected by SearchResultsPredictive
+  const products = listings.map(listing => {
+    const listingPhotos = photosByListing[listing.id] || [];
+    const firstPhoto = listingPhotos[0];
+    
+    // Get public URL for the first photo
+    let imageUrl = null;
+    let imageAlt = listing.title || 'Product image';
+    
+    if (firstPhoto?.storage_path) {
+      const {data} = supabase.storage
+        .from('listing-photos')
+        .getPublicUrl(firstPhoto.storage_path);
+      imageUrl = data?.publicUrl || null;
+    }
+
+    // Use listing ID as handle - listings are accessed via /listings/{id}
+    // Note: SearchResultsPredictive expects /products/{handle}, but we'll handle this
+    // by using the listing ID as the handle. If needed, create a redirect route later.
+    // shopify_product_id exists but we use listing.id for the URL
+    const handle = listing.id;
+    
+    // Convert price_cents to Shopify price format
+    const priceAmount = (listing.price_cents / 100).toFixed(2);
+    
+    return {
+      __typename: 'Product',
+      id: listing.id,
+      title: listing.title || 'Untitled Listing',
+      handle: handle,
+      trackingParameters: null, // Not used for Supabase listings
+      selectedOrFirstAvailableVariant: {
+        id: `${listing.id}-variant`, // Create a variant ID
+        image: imageUrl ? {
+          url: imageUrl,
+          altText: imageAlt,
+          width: 400, // Default dimensions
+          height: 400,
+        } : null,
+        price: {
+          amount: priceAmount,
+          currencyCode: 'USD', // Default to USD, adjust if you support multiple currencies
+        },
+      },
+    };
+  });
+
+  return products;
+}
+
+/**
  * Predictive search fetcher
+ * Now searches Supabase listings instead of Shopify products
+ * Only returns live listings (status = 'live')
+ * 
  * @param {Pick<
  *   Route.ActionArgs,
  *   'request' | 'context'
@@ -401,7 +521,6 @@ const PREDICTIVE_SEARCH_QUERY = `#graphql
  * @return {Promise<PredictiveSearchReturn>}
  */
 async function predictiveSearch({request, context}) {
-  const {storefront} = context;
   const url = new URL(request.url);
   
   // Validate and limit search term length
@@ -429,39 +548,44 @@ async function predictiveSearch({request, context}) {
     return {type, term, result: getEmptyPredictiveSearchResult()};
   }
 
-  // Predictively search articles, collections, pages, products, and queries (suggestions)
-  const {predictiveSearch: items, errors} = await storefront.query(
-    PREDICTIVE_SEARCH_QUERY,
-    {
-      variables: {
-        // customize search options as needed
-        limit,
-        limitScope: 'EACH',
-        term,
-      },
-    },
-  );
+  // Get Supabase configuration from context
+  const supabaseUrl = context.env?.SUPABASE_URL;
+  const serviceRoleKey = context.env?.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (errors) {
+  if (!supabaseUrl || !serviceRoleKey) {
+    console.error('Missing Supabase configuration for search');
+    // Return empty results instead of throwing to prevent UI crashes
+    return {type, term, result: getEmptyPredictiveSearchResult()};
+  }
+
+  try {
+    // Search Supabase listings (only live products)
+    const products = await searchSupabaseListings(term, supabaseUrl, serviceRoleKey, limit);
+
+    // Return results in the format expected by SearchResultsPredictive
+    // We're only returning products, so articles, collections, pages, and queries are empty
+    const items = {
+      articles: [],
+      collections: [],
+      pages: [],
+      products: products,
+      queries: [], // No query suggestions for now
+    };
+
+    const total = products.length;
+
+    return {type, term, result: {items, total}};
+  } catch (error) {
     // Log error but don't expose full details
-    console.error('Predictive search API errors:', {
-      errors: errors.map(({message}) => message),
+    console.error('Predictive search error:', {
+      message: error.message,
       term,
       timestamp: new Date().toISOString(),
     });
-    throw new Error('Search service temporarily unavailable');
+    
+    // Return empty results instead of throwing to prevent UI crashes
+    return {type, term, result: getEmptyPredictiveSearchResult()};
   }
-
-  if (!items) {
-    throw new Error('No predictive search data returned from Shopify API');
-  }
-
-  const total = Object.values(items).reduce(
-    (acc, item) => acc + item.length,
-    0,
-  );
-
-  return {type, term, result: {items, total}};
 }
 
 /** @typedef {import('./+types/search').Route} Route */

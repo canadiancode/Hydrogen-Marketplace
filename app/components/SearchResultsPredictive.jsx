@@ -164,18 +164,37 @@ function SearchResultsPredictivePages({term, pages, closeSearch}) {
 }
 
 /**
+ * Checks if a string is a UUID (used to identify Supabase listing IDs)
+ * @param {string} str - String to check
+ * @returns {boolean} True if the string is a UUID
+ */
+function isUUID(str) {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+}
+
+/**
  * @param {PartialPredictiveSearchResult<'products'>}
  */
 function SearchResultsPredictiveProducts({term, products, closeSearch}) {
   if (!products.length) return null;
 
   return (
-    <div className="predictive-search-result" key="products">
-      <h5>Products</h5>
-      <ul>
+    <div className="mb-6" key="products">
+      <h5 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">
+        Products
+      </h5>
+      <ul className="space-y-2">
         {products.map((product) => {
+          // If handle is a UUID, it's a Supabase listing - use /listings/ route
+          // Otherwise, it's a Shopify product - use /products/ route
+          const isListing = isUUID(product.handle) || isUUID(product.id);
+          const baseUrl = isListing 
+            ? `/listings/${product.id}` 
+            : `/products/${product.handle}`;
+          
           const productUrl = urlWithTrackingParams({
-            baseUrl: `/products/${product.handle}`,
+            baseUrl,
             trackingParams: product.trackingParameters,
             term: term.current,
           });
@@ -183,19 +202,34 @@ function SearchResultsPredictiveProducts({term, products, closeSearch}) {
           const price = product?.selectedOrFirstAvailableVariant?.price;
           const image = product?.selectedOrFirstAvailableVariant?.image;
           return (
-            <li className="predictive-search-result-item" key={product.id}>
-              <Link to={productUrl} onClick={closeSearch}>
+            <li key={product.id}>
+              <Link 
+                to={productUrl} 
+                onClick={closeSearch}
+                className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group"
+              >
                 {image && (
-                  <Image
-                    alt={image.altText ?? ''}
-                    src={image.url}
-                    width={50}
-                    height={50}
-                  />
+                  <div className="flex-shrink-0 w-16 h-16 rounded-md overflow-hidden bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 [&>img]:w-full [&>img]:h-full [&>img]:object-cover">
+                    <Image
+                      alt={image.altText ?? product.title ?? 'Product image'}
+                      src={image.url}
+                      width={64}
+                      height={64}
+                      aspectRatio="1/1"
+                    />
+                  </div>
                 )}
-                <div>
-                  <p>{product.title}</p>
-                  <small>{price && <Money data={price} />}</small>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors line-clamp-2">
+                    {product.title}
+                  </p>
+                  {price && (
+                    <div className="mt-1">
+                      <small className="text-sm font-semibold text-gray-600 dark:text-gray-300">
+                        <Money data={price} />
+                      </small>
+                    </div>
+                  )}
                 </div>
               </Link>
             </li>
