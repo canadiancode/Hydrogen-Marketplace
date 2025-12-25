@@ -11,6 +11,7 @@ import {
   ShieldCheckIcon,
   ShoppingCartIcon,
   TruckIcon,
+  LinkIcon,
 } from '@heroicons/react/24/outline'
 import { Bars3Icon, MagnifyingGlassIcon } from '@heroicons/react/20/solid'
 
@@ -18,6 +19,7 @@ const navigation = [
   { name: 'Creator Dashboard', href: '/creator/dashboard', icon: Squares2X2Icon },
   { name: 'Manage Listings', href: '/creator/listings', icon: RectangleStackIcon },
   { name: 'Create Listing', href: '/creator/listings/new', icon: PlusCircleIcon },
+  { name: 'Social Links', href: '/creator/social-links', icon: LinkIcon },
   { name: 'Logistics', href: '/creator/logistics', icon: TruckIcon },
   { name: 'Sales', href: '/creator/sales', icon: ShoppingCartIcon },
 ]
@@ -73,7 +75,7 @@ export function CreatorNavigation({isAdmin = false}) {
                 </Link>
               </div>
               <nav className="relative flex flex-1 flex-col">
-                <ul role="list" className="flex flex-1 flex-col gap-y-7">
+                <ul role="list" className="flex flex-1 flex-col gap-y-7 pb-4">
                   <li>
                     <ul role="list" className="-mx-2 space-y-1">
                       {navigation.map((item) => (
@@ -194,7 +196,7 @@ export function CreatorNavigation({isAdmin = false}) {
             </Link>
           </div>
           <nav className="flex flex-1 flex-col">
-            <ul role="list" className="flex flex-1 flex-col gap-y-7">
+            <ul role="list" className="flex flex-1 flex-col gap-y-7 pb-4">
               <li>
                 <ul role="list" className="-mx-2 space-y-1">
                   {navigation.map((item) => (
