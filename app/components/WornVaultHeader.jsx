@@ -23,7 +23,7 @@ import {
 import {ChevronDownIcon} from '@heroicons/react/20/solid';
 import {useCartDrawer} from '~/components/CartDrawer';
 import {useOptimisticCart, useAnalytics} from '@shopify/hydrogen';
-import {useAside} from '~/components/Aside';
+import {useSearchModal} from '~/components/SearchModal';
 import {startTransition} from 'react';
 
 const shopItems = [
@@ -125,13 +125,15 @@ function CartBadgeWrapper({cartPromise}) {
 }
 
 function SearchButton() {
-  // Note: Search still uses Aside system - keeping it as is for now
-  // If you want to migrate search to a drawer too, we can do that separately
-  const {open} = useAside();
+  const {setOpen} = useSearchModal();
   return (
     <button
       type="button"
-      onClick={() => open('search')}
+      onClick={() => {
+        startTransition(() => {
+          setOpen(true);
+        });
+      }}
       className="-m-2.5 inline-flex items-center justify-center rounded-md p-2.5 text-gray-700 dark:text-gray-400"
     >
       <span className="sr-only">Search</span>
@@ -160,8 +162,9 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
             <span className="text-2xl font-bold text-gray-900 dark:text-white">WornVault</span>
           </Link>
         </div>
-        <div className="flex lg:hidden items-center gap-x-2">
+        <div className="flex lg:hidden items-center gap-x-3">
           {cart ? <CartBadgeWrapper cartPromise={cart} /> : <CartBadge cart={null} />}
+          <SearchButton />
           <button
             type="button"
             onClick={() => setMobileMenuOpen(true)}

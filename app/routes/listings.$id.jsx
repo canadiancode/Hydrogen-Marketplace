@@ -9,6 +9,7 @@ import {BuyNowButton} from '~/components/BuyNowButton';
 import {AddToCartButton} from '~/components/AddToCartButton';
 import {useAside} from '~/components/Aside';
 import {useCartDrawer} from '~/components/CartDrawer';
+import {Breadcrumbs} from '~/components/Breadcrumbs';
 
 export const meta = ({data}) => {
   return [
@@ -330,6 +331,10 @@ export default function ListingDetail() {
   return (
     <div className="bg-white dark:bg-gray-900">
       <div className="mx-auto px-4 py-16 sm:px-6 sm:py-24 lg:max-w-7xl lg:px-8">
+        {/* Breadcrumbs */}
+        <div className="mb-6">
+          <Breadcrumbs data={{listing}} />
+        </div>
         {/* Product */}
         <div className="lg:grid lg:grid-cols-7 lg:grid-rows-1 lg:gap-x-8 lg:gap-y-10 xl:gap-x-16">
           {/* Product images */}

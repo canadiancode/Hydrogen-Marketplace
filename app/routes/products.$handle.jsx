@@ -12,6 +12,7 @@ import {ProductImage} from '~/components/ProductImage';
 import {ProductForm} from '~/components/ProductForm';
 import {redirectIfHandleIsLocalized} from '~/lib/redirect';
 import {sanitizeHTML} from '~/lib/sanitize';
+import {Breadcrumbs} from '~/components/Breadcrumbs';
 
 /**
  * @type {Route.MetaFunction}
@@ -108,6 +109,9 @@ export default function Product() {
 
   return (
     <div className="product">
+      <div className="mx-auto max-w-7xl px-4 pt-8 pb-4 sm:px-6 lg:px-8">
+        <Breadcrumbs data={{product}} />
+      </div>
       <ProductImage image={selectedVariant?.image} />
       <div className="product-main">
         <h1>{title}</h1>

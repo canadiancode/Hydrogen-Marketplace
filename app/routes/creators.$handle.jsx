@@ -4,6 +4,7 @@ import {fetchCreatorByHandle, fetchListingsByCreatorId} from '~/lib/supabase';
 import {ChevronDownIcon} from '@heroicons/react/20/solid';
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/react';
 import {decodeHTMLEntities} from '~/lib/html-entities';
+import {Breadcrumbs} from '~/components/Breadcrumbs';
 
 export const meta = ({data}) => {
   if (!data?.creator) {
@@ -194,6 +195,10 @@ export default function CreatorProfile() {
   
   return (
     <div className="bg-white dark:bg-gray-900 min-h-screen">
+      {/* Breadcrumbs */}
+      <div className="mx-auto max-w-4xl px-4 pt-8 pb-4 sm:px-6 lg:px-8">
+        <Breadcrumbs data={{creator}} />
+      </div>
       {/* Header/Banner Area - Twitter-like */}
       <div className="bg-gray-200 dark:bg-gray-800 h-48 sm:h-64 relative overflow-hidden">
         {creator.coverImageUrl ? (

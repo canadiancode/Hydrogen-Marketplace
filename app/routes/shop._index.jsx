@@ -5,6 +5,7 @@ import {ALL_CATEGORIES} from '~/lib/categories';
 import {decodeHTMLEntities} from '~/lib/html-entities';
 import {ChevronDownIcon, FunnelIcon} from '@heroicons/react/20/solid';
 import {Disclosure, DisclosureButton, DisclosurePanel, Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/react';
+import {Breadcrumbs} from '~/components/Breadcrumbs';
 
 export const meta = () => {
   return [
@@ -338,6 +339,9 @@ export default function Shop() {
   return (
     <div className="bg-white dark:bg-gray-900">
       <div className="mx-auto max-w-2xl px-4 pt-8 pb-16 sm:px-6 sm:pt-12 sm:pb-24 lg:max-w-7xl lg:px-8">
+        <div className="mb-6">
+          <Breadcrumbs />
+        </div>
         <div className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">Shop</h1>
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
