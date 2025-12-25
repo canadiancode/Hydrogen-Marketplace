@@ -7,6 +7,31 @@ import {CartDrawerContext} from './CartDrawer';
 import {AsideContext} from './Aside';
 
 /**
+ * Truncates a description to a specified word count and appends ".."
+ * @param {string} description - The description text to truncate
+ * @param {number} wordCount - Maximum number of words to include
+ * @returns {string} Truncated description with ".." appended if truncated
+ */
+function truncateDescription(description, wordCount = 15) {
+  if (!description) return '';
+  
+  // Strip HTML tags and decode HTML entities for plain text truncation
+  const text = description
+    .replace(/<[^>]*>/g, '') // Remove HTML tags
+    .replace(/&nbsp;/g, ' ') // Replace &nbsp; with space
+    .replace(/&[a-z]+;/gi, ' ') // Replace other HTML entities
+    .trim();
+  
+  const words = text.split(/\s+/).filter(word => word.length > 0);
+  
+  if (words.length <= wordCount) {
+    return text;
+  }
+  
+  return words.slice(0, wordCount).join(' ') + '..';
+}
+
+/**
  * A single line item in the cart. It displays the product image, title, price.
  * It also provides controls to update the quantity or remove the line item.
  * @param {{
@@ -103,15 +128,20 @@ export function CartLineItem({layout, line}) {
               )}
             </p>
           )}
+          {isDrawer && product.vendor && (
+            <p className="mt-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+              {product.vendor}
+            </p>
+          )}
+          {isDrawer && product.description && (
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
+              {truncateDescription(product.description, 15)}
+            </p>
+          )}
         </div>
-        <div className={isDrawer ? 'flex flex-1 items-end justify-between text-sm' : ''}>
+        <div className={isDrawer ? 'mt-4 flex items-center justify-end text-sm' : ''}>
           {isDrawer ? (
-            <>
-              <p className="text-gray-500 dark:text-gray-400">Qty {line.quantity}</p>
-              <div className="flex">
-                <CartLineRemoveButton lineIds={[line.id]} disabled={!!line.isOptimistic} />
-              </div>
-            </>
+            <CartLineRemoveButton lineIds={[line.id]} disabled={!!line.isOptimistic} />
           ) : (
             <CartLineQuantity line={line} />
           )}
