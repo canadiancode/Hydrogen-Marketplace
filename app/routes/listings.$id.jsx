@@ -281,6 +281,7 @@ function formatDate(dateString) {
 export default function ListingDetail() {
   const {listing, shopifyVariant, variantIdGid} = useLoaderData();
   const [copied, setCopied] = useState(false);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const {open} = useAside();
   const {setOpen: setCartDrawerOpen} = useCartDrawer();
   
@@ -288,7 +289,8 @@ export default function ListingDetail() {
     return null;
   }
   
-  const mainImage = listing.photos?.[0]?.publicUrl || 'https://via.placeholder.com/800x600?text=No+Image';
+  const photos = listing.photos || [];
+  const mainImage = photos[selectedImageIndex]?.publicUrl || photos[0]?.publicUrl || 'https://via.placeholder.com/800x600?text=No+Image';
   
   // Get share URL - will be set properly on client side
   const getShareUrl = () => {
@@ -330,13 +332,40 @@ export default function ListingDetail() {
       <div className="mx-auto px-4 py-16 sm:px-6 sm:py-24 lg:max-w-7xl lg:px-8">
         {/* Product */}
         <div className="lg:grid lg:grid-cols-7 lg:grid-rows-1 lg:gap-x-8 lg:gap-y-10 xl:gap-x-16">
-          {/* Product image */}
+          {/* Product images */}
           <div className="lg:col-span-4 lg:row-end-1">
-            <img
-              alt={listing.title || 'Product image'}
-              src={mainImage}
-              className="aspect-4/3 w-full rounded-lg bg-gray-100 dark:bg-gray-800 object-cover"
-            />
+            {/* Main image */}
+            <div className="aspect-4/3 w-full rounded-lg bg-gray-100 dark:bg-gray-800 overflow-hidden mb-4">
+              <img
+                alt={listing.title || 'Product image'}
+                src={mainImage}
+                className="w-full h-full object-cover"
+              />
+            </div>
+            
+            {/* Thumbnail gallery */}
+            {photos.length > 1 && (
+              <div className="grid grid-cols-4 gap-2">
+                {photos.map((photo, index) => (
+                  <button
+                    key={photo.id || index}
+                    type="button"
+                    onClick={() => setSelectedImageIndex(index)}
+                    className={`aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
+                      selectedImageIndex === index
+                        ? 'border-indigo-600 dark:border-indigo-400'
+                        : 'border-transparent hover:border-gray-300 dark:hover:border-gray-600'
+                    }`}
+                  >
+                    <img
+                      src={photo.publicUrl}
+                      alt={`${listing.title} - Image ${index + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Product details */}
