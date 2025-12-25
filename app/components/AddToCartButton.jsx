@@ -8,9 +8,37 @@ function AddToCartButtonContent({fetcher, analytics, children, disabled, onClick
   const previousStateRef = useRef('idle');
   const previousDataRef = useRef(null);
   const processedDataRef = useRef(new Set());
+  const userInitiatedRef = useRef(false);
+  const mountedRef = useRef(false);
+  
+  // Track component mount to prevent processing on initial mount
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      userInitiatedRef.current = false;
+    };
+  }, []);
+  
+  // Track when user explicitly clicks the button
+  const handleButtonClick = (e) => {
+    // Mark that this was user-initiated BEFORE form submission
+    userInitiatedRef.current = true;
+    
+    // Call the onClick callback if provided
+    if (onClick) {
+      onClick();
+    }
+    // Note: The form will submit naturally via type="submit"
+  };
   
   // Open cart drawer when form submission succeeds
   useEffect(() => {
+    // Don't process anything until component is mounted
+    if (!mountedRef.current) {
+      return;
+    }
+    
     const currentState = fetcher.state;
     const previousState = previousStateRef.current;
     const currentData = fetcher.data;
@@ -18,10 +46,13 @@ function AddToCartButtonContent({fetcher, analytics, children, disabled, onClick
     
     // Detect state transition from submitting to idle (form completed)
     const justCompleted = previousState === 'submitting' && currentState === 'idle';
-    // Also check if data changed (new response received)
-    const dataChanged = currentData !== previousData && currentData !== null;
     
-    if ((justCompleted || dataChanged) && currentData) {
+    // Only process if:
+    // 1. This was a user-initiated submission (button was clicked)
+    // 2. AND we're seeing a completion transition OR data change after user interaction
+    const shouldProcess = userInitiatedRef.current && justCompleted && currentData;
+    
+    if (shouldProcess) {
       // Create a unique key for this response to avoid processing twice
       const dataKey = currentData.cart?.id 
         ? `cart-${currentData.cart.id}-${currentData.cart.updatedAt || Date.now()}`
@@ -31,6 +62,8 @@ function AddToCartButtonContent({fetcher, analytics, children, disabled, onClick
       if (processedDataRef.current.has(dataKey)) {
         previousStateRef.current = currentState;
         previousDataRef.current = currentData;
+        // Reset user initiated flag after processing
+        userInitiatedRef.current = false;
         return;
       }
       
@@ -62,6 +95,9 @@ function AddToCartButtonContent({fetcher, analytics, children, disabled, onClick
           });
         }
       }
+      
+      // Reset user initiated flag after processing
+      userInitiatedRef.current = false;
     }
     
     // Update refs
@@ -78,7 +114,7 @@ function AddToCartButtonContent({fetcher, analytics, children, disabled, onClick
       />
       <button
         type="submit"
-        onClick={onClick}
+        onClick={handleButtonClick}
         disabled={disabled ?? fetcher.state !== 'idle'}
         className={className}
       >
