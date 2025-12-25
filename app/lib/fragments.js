@@ -34,6 +34,7 @@ export const CART_QUERY_FRAGMENT = `#graphql
         }
         requiresShipping
         title
+        sku
         image {
           id
           url
@@ -85,6 +86,7 @@ export const CART_QUERY_FRAGMENT = `#graphql
         }
         requiresShipping
         title
+        sku
         image {
           id
           url

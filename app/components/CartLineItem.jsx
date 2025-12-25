@@ -15,9 +15,16 @@ import {AsideContext} from './Aside';
  * }}
  */
 export function CartLineItem({layout, line}) {
-  const {id, merchandise} = line;
-  const {product, title, image, selectedOptions} = merchandise;
-  const lineItemUrl = useVariantUrl(product.handle, selectedOptions);
+  const {id, merchandise, attributes} = line;
+  const {product, title, image, selectedOptions, sku} = merchandise;
+  
+  // Check if we have a listing_id attribute (from listings page)
+  const listingIdAttr = attributes?.find(attr => attr.key === 'listing_id');
+  const listingId = listingIdAttr?.value || sku;
+  
+  // Use listing URL if we have a listing ID (from attributes or SKU), otherwise fall back to product URL
+  // SKU is set to listing ID when creating Shopify products
+  const lineItemUrl = listingId ? `/listings/${listingId}` : useVariantUrl(product.handle, selectedOptions);
   
   // Try to use cart drawer first, fallback to aside for backward compatibility
   // Both hooks are called unconditionally (React rules), but contexts may be null

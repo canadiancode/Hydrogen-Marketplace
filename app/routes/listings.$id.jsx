@@ -435,6 +435,12 @@ export default function ListingDetail() {
                       {
                         merchandiseId: variantIdGid,
                         quantity: 1,
+                        attributes: [
+                          {
+                            key: 'listing_id',
+                            value: listing.id,
+                          },
+                        ],
                         ...(shopifyVariant ? {selectedVariant: shopifyVariant} : {}),
                       },
                     ]}
