@@ -1,5 +1,6 @@
 import {useLoaderData, Link, redirect} from 'react-router';
 import {checkAdminAuth, fetchAdminCreatorById} from '~/lib/supabase';
+import {decodeHTMLEntities} from '~/lib/html-entities';
 
 export const meta = ({data}) => {
   return [{title: `WornVault | Creator ${data?.creator?.display_name ?? data?.creator?.email ?? data?.creator?.id ?? ''}`}];
@@ -268,7 +269,7 @@ export default function AdminCreatorDetail() {
               {creator.bio && (
                 <div className="sm:col-span-2">
                   <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Bio</dt>
-                  <dd className="mt-1 text-sm text-gray-900 dark:text-white whitespace-pre-wrap">{creator.bio}</dd>
+                  <dd className="mt-1 text-sm text-gray-900 dark:text-white whitespace-pre-wrap">{decodeHTMLEntities(creator.bio)}</dd>
                 </div>
               )}
             </dl>

@@ -24,6 +24,7 @@ function generateBreadcrumbs(pathname, data = {}) {
   for (let i = 0; i < segments.length; i++) {
     const segment = segments[i];
     const isLast = i === segments.length - 1;
+    const prevSegment = i > 0 ? segments[i - 1] : null;
     currentPath += `/${segment}`;
 
     // Skip dynamic segments (they'll be handled with data)
@@ -64,16 +65,17 @@ function generateBreadcrumbs(pathname, data = {}) {
         href: currentPath,
         current: false,
       });
-      // If we have creator data and this is the last segment, add creator name
-      if (data.creator && isLast) {
-        const creatorName = data.creator.display_name || data.creator.handle || 'Creator';
-        breadcrumbs.push({
-          name: creatorName,
-          href: currentPath,
-          current: true,
-        });
-        break;
-      }
+      // Don't break here - continue to process the creator handle segment
+    } else if (prevSegment === 'creators' && data.creator) {
+      // This is a creator handle segment - use the display name instead of the handle
+      const creatorName = data.creator.display_name || data.creator.handle || 'Creator';
+      breadcrumbs.push({
+        name: creatorName,
+        href: currentPath,
+        current: true,
+      });
+      // Skip further processing since we've handled the creator
+      continue;
     } else if (segment === 'listings') {
       // For listing pages, show Shop as the parent breadcrumb
       name = 'Shop';
@@ -82,15 +84,16 @@ function generateBreadcrumbs(pathname, data = {}) {
         href: '/shop',
         current: false,
       });
-      // If we have listing data and this is the last segment, add listing title as product name
-      if (data.listing && isLast) {
-        breadcrumbs.push({
-          name: data.listing.title || 'Product',
-          href: currentPath,
-          current: true,
-        });
-        break;
-      }
+      // Don't break here - continue to process the listing ID segment
+    } else if (prevSegment === 'listings' && data.listing) {
+      // This is a listing ID segment - use the listing title instead of the ID
+      breadcrumbs.push({
+        name: data.listing.title || 'Product',
+        href: currentPath,
+        current: true,
+      });
+      // Skip further processing since we've handled the listing
+      continue;
     } else {
       // Capitalize first letter and replace hyphens with spaces
       name = segment

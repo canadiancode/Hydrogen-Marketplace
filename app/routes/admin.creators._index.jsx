@@ -1,8 +1,11 @@
-import {useLoaderData, useSearchParams, redirect, Link} from 'react-router';
+import {useLoaderData, useSearchParams, redirect, Link, Form, useActionData, useNavigation} from 'react-router';
 import {useState, useEffect, useMemo, useRef} from 'react';
 import {checkAdminAuth, fetchAllCreators, createServerSupabaseClient} from '~/lib/supabase';
 import {ChevronDownIcon, FunnelIcon} from '@heroicons/react/20/solid';
 import {Disclosure, DisclosureButton, DisclosurePanel, Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/react';
+import {generateCSRFToken, getClientIP, constantTimeEquals} from '~/lib/auth-helpers';
+import {rateLimitMiddleware} from '~/lib/rate-limit';
+import {decodeHTMLEntities} from '~/lib/html-entities';
 
 export const meta = () => {
   return [{title: 'WornVault | Admin Creators'}];
@@ -24,8 +27,13 @@ export async function loader({request, context}) {
     return {
       allCreators: [],
       error: 'Server configuration error. Please ensure SUPABASE_SERVICE_ROLE_KEY is set.',
+      csrfToken: null,
     };
   }
+  
+  // Generate CSRF token for bulk actions
+  const csrfToken = await generateCSRFToken(request, context.env.SESSION_SECRET);
+  context.session.set('csrf_token', csrfToken);
   
   // Validate and sanitize URL parameters to prevent injection
   const url = new URL(request.url);
@@ -57,7 +65,7 @@ export async function loader({request, context}) {
   }
   
   // Validate verification status parameter
-  const validVerificationStatuses = ['pending', 'verified', 'rejected'];
+  const validVerificationStatuses = ['pending', 'approved', 'rejected'];
   let sanitizedVerificationStatus = null;
   if (verificationStatusParam) {
     const trimmed = String(verificationStatusParam).trim();
@@ -83,19 +91,197 @@ export async function loader({request, context}) {
     
     return {
       allCreators,
+      csrfToken,
     };
   } catch (error) {
     console.error('Error fetching admin creators:', error);
     return {
       allCreators: [],
       error: 'Failed to load creators. Please try again later.',
+      csrfToken,
     };
   }
 }
 
+export async function action({request, context}) {
+  // Require admin authentication
+  const {isAdmin, user} = await checkAdminAuth(request, context.env);
+  
+  if (!isAdmin || !user) {
+    return new Response('Unauthorized', {status: 403});
+  }
+  
+  // Rate limiting: max 20 bulk actions per minute
+  const clientIP = getClientIP(request);
+  const rateLimit = await rateLimitMiddleware(
+    request,
+    `admin-bulk-action-creators:${user.email}:${clientIP}`,
+    {
+      maxRequests: 20,
+      windowMs: 60000, // 1 minute
+    },
+  );
+  
+  if (!rateLimit.allowed) {
+    return new Response('Too many requests. Please wait a moment before trying again.', {
+      status: 429,
+    });
+  }
+  
+  const formData = await request.formData();
+  
+  // Validate CSRF token using constant-time comparison to prevent timing attacks
+  const csrfToken = formData.get('csrf_token');
+  const storedCSRFToken = context.session.get('csrf_token');
+  
+  if (!csrfToken || !storedCSRFToken) {
+    return new Response('Invalid security token. Please refresh the page and try again.', {
+      status: 403,
+    });
+  }
+  
+  // Constant-time comparison to prevent timing attacks
+  if (!constantTimeEquals(csrfToken.toString(), storedCSRFToken)) {
+    return new Response('Invalid security token. Please refresh the page and try again.', {
+      status: 403,
+    });
+  }
+  
+  // Clear CSRF token after use (one-time use)
+  context.session.unset('csrf_token');
+  
+  // Get bulk action parameters
+  const actionType = formData.get('actionType');
+  const newStatus = formData.get('newStatus');
+  const creatorIds = formData.getAll('creatorIds').filter(Boolean);
+  
+  if (actionType === 'bulk_update_status') {
+    if (!newStatus || creatorIds.length === 0) {
+      return new Response('Missing required parameters', {status: 400});
+    }
+    
+    // Validate and sanitize status - prevent injection
+    const validStatuses = ['pending', 'approved', 'rejected'];
+    
+    // Ensure status is a string and matches exactly (case-sensitive)
+    const sanitizedStatus = String(newStatus).trim();
+    if (!validStatuses.includes(sanitizedStatus)) {
+      return new Response('Invalid status', {status: 400});
+    }
+    
+    // Validate creator IDs - prevent injection
+    // UUIDs are 36 characters (with hyphens) or 32 characters (without)
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const MAX_CREATOR_IDS = 100; // Prevent bulk operations on too many items
+    
+    if (creatorIds.length > MAX_CREATOR_IDS) {
+      return new Response(`Cannot update more than ${MAX_CREATOR_IDS} creators at once`, {status: 400});
+    }
+    
+    // Validate each creator ID format
+    const sanitizedCreatorIds = creatorIds
+      .map(id => String(id).trim())
+      .filter(id => {
+        // Check if it's a valid UUID format
+        if (!UUID_REGEX.test(id)) {
+          return false;
+        }
+        // Additional length check
+        if (id.length < 32 || id.length > 36) {
+          return false;
+        }
+        return true;
+      });
+    
+    if (sanitizedCreatorIds.length === 0) {
+      return new Response('No valid creator IDs provided', {status: 400});
+    }
+    
+    if (sanitizedCreatorIds.length !== creatorIds.length) {
+      return new Response('Invalid creator ID format detected', {status: 400});
+    }
+    
+    const supabaseUrl = context.env.SUPABASE_URL;
+    const serviceRoleKey = context.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!supabaseUrl || !serviceRoleKey) {
+      return new Response('Server configuration error', {status: 500});
+    }
+    
+    try {
+      const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
+      
+      // Bulk update creators using parameterized query (Supabase handles SQL injection prevention)
+      const {error} = await supabase
+        .from('creators')
+        .update({verification_status: sanitizedStatus})
+        .in('id', sanitizedCreatorIds);
+      
+      if (error) {
+        console.error('Error bulk updating creators:', error);
+        return new Response(`Failed to update creators: ${error.message}`, {status: 500});
+      }
+      
+      // Redirect back to creators page with success message
+      // Preserve current filter parameters (sanitized)
+      const url = new URL(request.url);
+      const currentParams = new URLSearchParams();
+      
+      // Only preserve safe filter parameters
+      const safeParams = ['verificationStatus', 'dateFrom', 'dateTo', 'search', 'sort'];
+      safeParams.forEach(param => {
+        const value = url.searchParams.get(param);
+        if (value) {
+          // Validate and sanitize parameter values
+          const sanitized = String(value).trim().substring(0, 200); // Max length
+          if (sanitized && sanitized.length > 0) {
+            currentParams.set(param, sanitized);
+          }
+        }
+      });
+      
+      currentParams.set('bulkUpdated', 'true');
+      currentParams.set('updatedCount', sanitizedCreatorIds.length.toString());
+      
+      return redirect(`/admin/creators?${currentParams.toString()}`);
+    } catch (error) {
+      console.error('Error in bulk update:', error);
+      return new Response('An unexpected error occurred', {status: 500});
+    }
+  }
+  
+  return new Response('Invalid action', {status: 400});
+}
+
 export default function AdminCreators() {
-  const {allCreators, error} = useLoaderData();
+  const {allCreators, error, csrfToken} = useLoaderData();
+  const actionData = useActionData();
+  const navigation = useNavigation();
   const [searchParams, setSearchParams] = useSearchParams();
+  
+  // Check for bulk update success
+  const bulkUpdated = searchParams.get('bulkUpdated') === 'true';
+  const updatedCount = searchParams.get('updatedCount');
+  
+  // Selection state
+  const [selectedCreators, setSelectedCreators] = useState(new Set());
+  const [selectAll, setSelectAll] = useState(false);
+  
+  // Clear selection and success message after showing
+  useEffect(() => {
+    if (bulkUpdated) {
+      setSelectedCreators(new Set());
+      setSelectAll(false);
+      // Remove success params from URL after 5 seconds
+      const timer = setTimeout(() => {
+        const newParams = new URLSearchParams(searchParams);
+        newParams.delete('bulkUpdated');
+        newParams.delete('updatedCount');
+        setSearchParams(newParams, {replace: true});
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [bulkUpdated, searchParams, setSearchParams]);
   
   // Filter state - initialize from URL params
   const [dateFrom, setDateFrom] = useState(() => searchParams.get('dateFrom') || '');
@@ -112,7 +298,7 @@ export default function AdminCreators() {
   // Verification status options
   const verificationStatusOptions = [
     {value: 'pending', label: 'Pending'},
-    {value: 'verified', label: 'Verified'},
+    {value: 'approved', label: 'Approved'},
     {value: 'rejected', label: 'Rejected'},
   ];
   
@@ -226,6 +412,36 @@ export default function AdminCreators() {
     setDateFrom('');
     setDateTo('');
     setSearch('');
+    setSelectedCreators(new Set());
+    setSelectAll(false);
+  };
+  
+  // Handle select all
+  const handleSelectAll = (checked) => {
+    if (checked) {
+      setSelectedCreators(new Set(filteredCreators.map(c => c.id)));
+      setSelectAll(true);
+    } else {
+      setSelectedCreators(new Set());
+      setSelectAll(false);
+    }
+  };
+  
+  // Handle individual selection
+  const handleSelectCreator = (creatorId, checked) => {
+    const newSelected = new Set(selectedCreators);
+    if (checked) {
+      newSelected.add(creatorId);
+    } else {
+      newSelected.delete(creatorId);
+      setSelectAll(false);
+    }
+    setSelectedCreators(newSelected);
+    
+    // Update select all state
+    if (newSelected.size === filteredCreators.length) {
+      setSelectAll(true);
+    }
   };
   
   const formatDate = (dateString) => {
@@ -256,6 +472,14 @@ export default function AdminCreators() {
           </div>
         )}
         
+        {bulkUpdated && updatedCount && (
+          <div className="mb-6 rounded-md bg-green-50 dark:bg-green-900/20 p-4 border border-green-200 dark:border-green-800">
+            <p className="text-sm font-medium text-green-800 dark:text-green-200">
+              Successfully updated {updatedCount} creator{updatedCount !== '1' ? 's' : ''}
+            </p>
+          </div>
+        )}
+        
         {/* Stats Summary */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-8">
           <div className="bg-white dark:bg-white/5 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-white/10">
@@ -263,9 +487,9 @@ export default function AdminCreators() {
             <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{allCreators.length}</p>
           </div>
           <div className="bg-white dark:bg-white/5 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-white/10">
-            <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Verified Creators</p>
+            <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Approved Creators</p>
             <p className="text-2xl font-bold text-green-600 dark:text-green-400 mt-1">
-              {allCreators.filter(c => c.verification_status === 'verified').length}
+              {allCreators.filter(c => c.verification_status === 'approved').length}
             </p>
           </div>
           <div className="bg-white dark:bg-white/5 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-white/10">
@@ -396,6 +620,53 @@ export default function AdminCreators() {
           </DisclosurePanel>
         </Disclosure>
         
+        {/* Bulk Action Bar */}
+        {selectedCreators.size > 0 && (
+          <div className="mb-6 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-4 overflow-hidden">
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <p className="text-sm font-medium text-indigo-800 dark:text-indigo-200 whitespace-nowrap flex-shrink-0">
+                {selectedCreators.size} creator{selectedCreators.size !== 1 ? 's' : ''} selected
+              </p>
+              <Form method="post" className="flex items-center gap-3 flex-wrap sm:flex-nowrap flex-shrink-0 min-w-0">
+                <input type="hidden" name="csrf_token" value={csrfToken || ''} />
+                <input type="hidden" name="actionType" value="bulk_update_status" />
+                {Array.from(selectedCreators).map(id => (
+                  <input key={id} type="hidden" name="creatorIds" value={id} />
+                ))}
+                <select
+                  name="newStatus"
+                  required
+                  className="rounded-md border border-gray-300 dark:border-white/20 bg-white dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-2 focus:outline-offset-2 focus:outline-indigo-600 dark:focus:outline-indigo-400 flex-shrink-0"
+                >
+                  <option value="">Select status...</option>
+                  {verificationStatusOptions.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="submit"
+                  disabled={navigation.state === 'submitting'}
+                  className="rounded-md bg-indigo-600 dark:bg-indigo-500 px-6 py-2.5 text-base font-medium text-white hover:bg-indigo-700 dark:hover:bg-indigo-600 focus:outline-2 focus:outline-offset-2 focus:outline-indigo-600 dark:focus:outline-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex-shrink-0"
+                >
+                  {navigation.state === 'submitting' ? 'Updating...' : 'Update Status'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCreators(new Set());
+                    setSelectAll(false);
+                  }}
+                  className="text-base font-medium text-indigo-800 dark:text-indigo-200 hover:text-indigo-900 dark:hover:text-indigo-100 whitespace-nowrap flex-shrink-0"
+                >
+                  Clear selection
+                </button>
+              </Form>
+            </div>
+          </div>
+        )}
+        
         {/* All Creators */}
         {filteredCreators.length === 0 ? (
           <section className="bg-white dark:bg-white/5 rounded-lg shadow-sm p-6 border border-gray-200 dark:border-white/10">
@@ -457,8 +728,32 @@ export default function AdminCreators() {
               </Menu>
             </div>
             <ul role="list" className="divide-y divide-gray-200 dark:divide-white/10">
+              {/* Select All Checkbox */}
+              <li className="px-6 py-3 border-b border-gray-200 dark:border-white/10">
+                <div className="flex items-center gap-3">
+                  <Checkbox
+                    id="select-all-checkbox"
+                    checked={selectAll && filteredCreators.length > 0}
+                    onChange={(e) => handleSelectAll(e.target.checked)}
+                    indeterminate={!selectAll && selectedCreators.size > 0 && selectedCreators.size < filteredCreators.length}
+                    aria-label={`Select all ${filteredCreators.length} creators`}
+                  />
+                  <label
+                    htmlFor="select-all-checkbox"
+                    className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer"
+                  >
+                    Select all ({filteredCreators.length})
+                  </label>
+                </div>
+              </li>
+              
               {filteredCreators.map((creator) => (
-                <CreatorItem key={creator.id} creator={creator} />
+                <CreatorItem
+                  key={creator.id}
+                  creator={creator}
+                  isSelected={selectedCreators.has(creator.id)}
+                  onSelect={(checked) => handleSelectCreator(creator.id, checked)}
+                />
               ))}
             </ul>
           </section>
@@ -536,10 +831,10 @@ function Checkbox({
  * Verification status badge component
  */
 function VerificationStatusBadge({status}) {
-  if (status === 'verified') {
+  if (status === 'approved') {
     return (
       <p className="!p-1 mt-0.5 rounded-md bg-green-50 px-4 py-2 !text-[11px] font-medium text-green-700 inset-ring inset-ring-green-600/20 dark:bg-green-400/10 dark:text-green-400 dark:inset-ring-green-500/20">
-        Verified
+        Approved
       </p>
     );
   }
@@ -570,7 +865,7 @@ function VerificationStatusBadge({status}) {
 /**
  * Creator item component
  */
-function CreatorItem({creator}) {
+function CreatorItem({creator, isSelected, onSelect}) {
   const formatDate = (dateString) => {
     if (!dateString) return '';
     const date = new Date(dateString);
@@ -588,6 +883,16 @@ function CreatorItem({creator}) {
 
   return (
     <li className="flex items-center justify-between gap-x-6 py-5 px-6 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+      {/* Checkbox for selection */}
+      <div className="flex-shrink-0">
+        <Checkbox
+          id={`creator-checkbox-${creator.id}`}
+          checked={isSelected}
+          onChange={(e) => onSelect(e.target.checked)}
+          aria-label={`Select creator: ${displayName}`}
+        />
+      </div>
+      
       <div className="min-w-0 flex-1">
         <div className="flex items-start gap-x-3">
           <Link
@@ -620,7 +925,7 @@ function CreatorItem({creator}) {
         {creator.bio && (
           <div className="mt-2">
             <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
-              {creator.bio}
+              {decodeHTMLEntities(creator.bio)}
             </p>
           </div>
         )}

@@ -3,6 +3,7 @@ import {checkAdminAuth, fetchAdminListingById} from '~/lib/supabase';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
 import {generateCSRFToken, getClientIP} from '~/lib/auth-helpers';
 import {PhotoIcon} from '@heroicons/react/24/outline';
+import {decodeHTMLEntities} from '~/lib/html-entities';
 
 export const meta = ({data}) => {
   return [{title: `WornVault | Review Listing ${data?.listing?.title ?? data?.listing?.id ?? ''}`}];
@@ -223,6 +224,38 @@ export default function AdminListingReview() {
     );
   };
   
+  const VerificationStatusBadge = ({status}) => {
+    if (status === 'approved') {
+      return (
+        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-50 text-green-700 dark:bg-green-400/10 dark:text-green-400">
+          Approved
+        </span>
+      );
+    }
+    
+    if (status === 'pending') {
+      return (
+        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-50 text-yellow-800 dark:bg-yellow-400/10 dark:text-yellow-500">
+          Pending
+        </span>
+      );
+    }
+    
+    if (status === 'rejected') {
+      return (
+        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-red-50 text-red-700 dark:bg-red-400/10 dark:text-red-400">
+          Rejected
+        </span>
+      );
+    }
+    
+    return (
+      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-50 text-gray-600 dark:bg-gray-400/10 dark:text-gray-400">
+        Unknown
+      </span>
+    );
+  };
+  
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -296,7 +329,7 @@ export default function AdminListingReview() {
               {listing.story && (
                 <div className="sm:col-span-2">
                   <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Story</dt>
-                  <dd className="mt-1 text-sm text-gray-900 dark:text-white whitespace-pre-wrap">{listing.story}</dd>
+                  <dd className="mt-1 text-sm text-gray-900 dark:text-white whitespace-pre-wrap">{decodeHTMLEntities(listing.story)}</dd>
                 </div>
               )}
             </dl>
@@ -338,7 +371,7 @@ export default function AdminListingReview() {
                 {listing.creator.bio && (
                   <div className="sm:col-span-2">
                     <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Bio</dt>
-                    <dd className="mt-1 text-sm text-gray-900 dark:text-white">{listing.creator.bio}</dd>
+                    <dd className="mt-1 text-sm text-gray-900 dark:text-white whitespace-pre-wrap">{decodeHTMLEntities(listing.creator.bio)}</dd>
                   </div>
                 )}
                 {listing.creator.primary_platform && (
@@ -350,7 +383,7 @@ export default function AdminListingReview() {
                 <div>
                   <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Verification Status</dt>
                   <dd className="mt-1">
-                    <StatusBadge status={listing.creator.verification_status || 'pending'} />
+                    <VerificationStatusBadge status={listing.creator.verification_status || 'pending'} />
                   </dd>
                 </div>
               </dl>
