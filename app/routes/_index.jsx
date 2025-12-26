@@ -1,4 +1,5 @@
-import {useRouteError, isRouteErrorResponse} from 'react-router';
+import {useRouteError, isRouteErrorResponse, useLocation} from 'react-router';
+import {useEffect} from 'react';
 import {HeroSection} from '~/components/HeroSection';
 import {WhatIsWornVault} from '~/components/WhatIsWornVault';
 import {HowMarketplaceWorks} from '~/components/HowMarketplaceWorks';
@@ -20,6 +21,22 @@ export async function loader() {
 }
 
 export default function Homepage() {
+  const location = useLocation();
+
+  // Handle smooth scrolling to hash anchors on mount and navigation
+  useEffect(() => {
+    if (location.hash) {
+      // Small delay to ensure DOM is ready
+      const timer = setTimeout(() => {
+        const element = document.querySelector(location.hash);
+        if (element) {
+          element.scrollIntoView({behavior: 'smooth', block: 'start'});
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [location.hash]);
+
   return (
     <div className="min-h-screen bg-white dark:bg-gray-900">
       <HeroSection />

@@ -1,4 +1,4 @@
-import {Form, redirect, Link, useActionData} from 'react-router';
+import {Form, redirect, useActionData} from 'react-router';
 import {checkCreatorAuth, sendMagicLink, initiateGoogleOAuth} from '~/lib/supabase';
 import {getClientIP} from '~/lib/auth-helpers';
 import {rateLimit} from '~/lib/rate-limit';
@@ -122,28 +122,28 @@ export default function CreatorLogin() {
   return (
     <div className="flex min-h-full flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="mx-auto h-10 w-auto flex items-center justify-center">
-          <span className="text-2xl font-bold text-indigo-600">WornVault</span>
+        <div className="mx-auto mt-6 max-w-2xl text-center">
+          <h1 className="text-2xl font-semibold tracking-tight text-balance text-gray-900 sm:text-3xl dark:text-white">
+            Welcome to WornVault
+          </h1>
+          <p className="mx-auto mt-4 max-w-xl text-base/7 text-pretty text-gray-600 dark:text-gray-300">
+            Sign in or create your creator account to access your private dashboard.
+            We'll guide you through setup if you're new.
+          </p>
         </div>
-        <h2 className="mt-6 text-center text-2xl/9 font-bold tracking-tight text-gray-900">
-          Sign in to your creator account
-        </h2>
-        <p className="mt-2 text-center text-sm text-gray-600">
-          Enter your email to receive a magic link. No password required.
-        </p>
       </div>
 
       <div className="mt-10 sm:mx-auto sm:w-full sm:max-w-[480px]">
-        <div className="bg-white px-6 py-12 shadow-sm sm:rounded-lg sm:px-12">
+        <div className="bg-white dark:bg-gray-800 px-6 py-12 shadow-sm sm:rounded-lg sm:px-12">
           {actionData?.error && (
-            <div className="mb-6 rounded-md bg-red-50 p-4">
-              <p className="text-sm text-red-800">{actionData.error}</p>
+            <div className="mb-6 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4">
+              <p className="text-sm text-red-800 dark:text-red-300">{actionData.error}</p>
             </div>
           )}
           
           {actionData?.success && (
-            <div className="mb-6 rounded-md bg-green-50 p-4">
-              <p className="text-sm text-green-800">{actionData.message}</p>
+            <div className="mb-6 rounded-md bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-4">
+              <p className="text-sm text-green-800 dark:text-green-300">{actionData.message}</p>
             </div>
           )}
           
@@ -151,7 +151,7 @@ export default function CreatorLogin() {
             <input type="hidden" name="authMethod" value="magic-link" />
             
             <div>
-              <label htmlFor="email" className="block text-sm/6 font-medium text-gray-900">
+              <label htmlFor="email" className="block text-sm/6 font-medium text-gray-900 dark:text-gray-100">
                 Email address
               </label>
               <div className="mt-2">
@@ -162,7 +162,7 @@ export default function CreatorLogin() {
                   required
                   autoComplete="email"
                   placeholder="you@example.com"
-                  className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                  className="block w-full rounded-md bg-white dark:bg-gray-700 px-3 py-1.5 text-base text-gray-900 dark:text-white outline-1 -outline-offset-1 outline-gray-300 dark:outline-gray-600 placeholder:text-gray-400 dark:placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 dark:focus:outline-indigo-500 sm:text-sm/6"
                 />
               </div>
             </div>
@@ -179,9 +179,9 @@ export default function CreatorLogin() {
 
           <div>
             <div className="mt-10 flex items-center gap-x-6">
-              <div className="w-full flex-1 border-t border-gray-200" />
-              <p className="text-sm/6 font-medium text-nowrap text-gray-900">Or continue with</p>
-              <div className="w-full flex-1 border-t border-gray-200" />
+              <div className="w-full flex-1 border-t border-gray-200 dark:border-gray-700" />
+              <p className="text-sm/6 font-medium text-nowrap text-gray-900 dark:text-gray-100">Or continue with</p>
+              <div className="w-full flex-1 border-t border-gray-200 dark:border-gray-700" />
             </div>
 
             <div className="mt-6">
@@ -189,7 +189,7 @@ export default function CreatorLogin() {
                 <input type="hidden" name="authMethod" value="google" />
                 <button
                   type="submit"
-                  className="flex w-full items-center justify-center gap-3 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs inset-ring inset-ring-gray-300 hover:bg-gray-50 focus-visible:inset-ring-transparent"
+                  className="flex w-full items-center justify-center gap-3 rounded-md bg-white dark:bg-white/15 px-3 py-2 text-sm font-semibold text-gray-900 dark:text-white shadow-xs dark:shadow-none inset-ring inset-ring-gray-300 dark:inset-ring-white/5 hover:bg-gray-50 dark:hover:bg-white/20 focus-visible:inset-ring-transparent dark:focus-visible:outline-white"
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
                     <path
@@ -214,17 +214,12 @@ export default function CreatorLogin() {
               </Form>
             </div>
           </div>
-        </div>
 
-        <p className="mt-10 text-center text-sm/6 text-gray-500">
-          Not a creator yet?{' '}
-          <Link
-            to="/creator/signup"
-            className="font-semibold text-indigo-600 hover:text-indigo-500"
-          >
-            Sign up to become a creator
-          </Link>
-        </p>
+          <p className="mt-8 text-center text-xs/5 text-pretty text-gray-500 dark:text-gray-400">
+            Your email is used only for account access and platform communication.
+            We never share personal information with buyers.
+          </p>
+        </div>
       </div>
     </div>
   );

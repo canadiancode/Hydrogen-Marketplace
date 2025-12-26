@@ -4,15 +4,15 @@ const navigation = {
   thingsYouCanBuy: [
     { name: 'Search', href: '/search' },
     { name: 'Shop All', href: '/shop' },
-    { name: 'Find a Creator', href: '/shop?filter=find-creator' },
+    { name: 'Find a Creator', href: '/creators' },
     { name: 'Shop by Category', href: '/shop?filter=find-category' },
 
   ],
   howItWorks: [
     { name: 'For Buyers', href: '/#buyers' },
     { name: 'For Creators', href: '/#creators' },
-    { name: 'Fees & Payouts', href: '/#fees' },
-    { name: 'Verification & Trust', href: '/#trust' },
+    { name: 'Fees & Payouts', href: '/fees-payouts' },
+    { name: 'Verification & Trust', href: '/verification' },
   ],
   creators: [
     { name: 'Creator Login', href: '/creator/login' },
@@ -22,7 +22,6 @@ const navigation = {
   ],
   about: [
     { name: 'Our Mission', href: '/about/mission' },
-    { name: 'Trust & Safety', href: '/about/trust' },
     { name: 'Privacy & Discretion', href: '/about/privacy' },
     { name: 'Contact & Support', href: '/about/contact' },
   ],

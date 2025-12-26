@@ -138,6 +138,12 @@ export async function action({request, context}) {
     if (isNaN(priceFloat) || priceFloat <= 0) {
       return data({error: 'Invalid price'}, {status: 400});
     }
+    
+    // Validate minimum price of $100
+    const MIN_PRICE = 100;
+    if (priceFloat < MIN_PRICE) {
+      return data({error: `Price must be at least $${MIN_PRICE}. Please enter a price of $${MIN_PRICE} or higher.`}, {status: 400});
+    }
 
     // Convert price to cents
     const priceCents = Math.round(priceFloat * 100);
@@ -726,6 +732,7 @@ export default function CreateListing() {
   const [selectedCondition, setSelectedCondition] = useState('');
   const [selectedPhotos, setSelectedPhotos] = useState([]);
   const [price, setPrice] = useState('');
+  const [priceError, setPriceError] = useState('');
   const [imageErrors, setImageErrors] = useState(new Set());
   const [isDragging, setIsDragging] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -882,8 +889,9 @@ export default function CreateListing() {
 
   const handlePriceDecrement = () => {
     const currentValue = parseFloat(price) || 0;
-    if (currentValue > 0) {
-      const newValue = Math.max(0, currentValue - 1.00).toFixed(2);
+    const MIN_PRICE = 100;
+    if (currentValue > MIN_PRICE) {
+      const newValue = Math.max(MIN_PRICE, currentValue - 1.00).toFixed(2);
       setPrice(newValue);
     }
   };
@@ -905,8 +913,14 @@ export default function CreateListing() {
       return;
     }
     
-    if (!price || parseFloat(price) <= 0) {
+    const MIN_PRICE = 100;
+    const priceFloat = parseFloat(price);
+    if (!price || isNaN(priceFloat) || priceFloat <= 0) {
       alert('Please enter a valid price');
+      return;
+    }
+    if (priceFloat < MIN_PRICE) {
+      alert(`Price must be at least $${MIN_PRICE}. Please enter a price of $${MIN_PRICE} or higher.`);
       return;
     }
     
@@ -1159,15 +1173,45 @@ export default function CreateListing() {
                       id="price"
                       name="price"
                       value={price}
-                      onChange={(e) => setPrice(e.target.value)}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setPrice(value);
+                        const priceFloat = parseFloat(value);
+                        const MIN_PRICE = 100;
+                        if (value && !isNaN(priceFloat) && priceFloat < MIN_PRICE) {
+                          setPriceError(`Price must be at least $${MIN_PRICE}`);
+                        } else {
+                          setPriceError('');
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const value = e.target.value;
+                        const priceFloat = parseFloat(value);
+                        const MIN_PRICE = 100;
+                        if (value && !isNaN(priceFloat) && priceFloat < MIN_PRICE) {
+                          setPriceError(`Price must be at least $${MIN_PRICE}`);
+                        } else {
+                          setPriceError('');
+                        }
+                      }}
                       required
-                      min="0"
+                      min="100"
                       step="0.01"
-                      placeholder="0.00"
-                      className="block w-full rounded-md bg-white px-3 py-1.5 pr-12 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                      placeholder="100.00"
+                      className={`block w-full rounded-md bg-white px-3 py-1.5 pr-12 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield] ${
+                        priceError 
+                          ? 'outline-red-600 dark:outline-red-500 focus:outline-red-600 dark:focus:outline-red-500' 
+                          : 'focus:outline-indigo-600 dark:focus:outline-indigo-500'
+                      }`}
                     />
                   </div>
-                  <p className="mt-3 text-sm/6 text-gray-600 dark:text-gray-400">Enter the price in USD</p>
+                  {priceError ? (
+                    <p className="mt-2 text-sm/6 text-red-600 dark:text-red-400">{priceError}</p>
+                  ) : (
+                    <p className="mt-3 text-sm/6 text-gray-600 dark:text-gray-400">
+                      Enter the price in USD. <span className="font-medium text-gray-900 dark:text-white">Minimum price is $100.</span>
+                    </p>
+                  )}
                 </div>
 
                 {/* Photo Upload */}

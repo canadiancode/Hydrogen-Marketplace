@@ -73,7 +73,7 @@ export function HeroSection() {
               >
                 Explore the Vault
               </Link>
-              <Link to="/creator/signup" className="text-sm/6 font-semibold text-gray-900 dark:text-white">
+              <Link to="/creator/login" className="text-sm/6 font-semibold text-gray-900 dark:text-white">
                 Sell as a Creator <span aria-hidden="true">→</span>
               </Link>
             </div>

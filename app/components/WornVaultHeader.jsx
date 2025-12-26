@@ -1,5 +1,5 @@
-import {useState, Suspense} from 'react';
-import {Link, Await} from 'react-router';
+import {useState, Suspense, useEffect} from 'react';
+import {Link, Await, useLocation} from 'react-router';
 import {
   Dialog,
   DialogPanel,
@@ -28,15 +28,15 @@ import {startTransition} from 'react';
 
 const shopItems = [
   { name: 'Explore All', href: '/shop' },
-  { name: 'Find a Creator', href: '/shop?filter=find-creator' },
+  { name: 'Find a Creator', href: '/creators' },
   { name: 'Shop by Category', href: '/shop?filter=find-category' },
 ];
 
 const howItWorksItems = [
   { name: 'For Buyers', href: '/#buyers' },
   { name: 'For Creators', href: '/#creators' },
-  { name: 'Fees & Payouts', href: '/#fees' },
-  { name: 'Verification & Trust', href: '/#trust' },
+  { name: 'Fees & Payouts', href: '/fees-payouts' },
+  { name: 'Verification & Trust', href: '/verification' },
 ];
 
 const creatorsItems = [
@@ -46,7 +46,6 @@ const creatorsItems = [
 
 const aboutItems = [
   { name: 'Our Mission', href: '/about/mission' },
-  { name: 'Trust & Safety', href: '/about/trust' },
   { name: 'Privacy & Discretion', href: '/about/privacy' },
   { name: 'Contact & Support', href: '/about/contact' },
 ];
@@ -151,10 +150,24 @@ function SearchButton() {
  * }}
  */
 export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
+  const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [shopPopoverOpen, setShopPopoverOpen] = useState(false);
+  const [howItWorksPopoverOpen, setHowItWorksPopoverOpen] = useState(false);
+  const [creatorsPopoverOpen, setCreatorsPopoverOpen] = useState(false);
+  const [aboutPopoverOpen, setAboutPopoverOpen] = useState(false);
+
+  // Close all popovers when route changes (handles browser navigation, programmatic navigation, etc.)
+  useEffect(() => {
+    setMobileMenuOpen(false);
+    setShopPopoverOpen(false);
+    setHowItWorksPopoverOpen(false);
+    setCreatorsPopoverOpen(false);
+    setAboutPopoverOpen(false);
+  }, [location.pathname]);
 
   return (
-    <header className="bg-white dark:bg-gray-900">
+    <header className="relative z-10 bg-white dark:bg-gray-900">
       <nav aria-label="Global" className="mx-auto flex max-w-7xl items-center justify-between p-6 lg:px-8">
         <div className="flex lg:flex-1">
           <Link to="/" className="-m-1.5 p-1.5">
@@ -176,7 +189,7 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
         </div>
         <PopoverGroup className="hidden lg:flex lg:gap-x-8">
           {/* Shop Dropdown */}
-          <Popover className="relative">
+          <Popover open={shopPopoverOpen} onClose={setShopPopoverOpen} className="relative">
             <PopoverButton className="flex items-center gap-x-1 text-sm/6 font-semibold text-gray-900 dark:text-white">
               Shop
               <ChevronDownIcon aria-hidden="true" className="size-4 flex-none text-gray-400 dark:text-gray-500" />
@@ -189,6 +202,7 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
                 <Link
                   key={item.name}
                   to={item.href}
+                  onClick={() => setShopPopoverOpen(false)}
                   className="block rounded-lg px-3 py-2 text-sm/6 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
                 >
                   {item.name}
@@ -198,7 +212,7 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
           </Popover>
 
           {/* How It Works Dropdown */}
-          <Popover className="relative">
+          <Popover open={howItWorksPopoverOpen} onClose={setHowItWorksPopoverOpen} className="relative">
             <PopoverButton className="flex items-center gap-x-1 text-sm/6 font-semibold text-gray-900 dark:text-white">
               How It Works
               <ChevronDownIcon aria-hidden="true" className="size-4 flex-none text-gray-400 dark:text-gray-500" />
@@ -211,6 +225,7 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
                 <Link
                   key={item.name}
                   to={item.href}
+                  onClick={() => setHowItWorksPopoverOpen(false)}
                   className="block rounded-lg px-3 py-2 text-sm/6 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
                 >
                   {item.name}
@@ -220,7 +235,7 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
           </Popover>
 
           {/* Creators Dropdown */}
-          <Popover className="relative">
+          <Popover open={creatorsPopoverOpen} onClose={setCreatorsPopoverOpen} className="relative">
             <PopoverButton className="flex items-center gap-x-1 text-sm/6 font-semibold text-gray-900 dark:text-white">
               Creators
               <ChevronDownIcon aria-hidden="true" className="size-4 flex-none text-gray-400 dark:text-gray-500" />
@@ -233,6 +248,7 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
                 <Link
                   key={item.name}
                   to={item.href}
+                  onClick={() => setCreatorsPopoverOpen(false)}
                   className="block rounded-lg px-3 py-2 text-sm/6 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
                 >
                   {item.name}
@@ -242,7 +258,7 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
           </Popover>
 
           {/* About Dropdown */}
-          <Popover className="relative">
+          <Popover open={aboutPopoverOpen} onClose={setAboutPopoverOpen} className="relative">
             <PopoverButton className="flex items-center gap-x-1 text-sm/6 font-semibold text-gray-900 dark:text-white">
               About
               <ChevronDownIcon aria-hidden="true" className="size-4 flex-none text-gray-400 dark:text-gray-500" />
@@ -255,6 +271,7 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
                 <Link
                   key={item.name}
                   to={item.href}
+                  onClick={() => setAboutPopoverOpen(false)}
                   className="block rounded-lg px-3 py-2 text-sm/6 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
                 >
                   {item.name}
@@ -397,9 +414,17 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
 }
 
 function AuthButtons({isLoggedIn, isCreator}) {
+  const location = useLocation();
+  const [accountPopoverOpen, setAccountPopoverOpen] = useState(false);
+
+  // Close account popover when route changes
+  useEffect(() => {
+    setAccountPopoverOpen(false);
+  }, [location.pathname]);
+
   if (isLoggedIn && isCreator) {
     return (
-      <Popover className="relative">
+      <Popover open={accountPopoverOpen} onClose={setAccountPopoverOpen} className="relative">
         <PopoverButton className="flex items-center gap-x-1 text-sm/6 font-semibold text-gray-900 dark:text-white">
           <UserIcon className="size-5" />
           Account
@@ -413,6 +438,7 @@ function AuthButtons({isLoggedIn, isCreator}) {
             <Link
               key={item.name}
               to={item.href}
+              onClick={() => setAccountPopoverOpen(false)}
               className="flex items-center gap-x-2 rounded-lg px-3 py-2 text-sm/6 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
             >
               {item.name === 'Dashboard' && <Cog6ToothIcon className="size-4" />}
@@ -422,6 +448,7 @@ function AuthButtons({isLoggedIn, isCreator}) {
           ))}
           <Link
             to="/creator/logout"
+            onClick={() => setAccountPopoverOpen(false)}
             className="flex items-center gap-x-2 rounded-lg px-3 py-2 text-sm/6 font-semibold text-red-600 hover:bg-gray-50 dark:text-red-400 dark:hover:bg-white/5"
           >
             <ArrowRightOnRectangleIcon className="size-4" />
@@ -434,7 +461,7 @@ function AuthButtons({isLoggedIn, isCreator}) {
 
   if (isLoggedIn) {
     return (
-      <Popover className="relative">
+      <Popover open={accountPopoverOpen} onClose={setAccountPopoverOpen} className="relative">
         <PopoverButton className="flex items-center gap-x-1 text-sm/6 font-semibold text-gray-900 dark:text-white">
           <UserIcon className="size-5" />
           Account
@@ -448,6 +475,7 @@ function AuthButtons({isLoggedIn, isCreator}) {
             <Link
               key={item.name}
               to={item.href}
+              onClick={() => setAccountPopoverOpen(false)}
               className="flex items-center gap-x-2 rounded-lg px-3 py-2 text-sm/6 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
             >
               {item.name}
@@ -455,6 +483,7 @@ function AuthButtons({isLoggedIn, isCreator}) {
           ))}
           <Link
             to="/account/logout"
+            onClick={() => setAccountPopoverOpen(false)}
             className="flex items-center gap-x-2 rounded-lg px-3 py-2 text-sm/6 font-semibold text-red-600 hover:bg-gray-50 dark:text-red-400 dark:hover:bg-white/5"
           >
             <ArrowRightOnRectangleIcon className="size-4" />

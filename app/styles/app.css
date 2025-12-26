@@ -9,6 +9,10 @@
 }
 
 /* Prevent white background on overscroll */
+html {
+  scroll-behavior: smooth;
+}
+
 html,
 body {
   background-color: #f9fafb; /* gray-50 */
@@ -188,8 +192,6 @@ button.reset:hover:not(:has(> *)) {
   display: flex;
   height: var(--header-height);
   padding: 0 1rem;
-  position: sticky;
-  top: 0;
   z-index: 1;
 }
 

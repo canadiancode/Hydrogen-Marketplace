@@ -25,7 +25,7 @@ export function WhatIsWornVault() {
         </p>
         <div className="mt-10 grid gap-4 sm:mt-16 lg:grid-cols-2">
           {/* FOR BUYERS Column */}
-          <div className="relative">
+          <div id="buyers" className="relative scroll-mt-24">
             <div className="absolute inset-px rounded-lg bg-white dark:bg-gray-800" />
             <div className="relative flex h-full flex-col overflow-hidden rounded-[calc(var(--radius-lg)+1px)]">
               <div className="px-8 p-8 sm:px-10 sm:pt-10">
@@ -70,7 +70,7 @@ export function WhatIsWornVault() {
           </div>
 
           {/* FOR CREATORS Column */}
-          <div className="relative">
+          <div id="creators" className="relative scroll-mt-24">
             <div className="absolute inset-px rounded-lg bg-white dark:bg-gray-800" />
             <div className="relative flex h-full flex-col overflow-hidden rounded-[calc(var(--radius-lg)+1px)]">
               <div className="px-8 p-8 sm:px-10 sm:pt-10">
