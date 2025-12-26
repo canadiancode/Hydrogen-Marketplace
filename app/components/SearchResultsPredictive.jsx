@@ -6,6 +6,8 @@ import {
   urlWithTrackingParams,
 } from '~/lib/search';
 import {decodeHTMLEntities} from '~/lib/html-entities';
+import {sanitizeHTML} from '~/lib/sanitize';
+import {sanitizeHandle} from '~/lib/validation';
 import {useAside} from './Aside';
 
 /**
@@ -227,7 +229,7 @@ function SearchResultsPredictiveProducts({term, products, closeSearch}) {
                   </p>
                   {product.creator && (
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      {decodeHTMLEntities(product.creator.displayName)}
+                      {sanitizeHTML(decodeHTMLEntities(product.creator.displayName))}
                     </p>
                   )}
                   {price && (
@@ -260,13 +262,24 @@ function SearchResultsPredictiveCreators({term, creators, closeSearch}) {
       </h5>
       <ul className="space-y-2">
         {creators.map((creator) => {
-          const creatorUrl = `/creators/${creator.handle}`;
-          // Decode HTML entities for display name and bio
+          // Sanitize handle to prevent open redirect and path traversal attacks
+          const sanitizedHandle = sanitizeHandle(creator.handle);
+          if (!sanitizedHandle) {
+            // Skip creators with invalid handles
+            return null;
+          }
+          const creatorUrl = `/creators/${sanitizedHandle}`;
+          // Decode HTML entities and sanitize for XSS protection
+          // React will escape text content, but we sanitize as defense in depth
           const displayName = creator.displayName 
-            ? decodeHTMLEntities(creator.displayName) 
-            : creator.handle;
-          const decodedBio = creator.bio ? decodeHTMLEntities(creator.bio) : null;
+            ? sanitizeHTML(decodeHTMLEntities(creator.displayName)) 
+            : sanitizedHandle;
+          const decodedBio = creator.bio ? sanitizeHTML(decodeHTMLEntities(creator.bio)) : null;
           const isVerified = creator.verificationStatus === 'verified';
+          
+          // Safely extract first character for placeholder - only allow alphanumeric
+          const firstChar = displayName.charAt(0).toUpperCase();
+          const safePlaceholderChar = /^[A-Z0-9]$/.test(firstChar) ? firstChar : '?';
 
           return (
             <li key={creator.id}>
@@ -283,7 +296,8 @@ function SearchResultsPredictiveCreators({term, creators, closeSearch}) {
                       className="w-full h-full object-cover"
                       onError={(e) => {
                         // Fallback to placeholder if image fails to load
-                        e.target.src = 'https://via.placeholder.com/64?text=' + encodeURIComponent(displayName.charAt(0).toUpperCase());
+                        // Use safePlaceholderChar to prevent XSS in external URL
+                        e.target.src = `https://via.placeholder.com/64?text=${encodeURIComponent(safePlaceholderChar)}`;
                       }}
                     />
                     {isVerified && (
@@ -298,7 +312,7 @@ function SearchResultsPredictiveCreators({term, creators, closeSearch}) {
                 {!creator.profileImageUrl && (
                   <div className="flex-shrink-0 w-16 h-16 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center border border-gray-200 dark:border-gray-600">
                     <span className="text-xl font-semibold text-indigo-600 dark:text-indigo-400">
-                      {displayName.charAt(0).toUpperCase()}
+                      {safePlaceholderChar}
                     </span>
                   </div>
                 )}
@@ -314,7 +328,7 @@ function SearchResultsPredictiveCreators({term, creators, closeSearch}) {
                     )}
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                    @{creator.handle}
+                    @{sanitizedHandle}
                   </p>
                   {decodedBio && (
                     <p className="text-xs text-gray-600 dark:text-gray-300 mt-1 line-clamp-1">

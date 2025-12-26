@@ -1,4 +1,4 @@
-import {useState, createContext, useContext, useEffect} from 'react';
+import {useState, createContext, useContext, useEffect, useCallback} from 'react';
 import {Dialog, DialogBackdrop, DialogPanel, DialogTitle} from '@headlessui/react';
 import {XMarkIcon} from '@heroicons/react/24/outline';
 import {Link} from 'react-router';
@@ -58,11 +58,11 @@ function SearchModalContent() {
   const {open, setOpen} = useSearchModal();
   const queriesDatalistId = useId();
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     startTransition(() => {
       setOpen(false);
     });
-  };
+  }, [setOpen]);
 
   // Handle Escape key to close modal
   useEffect(() => {
@@ -76,7 +76,7 @@ function SearchModalContent() {
 
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [open]);
+  }, [open, handleClose]);
 
   return (
     <Dialog open={open} onClose={handleClose} className="relative z-50">
@@ -220,7 +220,7 @@ function SearchModalContent() {
                               <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
                                 <Link
                                   onClick={handleClose}
-                                  to={`${SEARCH_ENDPOINT}?q=${term.current}`}
+                                  to={`${SEARCH_ENDPOINT}?q=${encodeURIComponent(term.current)}`}
                                   className="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 font-medium text-sm"
                                 >
                                   View all results for <q>{term.current}</q>
