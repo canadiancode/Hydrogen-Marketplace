@@ -173,16 +173,16 @@ export function Breadcrumbs({items, data}) {
   return (
     <nav aria-label="Breadcrumb" className="flex">
       <ol role="list" className="flex items-center space-x-4">
-        <li>
-          <div>
-            <Link
-              to="/"
-              className="text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-300"
-            >
-              <HomeIcon aria-hidden="true" className="size-5 shrink-0" />
-              <span className="sr-only">Home</span>
-            </Link>
-          </div>
+        <li className="flex items-center">
+          <Link
+            to="/"
+            className="flex items-center justify-center w-7 h-7 text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-300 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 rounded-sm cursor-pointer relative z-10"
+            aria-label="Go to home page"
+            prefetch="intent"
+          >
+            <HomeIcon aria-hidden="true" className="size-5 shrink-0 pointer-events-none" />
+            <span className="sr-only">Home</span>
+          </Link>
         </li>
         {breadcrumbs.slice(1).map((page) => (
           <li key={page.name}>
@@ -201,7 +201,7 @@ export function Breadcrumbs({items, data}) {
               ) : (
                 <Link
                   to={page.href}
-                  className="ml-4 text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  className="ml-4 text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 rounded-sm cursor-pointer"
                 >
                   {page.name}
                 </Link>

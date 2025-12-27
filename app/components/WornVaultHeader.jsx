@@ -1,4 +1,4 @@
-import {useState, Suspense, useEffect} from 'react';
+import {useState, Suspense, useEffect, useRef} from 'react';
 import {Link, Await, useLocation} from 'react-router';
 import {
   Dialog,
@@ -151,11 +151,21 @@ function SearchButton() {
  */
 export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
   const location = useLocation();
+  const headerRef = useRef(/** @type {HTMLElement | null} */ (null));
+  const shopPopoverRef = useRef(/** @type {HTMLElement | null} */ (null));
+  const shopPopoverPanelRef = useRef(/** @type {HTMLElement | null} */ (null));
+  const howItWorksPopoverRef = useRef(/** @type {HTMLElement | null} */ (null));
+  const howItWorksPopoverPanelRef = useRef(/** @type {HTMLElement | null} */ (null));
+  const creatorsPopoverRef = useRef(/** @type {HTMLElement | null} */ (null));
+  const creatorsPopoverPanelRef = useRef(/** @type {HTMLElement | null} */ (null));
+  const aboutPopoverRef = useRef(/** @type {HTMLElement | null} */ (null));
+  const aboutPopoverPanelRef = useRef(/** @type {HTMLElement | null} */ (null));
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [shopPopoverOpen, setShopPopoverOpen] = useState(false);
   const [howItWorksPopoverOpen, setHowItWorksPopoverOpen] = useState(false);
   const [creatorsPopoverOpen, setCreatorsPopoverOpen] = useState(false);
   const [aboutPopoverOpen, setAboutPopoverOpen] = useState(false);
+  const closeAccountPopoverRef = useRef(/** @type {(() => void) | null} */ (null));
 
   // Close all popovers when route changes (handles browser navigation, programmatic navigation, etc.)
   useEffect(() => {
@@ -166,8 +176,109 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
     setAboutPopoverOpen(false);
   }, [location.pathname]);
 
+  // Use refs to track popover states so the click handler always has access to current values
+  // This prevents stale closures and ensures listeners work across all pages
+  const shopPopoverOpenRef = useRef(shopPopoverOpen);
+  const howItWorksPopoverOpenRef = useRef(howItWorksPopoverOpen);
+  const creatorsPopoverOpenRef = useRef(creatorsPopoverOpen);
+  const aboutPopoverOpenRef = useRef(aboutPopoverOpen);
+
+  // Update refs whenever popover states change
+  useEffect(() => {
+    shopPopoverOpenRef.current = shopPopoverOpen;
+  }, [shopPopoverOpen]);
+
+  useEffect(() => {
+    howItWorksPopoverOpenRef.current = howItWorksPopoverOpen;
+  }, [howItWorksPopoverOpen]);
+
+  useEffect(() => {
+    creatorsPopoverOpenRef.current = creatorsPopoverOpen;
+  }, [creatorsPopoverOpen]);
+
+  useEffect(() => {
+    aboutPopoverOpenRef.current = aboutPopoverOpen;
+  }, [aboutPopoverOpen]);
+
+  // Close popovers when clicking outside any Popover
+  // When any click-outside is detected, close ALL popovers to ensure clean state
+  // Listeners are always attached (not dependent on popover state) to work across all pages
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      const target = /** @type {Node} */ (event.target);
+      
+      // Helper function to check if click is inside a Popover (wrapper or panel)
+      const isClickInsidePopover = (wrapperRef, panelRef) => {
+        // Check if refs exist before calling contains
+        if (!wrapperRef?.current && !panelRef?.current) {
+          return false;
+        }
+        const isInWrapper = wrapperRef?.current?.contains(target);
+        const isInPanel = panelRef?.current?.contains(target);
+        return isInWrapper || isInPanel;
+      };
+      
+      // Check if click is inside ANY popover
+      const isInsideAnyPopover = 
+        isClickInsidePopover(shopPopoverRef, shopPopoverPanelRef) ||
+        isClickInsidePopover(howItWorksPopoverRef, howItWorksPopoverPanelRef) ||
+        isClickInsidePopover(creatorsPopoverRef, creatorsPopoverPanelRef) ||
+        isClickInsidePopover(aboutPopoverRef, aboutPopoverPanelRef);
+      
+      // If click is outside all popovers and at least one is open, close all
+      const hasAnyPopoverOpen = 
+        shopPopoverOpenRef.current ||
+        howItWorksPopoverOpenRef.current ||
+        creatorsPopoverOpenRef.current ||
+        aboutPopoverOpenRef.current;
+      
+      if (!isInsideAnyPopover && hasAnyPopoverOpen) {
+        // Determine which popover was clicked outside of for logging
+        if (shopPopoverOpenRef.current) {
+          console.log('🛍️ Clicked outside Shop Popover');
+        }
+        if (howItWorksPopoverOpenRef.current) {
+          console.log('ℹ️ Clicked outside How It Works Popover');
+        }
+        if (creatorsPopoverOpenRef.current) {
+          console.log('👥 Clicked outside Creators Popover');
+        }
+        if (aboutPopoverOpenRef.current) {
+          console.log('📖 Clicked outside About Popover');
+        }
+        
+        // Close ALL popovers when clicking outside any of them
+        startTransition(() => {
+          setShopPopoverOpen(false);
+          setHowItWorksPopoverOpen(false);
+          setCreatorsPopoverOpen(false);
+          setAboutPopoverOpen(false);
+          // Also close account popover if it exists
+          if (closeAccountPopoverRef.current) {
+            closeAccountPopoverRef.current();
+          }
+        });
+      }
+    };
+
+    // Attach listeners to document and window for click-outside detection
+    // Use capture phase to catch events before they bubble
+    // Always attach listeners (not dependent on popover state) so they work on all pages
+    document.addEventListener('click', handleClickOutside, true);
+    document.addEventListener('mousedown', handleClickOutside, true);
+    window.addEventListener('click', handleClickOutside, true);
+    window.addEventListener('mousedown', handleClickOutside, true);
+
+    return () => {
+      document.removeEventListener('click', handleClickOutside, true);
+      document.removeEventListener('mousedown', handleClickOutside, true);
+      window.removeEventListener('click', handleClickOutside, true);
+      window.removeEventListener('mousedown', handleClickOutside, true);
+    };
+  }, []); // Empty dependency array - listeners are always attached
+
   return (
-    <header className="relative z-10 bg-white dark:bg-gray-900">
+    <header ref={headerRef} className="relative z-10 bg-white dark:bg-gray-900">
       <nav aria-label="Global" className="mx-auto flex max-w-7xl items-center justify-between p-6 lg:px-8">
         <div className="flex lg:flex-1">
           <Link to="/" className="-m-1.5 p-1.5">
@@ -189,105 +300,129 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
         </div>
         <PopoverGroup className="hidden lg:flex lg:gap-x-8">
           {/* Shop Dropdown */}
-          <Popover open={shopPopoverOpen} onClose={setShopPopoverOpen} className="relative">
-            <PopoverButton className="flex items-center gap-x-1 text-sm/6 font-semibold text-gray-900 dark:text-white">
-              Shop
-              <ChevronDownIcon aria-hidden="true" className="size-4 flex-none text-gray-400 dark:text-gray-500" />
-            </PopoverButton>
-            <PopoverPanel
-              transition
-              className="absolute left-1/2 z-10 mt-3 w-56 -translate-x-1/2 rounded-xl bg-white p-2 shadow-lg outline-1 outline-gray-900/5 transition data-closed:translate-y-1 data-closed:opacity-0 data-enter:duration-200 data-enter:ease-out data-leave:duration-150 data-leave:ease-in dark:bg-gray-800 dark:shadow-none dark:-outline-offset-1 dark:outline-white/10"
-            >
-              {shopItems.map((item) => (
-                <Link
-                  key={item.name}
-                  to={item.href}
-                  onClick={() => setShopPopoverOpen(false)}
-                  className="block rounded-lg px-3 py-2 text-sm/6 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
-                >
-                  {item.name}
-                </Link>
-              ))}
-            </PopoverPanel>
-          </Popover>
+          <div ref={shopPopoverRef} className="relative">
+            <Popover open={shopPopoverOpen} onClose={setShopPopoverOpen} className="relative">
+              <PopoverButton 
+                onClick={() => setShopPopoverOpen(!shopPopoverOpen)}
+                className="flex items-center gap-x-1 text-sm/6 font-semibold text-gray-900 dark:text-white"
+              >
+                Shop
+                <ChevronDownIcon aria-hidden="true" className="size-4 flex-none text-gray-400 dark:text-gray-500" />
+              </PopoverButton>
+              <PopoverPanel
+                ref={shopPopoverPanelRef}
+                transition
+                className="absolute left-1/2 z-10 mt-3 w-56 -translate-x-1/2 rounded-xl bg-white p-2 shadow-lg outline-1 outline-gray-900/5 transition data-closed:translate-y-1 data-closed:opacity-0 data-enter:duration-200 data-enter:ease-out data-leave:duration-150 data-leave:ease-in dark:bg-gray-800 dark:shadow-none dark:-outline-offset-1 dark:outline-white/10"
+              >
+                {shopItems.map((item) => (
+                  <Link
+                    key={item.name}
+                    to={item.href}
+                    onClick={() => setShopPopoverOpen(false)}
+                    className="block rounded-lg px-3 py-2 text-sm/6 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
+                  >
+                    {item.name}
+                  </Link>
+                ))}
+              </PopoverPanel>
+            </Popover>
+          </div>
 
           {/* How It Works Dropdown */}
-          <Popover open={howItWorksPopoverOpen} onClose={setHowItWorksPopoverOpen} className="relative">
-            <PopoverButton className="flex items-center gap-x-1 text-sm/6 font-semibold text-gray-900 dark:text-white">
-              How It Works
-              <ChevronDownIcon aria-hidden="true" className="size-4 flex-none text-gray-400 dark:text-gray-500" />
-            </PopoverButton>
-            <PopoverPanel
-              transition
-              className="absolute left-1/2 z-10 mt-3 w-56 -translate-x-1/2 rounded-xl bg-white p-2 shadow-lg outline-1 outline-gray-900/5 transition data-closed:translate-y-1 data-closed:opacity-0 data-enter:duration-200 data-enter:ease-out data-leave:duration-150 data-leave:ease-in dark:bg-gray-800 dark:shadow-none dark:-outline-offset-1 dark:outline-white/10"
-            >
-              {howItWorksItems.map((item) => (
-                <Link
-                  key={item.name}
-                  to={item.href}
-                  onClick={() => setHowItWorksPopoverOpen(false)}
-                  className="block rounded-lg px-3 py-2 text-sm/6 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
-                >
-                  {item.name}
-                </Link>
-              ))}
-            </PopoverPanel>
-          </Popover>
+          <div ref={howItWorksPopoverRef} className="relative">
+            <Popover open={howItWorksPopoverOpen} onClose={setHowItWorksPopoverOpen} className="relative">
+              <PopoverButton 
+                onClick={() => setHowItWorksPopoverOpen(!howItWorksPopoverOpen)}
+                className="flex items-center gap-x-1 text-sm/6 font-semibold text-gray-900 dark:text-white"
+              >
+                How It Works
+                <ChevronDownIcon aria-hidden="true" className="size-4 flex-none text-gray-400 dark:text-gray-500" />
+              </PopoverButton>
+              <PopoverPanel
+                ref={howItWorksPopoverPanelRef}
+                transition
+                className="absolute left-1/2 z-10 mt-3 w-56 -translate-x-1/2 rounded-xl bg-white p-2 shadow-lg outline-1 outline-gray-900/5 transition data-closed:translate-y-1 data-closed:opacity-0 data-enter:duration-200 data-enter:ease-out data-leave:duration-150 data-leave:ease-in dark:bg-gray-800 dark:shadow-none dark:-outline-offset-1 dark:outline-white/10"
+              >
+                {howItWorksItems.map((item) => (
+                  <Link
+                    key={item.name}
+                    to={item.href}
+                    onClick={() => setHowItWorksPopoverOpen(false)}
+                    className="block rounded-lg px-3 py-2 text-sm/6 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
+                  >
+                    {item.name}
+                  </Link>
+                ))}
+              </PopoverPanel>
+            </Popover>
+          </div>
 
           {/* Creators Dropdown */}
-          <Popover open={creatorsPopoverOpen} onClose={setCreatorsPopoverOpen} className="relative">
-            <PopoverButton className="flex items-center gap-x-1 text-sm/6 font-semibold text-gray-900 dark:text-white">
-              Creators
-              <ChevronDownIcon aria-hidden="true" className="size-4 flex-none text-gray-400 dark:text-gray-500" />
-            </PopoverButton>
-            <PopoverPanel
-              transition
-              className="absolute left-1/2 z-10 mt-3 w-56 -translate-x-1/2 rounded-xl bg-white p-2 shadow-lg outline-1 outline-gray-900/5 transition data-closed:translate-y-1 data-closed:opacity-0 data-enter:duration-200 data-enter:ease-out data-leave:duration-150 data-leave:ease-in dark:bg-gray-800 dark:shadow-none dark:-outline-offset-1 dark:outline-white/10"
-            >
-              {creatorsItems.map((item) => (
-                <Link
-                  key={item.name}
-                  to={item.href}
-                  onClick={() => setCreatorsPopoverOpen(false)}
-                  className="block rounded-lg px-3 py-2 text-sm/6 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
-                >
-                  {item.name}
-                </Link>
-              ))}
-            </PopoverPanel>
-          </Popover>
+          <div ref={creatorsPopoverRef} className="relative">
+            <Popover open={creatorsPopoverOpen} onClose={setCreatorsPopoverOpen} className="relative">
+              <PopoverButton 
+                onClick={() => setCreatorsPopoverOpen(!creatorsPopoverOpen)}
+                className="flex items-center gap-x-1 text-sm/6 font-semibold text-gray-900 dark:text-white"
+              >
+                Creators
+                <ChevronDownIcon aria-hidden="true" className="size-4 flex-none text-gray-400 dark:text-gray-500" />
+              </PopoverButton>
+              <PopoverPanel
+                ref={creatorsPopoverPanelRef}
+                transition
+                className="absolute left-1/2 z-10 mt-3 w-56 -translate-x-1/2 rounded-xl bg-white p-2 shadow-lg outline-1 outline-gray-900/5 transition data-closed:translate-y-1 data-closed:opacity-0 data-enter:duration-200 data-enter:ease-out data-leave:duration-150 data-leave:ease-in dark:bg-gray-800 dark:shadow-none dark:-outline-offset-1 dark:outline-white/10"
+              >
+                {creatorsItems.map((item) => (
+                  <Link
+                    key={item.name}
+                    to={item.href}
+                    onClick={() => setCreatorsPopoverOpen(false)}
+                    className="block rounded-lg px-3 py-2 text-sm/6 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
+                  >
+                    {item.name}
+                  </Link>
+                ))}
+              </PopoverPanel>
+            </Popover>
+          </div>
 
           {/* About Dropdown */}
-          <Popover open={aboutPopoverOpen} onClose={setAboutPopoverOpen} className="relative">
-            <PopoverButton className="flex items-center gap-x-1 text-sm/6 font-semibold text-gray-900 dark:text-white">
-              About
-              <ChevronDownIcon aria-hidden="true" className="size-4 flex-none text-gray-400 dark:text-gray-500" />
-            </PopoverButton>
-            <PopoverPanel
-              transition
-              className="absolute left-1/2 z-10 mt-3 w-56 -translate-x-1/2 rounded-xl bg-white p-2 shadow-lg outline-1 outline-gray-900/5 transition data-closed:translate-y-1 data-closed:opacity-0 data-enter:duration-200 data-enter:ease-out data-leave:duration-150 data-leave:ease-in dark:bg-gray-800 dark:shadow-none dark:-outline-offset-1 dark:outline-white/10"
-            >
-              {aboutItems.map((item) => (
-                <Link
-                  key={item.name}
-                  to={item.href}
-                  onClick={() => setAboutPopoverOpen(false)}
-                  className="block rounded-lg px-3 py-2 text-sm/6 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
-                >
-                  {item.name}
-                </Link>
-              ))}
-            </PopoverPanel>
-          </Popover>
+          <div ref={aboutPopoverRef} className="relative">
+            <Popover open={aboutPopoverOpen} onClose={setAboutPopoverOpen} className="relative">
+              <PopoverButton 
+                onClick={() => setAboutPopoverOpen(!aboutPopoverOpen)}
+                className="flex items-center gap-x-1 text-sm/6 font-semibold text-gray-900 dark:text-white"
+              >
+                About
+                <ChevronDownIcon aria-hidden="true" className="size-4 flex-none text-gray-400 dark:text-gray-500" />
+              </PopoverButton>
+              <PopoverPanel
+                ref={aboutPopoverPanelRef}
+                transition
+                className="absolute left-1/2 z-10 mt-3 w-56 -translate-x-1/2 rounded-xl bg-white p-2 shadow-lg outline-1 outline-gray-900/5 transition data-closed:translate-y-1 data-closed:opacity-0 data-enter:duration-200 data-enter:ease-out data-leave:duration-150 data-leave:ease-in dark:bg-gray-800 dark:shadow-none dark:-outline-offset-1 dark:outline-white/10"
+              >
+                {aboutItems.map((item) => (
+                  <Link
+                    key={item.name}
+                    to={item.href}
+                    onClick={() => setAboutPopoverOpen(false)}
+                    className="block rounded-lg px-3 py-2 text-sm/6 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
+                  >
+                    {item.name}
+                  </Link>
+                ))}
+              </PopoverPanel>
+            </Popover>
+          </div>
         </PopoverGroup>
         <div className="hidden lg:flex lg:flex-1 lg:items-center lg:justify-end lg:gap-x-4">
           {cart ? <CartBadgeWrapper cartPromise={cart} /> : <CartBadge cart={null} />}
           <SearchButton />
-          <Suspense fallback={<AuthButtons isLoggedIn={false} isCreator={false} />}>
-            <Await resolve={isLoggedIn} errorElement={<AuthButtons isLoggedIn={false} isCreator={false} />}>
+          <Suspense fallback={<AuthButtons isLoggedIn={false} isCreator={false} onCloseAccountPopover={closeAccountPopoverRef} />}>
+            <Await resolve={isLoggedIn} errorElement={<AuthButtons isLoggedIn={false} isCreator={false} onCloseAccountPopover={closeAccountPopoverRef} />}>
               {(loggedIn) => (
-                <Await resolve={isCreator} errorElement={<AuthButtons isLoggedIn={loggedIn} isCreator={false} />}>
-                  {(creator) => <AuthButtons isLoggedIn={loggedIn} isCreator={creator} />}
+                <Await resolve={isCreator} errorElement={<AuthButtons isLoggedIn={loggedIn} isCreator={false} onCloseAccountPopover={closeAccountPopoverRef} />}>
+                  {(creator) => <AuthButtons isLoggedIn={loggedIn} isCreator={creator} onCloseAccountPopover={closeAccountPopoverRef} />}
                 </Await>
               )}
             </Await>
@@ -413,27 +548,79 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
   );
 }
 
-function AuthButtons({isLoggedIn, isCreator}) {
+function AuthButtons({isLoggedIn, isCreator, onCloseAccountPopover}) {
   const location = useLocation();
   const [accountPopoverOpen, setAccountPopoverOpen] = useState(false);
+  const accountPopoverRef = useRef(/** @type {HTMLElement | null} */ (null));
+  const accountPopoverPanelRef = useRef(/** @type {HTMLElement | null} */ (null));
+  const accountPopoverOpenRef = useRef(accountPopoverOpen);
+
+  // Update ref whenever popover state changes
+  useEffect(() => {
+    accountPopoverOpenRef.current = accountPopoverOpen;
+  }, [accountPopoverOpen]);
+
+  // Expose close function to parent via callback
+  useEffect(() => {
+    if (onCloseAccountPopover) {
+      onCloseAccountPopover.current = () => {
+        startTransition(() => {
+          setAccountPopoverOpen(false);
+        });
+      };
+    }
+  }, [onCloseAccountPopover]);
 
   // Close account popover when route changes
   useEffect(() => {
     setAccountPopoverOpen(false);
   }, [location.pathname]);
 
+  // Close account popover when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      const target = /** @type {Node} */ (event.target);
+      
+      if (accountPopoverOpenRef.current) {
+        const isInWrapper = accountPopoverRef?.current?.contains(target);
+        const isInPanel = accountPopoverPanelRef?.current?.contains(target);
+        
+        if (!isInWrapper && !isInPanel) {
+          console.log('👤 Clicked outside Account Popover');
+          startTransition(() => {
+            setAccountPopoverOpen(false);
+          });
+        }
+      }
+    };
+
+    document.addEventListener('click', handleClickOutside, true);
+    document.addEventListener('mousedown', handleClickOutside, true);
+    window.addEventListener('click', handleClickOutside, true);
+    window.addEventListener('mousedown', handleClickOutside, true);
+
+    return () => {
+      document.removeEventListener('click', handleClickOutside, true);
+      document.removeEventListener('mousedown', handleClickOutside, true);
+      window.removeEventListener('click', handleClickOutside, true);
+      window.removeEventListener('mousedown', handleClickOutside, true);
+    };
+  }, []);
+
   if (isLoggedIn && isCreator) {
     return (
-      <Popover open={accountPopoverOpen} onClose={setAccountPopoverOpen} className="relative">
-        <PopoverButton className="flex items-center gap-x-1 text-sm/6 font-semibold text-gray-900 dark:text-white">
-          <UserIcon className="size-5" />
-          Account
-          <ChevronDownIcon aria-hidden="true" className="size-4 flex-none text-gray-400 dark:text-gray-500" />
-        </PopoverButton>
-        <PopoverPanel
-          transition
-          className="absolute right-0 z-10 mt-3 w-56 rounded-xl bg-white p-2 shadow-lg outline-1 outline-gray-900/5 transition data-closed:translate-y-1 data-closed:opacity-0 data-enter:duration-200 data-enter:ease-out data-leave:duration-150 data-leave:ease-in dark:bg-gray-800 dark:shadow-none dark:-outline-offset-1 dark:outline-white/10"
-        >
+      <div ref={accountPopoverRef} className="relative">
+        <Popover open={accountPopoverOpen} onClose={setAccountPopoverOpen} className="relative">
+          <PopoverButton className="flex items-center gap-x-1 text-sm/6 font-semibold text-gray-900 dark:text-white">
+            <UserIcon className="size-5" />
+            Account
+            <ChevronDownIcon aria-hidden="true" className="size-4 flex-none text-gray-400 dark:text-gray-500" />
+          </PopoverButton>
+          <PopoverPanel
+            ref={accountPopoverPanelRef}
+            transition
+            className="absolute right-0 z-10 mt-3 w-56 rounded-xl bg-white p-2 shadow-lg outline-1 outline-gray-900/5 transition data-closed:translate-y-1 data-closed:opacity-0 data-enter:duration-200 data-enter:ease-out data-leave:duration-150 data-leave:ease-in dark:bg-gray-800 dark:shadow-none dark:-outline-offset-1 dark:outline-white/10"
+          >
           {creatorAccountItems.map((item) => (
             <Link
               key={item.name}
@@ -456,21 +643,24 @@ function AuthButtons({isLoggedIn, isCreator}) {
           </Link>
         </PopoverPanel>
       </Popover>
+      </div>
     );
   }
 
   if (isLoggedIn) {
     return (
-      <Popover open={accountPopoverOpen} onClose={setAccountPopoverOpen} className="relative">
-        <PopoverButton className="flex items-center gap-x-1 text-sm/6 font-semibold text-gray-900 dark:text-white">
-          <UserIcon className="size-5" />
-          Account
-          <ChevronDownIcon aria-hidden="true" className="size-4 flex-none text-gray-400 dark:text-gray-500" />
-        </PopoverButton>
-        <PopoverPanel
-          transition
-          className="absolute right-0 z-10 mt-3 w-56 rounded-xl bg-white p-2 shadow-lg outline-1 outline-gray-900/5 transition data-closed:translate-y-1 data-closed:opacity-0 data-enter:duration-200 data-enter:ease-out data-leave:duration-150 data-leave:ease-in dark:bg-gray-800 dark:shadow-none dark:-outline-offset-1 dark:outline-white/10"
-        >
+      <div ref={accountPopoverRef} className="relative">
+        <Popover open={accountPopoverOpen} onClose={setAccountPopoverOpen} className="relative">
+          <PopoverButton className="flex items-center gap-x-1 text-sm/6 font-semibold text-gray-900 dark:text-white">
+            <UserIcon className="size-5" />
+            Account
+            <ChevronDownIcon aria-hidden="true" className="size-4 flex-none text-gray-400 dark:text-gray-500" />
+          </PopoverButton>
+          <PopoverPanel
+            ref={accountPopoverPanelRef}
+            transition
+            className="absolute right-0 z-10 mt-3 w-56 rounded-xl bg-white p-2 shadow-lg outline-1 outline-gray-900/5 transition data-closed:translate-y-1 data-closed:opacity-0 data-enter:duration-200 data-enter:ease-out data-leave:duration-150 data-leave:ease-in dark:bg-gray-800 dark:shadow-none dark:-outline-offset-1 dark:outline-white/10"
+          >
           {buyerAccountItems.map((item) => (
             <Link
               key={item.name}
@@ -491,6 +681,7 @@ function AuthButtons({isLoggedIn, isCreator}) {
           </Link>
         </PopoverPanel>
       </Popover>
+      </div>
     );
   }
 
