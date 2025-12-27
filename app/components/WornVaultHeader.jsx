@@ -167,14 +167,14 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
   const [aboutPopoverOpen, setAboutPopoverOpen] = useState(false);
   const closeAccountPopoverRef = useRef(/** @type {(() => void) | null} */ (null));
 
-  // Close all popovers when route changes (handles browser navigation, programmatic navigation, hash changes, etc.)
+  // Close all popovers when route changes (handles browser navigation, programmatic navigation, etc.)
   useEffect(() => {
     setMobileMenuOpen(false);
     setShopPopoverOpen(false);
     setHowItWorksPopoverOpen(false);
     setCreatorsPopoverOpen(false);
     setAboutPopoverOpen(false);
-  }, [location.pathname, location.hash]);
+  }, [location.pathname]);
 
   // Use refs to track popover states so the click handler always has access to current values
   // This prevents stale closures and ensures listeners work across all pages
@@ -347,11 +347,7 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
                   <Link
                     key={item.name}
                     to={item.href}
-                    onClick={() => {
-                      startTransition(() => {
-                        setHowItWorksPopoverOpen(false);
-                      });
-                    }}
+                    onClick={() => setHowItWorksPopoverOpen(false)}
                     className="block rounded-lg px-3 py-2 text-sm/6 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
                   >
                     {item.name}
@@ -575,10 +571,10 @@ function AuthButtons({isLoggedIn, isCreator, onCloseAccountPopover}) {
     }
   }, [onCloseAccountPopover]);
 
-  // Close account popover when route changes (including hash navigation)
+  // Close account popover when route changes
   useEffect(() => {
     setAccountPopoverOpen(false);
-  }, [location.pathname, location.hash]);
+  }, [location.pathname]);
 
   // Close account popover when clicking outside
   useEffect(() => {
