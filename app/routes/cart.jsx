@@ -1,6 +1,8 @@
 import {useLoaderData, data} from 'react-router';
-import {CartForm} from '@shopify/hydrogen';
-import {CartMain} from '~/components/CartMain';
+import {CartForm, useOptimisticCart} from '@shopify/hydrogen';
+import {CartPageLineItem} from '~/components/CartPageLineItem';
+import {CartPageSummary} from '~/components/CartPageSummary';
+import {CartPageEmpty} from '~/components/CartPageEmpty';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
 import {getClientIP} from '~/lib/auth-helpers';
 
@@ -8,7 +10,7 @@ import {getClientIP} from '~/lib/auth-helpers';
  * @type {Route.MetaFunction}
  */
 export const meta = () => {
-  return [{title: `Hydrogen | Cart`}];
+  return [{title: `Shopping Cart | WornVault`}];
 };
 
 /**
@@ -162,12 +164,42 @@ export async function loader({context}) {
 
 export default function Cart() {
   /** @type {LoaderReturnData} */
-  const cart = useLoaderData();
+  const originalCart = useLoaderData();
+  
+  // Apply optimistic updates for immediate UI feedback
+  const cart = useOptimisticCart(originalCart);
+  
+  const cartLines = cart?.lines?.nodes || [];
+  const hasItems = cartLines.length > 0;
 
   return (
-    <div className="cart">
-      <h1>Cart</h1>
-      <CartMain layout="page" cart={cart} />
+    <div className="bg-white dark:bg-gray-900">
+      <div className="mx-auto max-w-2xl px-4 pt-16 pb-24 sm:px-6 lg:max-w-7xl lg:px-8">
+        <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-4xl">
+          Shopping Cart
+        </h1>
+        
+        {!hasItems ? (
+          <CartPageEmpty />
+        ) : (
+          <form className="mt-12 lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-12 xl:gap-x-16">
+            <section aria-labelledby="cart-heading" className="lg:col-span-7">
+              <h2 id="cart-heading" className="sr-only">
+                Items in your shopping cart
+              </h2>
+
+              <ul role="list" className="divide-y divide-gray-200 dark:divide-gray-700 border-t border-b border-gray-200 dark:border-gray-700">
+                {cartLines.map((line, index) => (
+                  <CartPageLineItem key={line.id} line={line} index={index} />
+                ))}
+              </ul>
+            </section>
+
+            {/* Order summary */}
+            <CartPageSummary cart={cart} />
+          </form>
+        )}
+      </div>
     </div>
   );
 }

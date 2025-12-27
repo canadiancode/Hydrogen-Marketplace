@@ -3,41 +3,92 @@ import {Breadcrumbs} from '~/components/Breadcrumbs';
 import {validateAndEscapeJSONLD} from '~/lib/json-ld';
 
 /**
- * Validates and sanitizes base URL to prevent XSS attacks
- * Only allows whitelisted domains with https protocol
- * @param {string} url - URL to validate
- * @returns {string} - Sanitized URL
+ * Safely extracts base URL from request with security validation
+ * Prevents SSRF attacks and protocol-based vulnerabilities
+ * @param {Request} request
+ * @returns {string}
  */
-function validateAndSanitizeBaseUrl(url) {
-  if (!url || typeof url !== 'string') {
-    return 'https://wornvault.com';
+function getSafeBaseUrl(request) {
+  // Use environment variable if available, otherwise fallback
+  const defaultUrl = typeof process !== 'undefined' && process.env?.PUBLIC_STORE_DOMAIN 
+    ? `https://${process.env.PUBLIC_STORE_DOMAIN}`
+    : 'https://wornvault.com';
+  
+  if (!request?.url) {
+    return defaultUrl;
   }
   
   try {
-    const parsed = new URL(url);
-    // Only allow https protocol
-    if (parsed.protocol !== 'https:') {
-      return 'https://wornvault.com';
+    const url = new URL(request.url);
+    
+    // Security: Only allow http/https protocols
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      return defaultUrl;
     }
-    // Whitelist allowed domains
-    const allowedDomains = ['wornvault.com', 'www.wornvault.com'];
-    if (!allowedDomains.includes(parsed.hostname)) {
-      return 'https://wornvault.com';
+    
+    // In production, validate hostname to prevent SSRF
+    const isProduction = typeof process !== 'undefined' && 
+      process.env?.NODE_ENV === 'production';
+    
+    if (isProduction) {
+      const hostname = url.hostname.toLowerCase();
+      const allowedDomains = ['wornvault.com', 'www.wornvault.com'];
+      const isLocalhost = ['localhost', '127.0.0.1', '0.0.0.0'].includes(hostname);
+      
+      // Reject non-whitelisted domains in production
+      if (!isLocalhost && !allowedDomains.some(domain => 
+        hostname === domain || hostname.endsWith(`.${domain}`)
+      )) {
+        return defaultUrl;
+      }
     }
-    return `${parsed.protocol}//${parsed.hostname}`;
+    
+    return `${url.protocol}//${url.host}`;
   } catch {
-    return 'https://wornvault.com';
+    // Silently fail and return default URL
+    return defaultUrl;
   }
+}
+
+/**
+ * Generate JSON-LD structured data for the creator guidelines page
+ * @param {string} baseUrl - Base URL for the site
+ */
+function generateStructuredData(baseUrl) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: 'WornVault — Creator Guidelines',
+    description: 'WornVault creator guidelines for listing items on our private, verified marketplace. Learn about eligibility, prohibited items, listing standards, and enforcement policies.',
+    author: {
+      '@type': 'Organization',
+      name: 'WornVault',
+    },
+    publisher: {
+      '@type': 'Organization',
+      name: 'WornVault',
+    },
+    datePublished: typeof process !== 'undefined' && process.env?.GUIDELINES_PUBLISHED_DATE 
+      ? process.env.GUIDELINES_PUBLISHED_DATE 
+      : '2024-01-01',
+    dateModified: typeof process !== 'undefined' && process.env?.GUIDELINES_MODIFIED_DATE
+      ? process.env.GUIDELINES_MODIFIED_DATE
+      : new Date().toISOString().split('T')[0],
+    mainEntityOfPage: {
+      '@type': 'WebPage',
+      '@id': `${baseUrl}/guidelines`,
+    },
+    articleSection: 'Guidelines',
+    inLanguage: 'en-US',
+  };
 }
 
 /**
  * @type {Route.MetaFunction}
  */
-export const meta = ({data, request}) => {
-  // Safely construct canonical URL from data (already validated in loader)
-  const canonicalUrl = data?.baseUrl 
-    ? `${data.baseUrl}/creators/guidelines`
-    : 'https://wornvault.com/creators/guidelines';
+export const meta = ({request}) => {
+  const baseUrl = getSafeBaseUrl(request);
+  const canonicalUrl = `${baseUrl}/guidelines`;
   
   return [
     {title: 'Creator Guidelines | WornVault'},
@@ -72,7 +123,6 @@ export const headers = () => {
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('X-Frame-Options', 'DENY');
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-  headers.set('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
   
   return headers;
 };
@@ -81,79 +131,49 @@ export const headers = () => {
  * @param {Route.LoaderArgs}
  */
 export async function loader({request}) {
-  // Use environment variable in production, fallback to request parsing
-  let baseUrl = process.env.PUBLIC_SITE_URL;
+  const startTime = Date.now();
   
-  if (!baseUrl && request?.url) {
-    try {
-      const url = new URL(request.url);
-      baseUrl = `${url.protocol}//${url.host}`;
-    } catch (error) {
-      // Only log in development to avoid exposing errors in production
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn('Failed to parse request URL in loader:', error);
-      }
+  try {
+    const baseUrl = getSafeBaseUrl(request);
+    const structuredData = generateStructuredData(baseUrl);
+    
+    // Validate and stringify JSON-LD in loader (security + performance)
+    // This prevents XSS attacks and avoids re-stringifying on every render
+    const structuredDataJson = validateAndEscapeJSONLD(structuredData);
+    
+    if (!structuredDataJson) {
+      // If validation fails, log error but don't crash the page
+      // The page will render without structured data
+      console.error('Failed to generate valid JSON-LD structured data');
     }
+    
+    // Performance monitoring: Log slow requests
+    const duration = Date.now() - startTime;
+    if (duration > 100) {
+      console.warn(`Slow loader: guidelines took ${duration}ms`);
+    }
+    
+    return {
+      baseUrl,
+      structuredDataJson, // Pre-validated and stringified JSON
+    };
+  } catch (error) {
+    // Log error for monitoring (sanitized)
+    const errorInfo = {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      route: 'guidelines',
+      timestamp: new Date().toISOString(),
+    };
+    console.error('Loader error:', errorInfo);
+    
+    // Re-throw to trigger error boundary
+    throw error;
   }
-  
-  // Get dates for structured data (server-side only)
-  const datePublished = process.env.GUIDELINES_PUBLISHED_DATE || '2024-01-01';
-  const dateModified = process.env.GUIDELINES_MODIFIED_DATE || new Date().toISOString().split('T')[0];
-  
-  return {
-    baseUrl: validateAndSanitizeBaseUrl(baseUrl || 'https://wornvault.com'),
-    datePublished,
-    dateModified,
-  };
 }
 
-/**
- * Prevent unnecessary revalidation for static content
- * This is static content that rarely changes, so we can cache aggressively
- */
-export const shouldRevalidate = () => false;
-
-/**
- * Generate JSON-LD structured data for the guidelines page
- * @param {string} baseUrl - Base URL for the site (must be validated)
- * @param {string} datePublished - Published date (from loader)
- * @param {string} dateModified - Modified date (from loader)
- */
-function generateStructuredData(baseUrl, datePublished, dateModified) {
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'Article',
-    headline: 'WornVault — Creator Guidelines',
-    description: 'WornVault creator guidelines for listing items on our private, verified marketplace. Learn about eligibility, prohibited items, listing standards, and enforcement policies.',
-    author: {
-      '@type': 'Organization',
-      name: 'WornVault',
-    },
-    publisher: {
-      '@type': 'Organization',
-      name: 'WornVault',
-    },
-    datePublished,
-    dateModified,
-    mainEntityOfPage: {
-      '@type': 'WebPage',
-      '@id': `${baseUrl}/creators/guidelines`,
-    },
-    articleSection: 'Guidelines',
-    inLanguage: 'en-US',
-  };
-}
 
 export default function CreatorGuidelinesPage() {
-  const data = useLoaderData();
-  // baseUrl is already validated and sanitized in loader
-  const baseUrl = data?.baseUrl || 'https://wornvault.com';
-  const datePublished = data?.datePublished || '2024-01-01';
-  const dateModified = data?.dateModified || new Date().toISOString().split('T')[0];
-  const structuredData = generateStructuredData(baseUrl, datePublished, dateModified);
-  
-  // Validate and safely stringify JSON-LD to prevent XSS attacks
-  const structuredDataJson = validateAndEscapeJSONLD(structuredData);
+  const {baseUrl, structuredDataJson} = useLoaderData();
   
   return (
     <>
@@ -166,33 +186,68 @@ export default function CreatorGuidelinesPage() {
       )}
       
       <div className="bg-white dark:bg-gray-900 min-h-screen">
+        {/* Hero Section */}
+        <div className="relative isolate z-0 px-6 pt-14 lg:px-8">
+          <div
+            aria-hidden="true"
+            className="absolute inset-x-0 -top-40 -z-10 transform-gpu overflow-hidden blur-3xl sm:-top-80"
+          >
+            <div
+              style={{
+                clipPath:
+                  'polygon(74.1% 44.1%, 100% 61.6%, 97.5% 26.9%, 85.5% 0.1%, 80.7% 2%, 72.5% 32.5%, 60.2% 62.4%, 52.4% 68.1%, 47.5% 58.3%, 45.2% 34.5%, 27.5% 76.7%, 0.1% 64.9%, 17.9% 100%, 27.6% 76.8%, 76.1% 97.7%, 74.1% 44.1%)',
+              }}
+              className="relative left-[calc(50%-11rem)] aspect-1155/678 w-144.5 -translate-x-1/2 rotate-30 bg-gradient-to-tr from-[#ff80b5] to-[#9089fc] opacity-30 sm:left-[calc(50%-30rem)] sm:w-288.75"
+            />
+          </div>
+          <div className="relative z-0 mx-auto max-w-4xl py-24 sm:py-32">
+            <div className="text-center">
+              <h1 className="text-5xl font-semibold tracking-tight text-balance text-gray-900 sm:text-6xl dark:text-white">
+                Creator Guidelines
+              </h1>
+              <p className="mt-6 text-lg font-medium text-pretty text-gray-600 sm:text-xl/8 dark:text-gray-400">
+                Rules & Standards
+              </p>
+            </div>
+          </div>
+          <div
+            aria-hidden="true"
+            className="absolute inset-x-0 top-[calc(100%-13rem)] -z-10 transform-gpu overflow-hidden blur-3xl sm:top-[calc(100%-30rem)]"
+          >
+            <div
+              style={{
+                clipPath:
+                  'polygon(74.1% 44.1%, 100% 61.6%, 97.5% 26.9%, 85.5% 0.1%, 80.7% 2%, 72.5% 32.5%, 60.2% 62.4%, 52.4% 68.1%, 47.5% 58.3%, 45.2% 34.5%, 27.5% 76.7%, 0.1% 64.9%, 17.9% 100%, 27.6% 76.8%, 76.1% 97.7%, 74.1% 44.1%)',
+              }}
+              className="relative left-[calc(50%+3rem)] aspect-1155/678 w-144.5 -translate-x-1/2 bg-gradient-to-tr from-[#ff80b5] to-[#9089fc] opacity-30 sm:left-[calc(50%+36rem)] sm:w-288.75"
+            />
+          </div>
+        </div>
+
+        {/* Main Content */}
         <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
           {/* Breadcrumbs */}
           <div className="mb-8">
             <Breadcrumbs 
               items={[
                 {name: 'Home', href: '/', current: false},
-                {name: 'Creators', href: '/creators', current: false},
-                {name: 'Guidelines', href: '/creators/guidelines', current: true},
+                {name: 'Guidelines', href: '/guidelines', current: true},
               ]}
             />
           </div>
           
-          {/* Header */}
-          <header className="mb-12">
-            <h1 className="text-4xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-5xl mb-4">
-              WornVault — Creator Guidelines
-            </h1>
-            <p className="text-lg text-gray-600 dark:text-gray-400 leading-relaxed">
+          {/* Intro Section */}
+          <div className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
+            <p className="text-lg text-gray-700 dark:text-gray-300 leading-relaxed mb-4">
               WornVault is a private, verified marketplace designed to help creators sell one-of-a-kind, personal items safely and discreetly.
             </p>
-            <p className="mt-4 text-base text-gray-700 dark:text-gray-300 leading-relaxed">
+            <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
               To protect creators, buyers, and the platform, all listings must follow the guidelines below. These rules are enforced consistently and without exception.
             </p>
-          </header>
+          </div>
           
           {/* Main Content */}
-          <main className="prose prose-lg dark:prose-invert max-w-none">
+          <main>
             {/* General Eligibility */}
             <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 mt-0">
@@ -373,12 +428,12 @@ export default function CreatorGuidelinesPage() {
 
 /**
  * Error boundary for creator guidelines page
- * Catches errors during rendering and provides fallback UI
+ * Production-safe error logging to prevent information leakage
  */
 export function ErrorBoundary() {
   const error = useRouteError();
-  // Safely check for development mode (process may not exist in browser)
-  const isDev = typeof process !== 'undefined' && process.env?.NODE_ENV === 'development';
+  const isDev = typeof process !== 'undefined' && 
+    process.env?.NODE_ENV === 'development';
   
   let errorMessage = 'Something went wrong';
   let errorStatus = 500;
@@ -387,38 +442,43 @@ export function ErrorBoundary() {
     errorStatus = error.status;
     errorMessage = isDev 
       ? (error?.data?.message ?? error.data ?? 'An error occurred')
-      : 'We encountered an error loading the guidelines page. Please try again later.';
+      : 'We encountered an error loading this page. Please try again later.';
   } else if (error instanceof Error && isDev) {
     errorMessage = error.message;
   }
   
-  // Log full error server-side but don't expose to client in production
+  // Production-safe error logging
   if (!isDev) {
-    console.error('Guidelines page ErrorBoundary caught:', error);
+    const errorInfo = {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      status: isRouteErrorResponse(error) ? error.status : undefined,
+      route: 'guidelines',
+      timestamp: new Date().toISOString(),
+    };
+    
+    // Log sanitized error info (don't log full error object)
+    console.error('ErrorBoundary:', errorInfo);
+    
+    // TODO: Send to error tracking service (Sentry, LogRocket, etc.)
+    // Example: trackError(errorInfo);
   }
   
   return (
     <div className="bg-white dark:bg-gray-900 min-h-screen">
-      <div className="mx-auto max-w-4xl px-4 py-16 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 pt-8 pb-16 sm:px-6 sm:pt-12 sm:pb-24 lg:px-8">
         <div className="rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4">
           <h2 className="text-lg font-medium text-red-800 dark:text-red-200 mb-2">
             Something went wrong
           </h2>
-          <p className="text-sm text-red-700 dark:text-red-300 mb-4">
+          <p className="text-sm text-red-700 dark:text-red-300">
             {errorMessage}
           </p>
-          <a
-            href="/creators/guidelines"
-            className="text-sm font-medium text-red-800 dark:text-red-200 hover:underline"
-          >
-            Try again
-          </a>
         </div>
       </div>
     </div>
   );
 }
 
-/** @typedef {import('./+types/creators.guidelines').Route} Route */
+/** @typedef {import('./+types/guidelines').Route} Route */
 /** @typedef {import('@shopify/remix-oxygen').SerializeFrom<typeof loader>} LoaderReturnData */
 

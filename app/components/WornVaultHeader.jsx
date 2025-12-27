@@ -41,11 +41,10 @@ const howItWorksItems = [
 
 const creatorsItems = [
   { name: 'Become a Creator', href: '/creator/login' },
-  { name: 'Creator Guidelines', href: '/creators/guidelines' },
+  { name: 'Creator Guidelines', href: '/guidelines' },
 ];
 
 const aboutItems = [
-  { name: 'Our Mission', href: '/about/mission' },
   { name: 'Privacy & Discretion', href: '/about/privacy' },
   { name: 'Contact & Support', href: '/about/contact' },
 ];

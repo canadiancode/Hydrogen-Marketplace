@@ -1,7 +1,9 @@
 import {useLoaderData} from 'react-router';
-import {getPaginationVariables, Analytics} from '@shopify/hydrogen';
-import {SearchForm} from '~/components/SearchForm';
-import {SearchResults} from '~/components/SearchResults';
+import {useEffect} from 'react';
+import {startTransition} from 'react';
+import {Analytics} from '@shopify/hydrogen';
+import {SearchResultsPredictive} from '~/components/SearchResultsPredictive';
+import {useSearchModal} from '~/components/SearchModal';
 import {getEmptyPredictiveSearchResult} from '~/lib/search';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
 import {getClientIP} from '~/lib/auth-helpers';
@@ -11,8 +13,9 @@ import {sanitizeHandle, validateHandle} from '~/lib/validation';
 /**
  * @type {Route.MetaFunction}
  */
-export const meta = () => {
-  return [{title: `Hydrogen | Search`}];
+export const meta = ({data}) => {
+  const term = data?.term || '';
+  return [{title: term ? `Search: ${term} | WornVault` : `Search | WornVault`}];
 };
 
 /**
@@ -20,14 +23,10 @@ export const meta = () => {
  */
 export async function loader({request, context}) {
   const url = new URL(request.url);
-  const isPredictive = url.searchParams.has('predictive');
   
   try {
-    const searchPromise = isPredictive
-      ? predictiveSearch({request, context})
-      : regularSearch({request, context});
-    
-    return await searchPromise;
+    // Always use predictive search for /search route (creators and listings)
+    return await predictiveSearch({request, context});
   } catch (error) {
     // Sanitize error logging to prevent information disclosure
     const isProduction = context.env?.NODE_ENV === 'production';
@@ -42,55 +41,89 @@ export async function loader({request, context}) {
     });
     
     return {
-      type: isPredictive ? 'predictive' : 'regular',
+      type: 'predictive',
       term: '',
-      result: isPredictive ? getEmptyPredictiveSearchResult() : {total: 0, items: {}},
+      result: getEmptyPredictiveSearchResult(),
       error: 'An error occurred while searching. Please try again.',
     };
   }
 }
 
 /**
- * Renders the /search route
+ * Renders the /search route - results only page (no search input)
+ * Automatically opens search modal if no search term is provided
  */
 export default function SearchPage() {
   /** @type {LoaderReturnData} */
-  const {type, term, result, error} = useLoaderData();
-  if (type === 'predictive') return null;
+  const {term, result, error} = useLoaderData();
+  const {setOpen} = useSearchModal();
+
+  // Automatically open search modal if there's no search term
+  useEffect(() => {
+    if (!term) {
+      startTransition(() => {
+        setOpen(true);
+      });
+    }
+  }, [term, setOpen]);
+
+  // No-op function for closeSearch since we're not in a modal
+  const noOpCloseSearch = () => {};
 
   return (
-    <div className="search">
-      <h1>Search</h1>
-      <SearchForm>
-        {({inputRef}) => (
-          <>
-            <input
-              defaultValue={term}
-              name="q"
-              placeholder="Search…"
-              ref={inputRef}
-              type="search"
-            />
-            &nbsp;
-            <button type="submit">Search</button>
-          </>
-        )}
-      </SearchForm>
-      {error && <p style={{color: 'red'}}>{error}</p>}
-      {!term || !result?.total ? (
-        <SearchResults.Empty />
-      ) : (
-        <SearchResults result={result} term={term}>
-          {({articles, pages, products, term}) => (
-            <div>
-              <SearchResults.Products products={products} term={term} />
-              <SearchResults.Pages pages={pages} term={term} />
-              <SearchResults.Articles articles={articles} term={term} />
-            </div>
+    <div className="min-h-screen bg-white dark:bg-gray-900">
+      <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6 lg:px-8">
+        {/* Page Header */}
+        <div className="mb-6">
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white mb-2">
+            {term ? `Search Results` : 'Search'}
+          </h1>
+          {term && result?.total !== undefined && (
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {result.total === 0 
+                ? `No results found for "${term}"`
+                : `Found ${result.total} ${result.total === 1 ? 'result' : 'results'} for "${term}"`
+              }
+            </p>
           )}
-        </SearchResults>
-      )}
-      <Analytics.SearchView data={{searchTerm: term, searchResults: result}} />
+        </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 rounded-md bg-red-50 dark:bg-red-900/20 p-4">
+            <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
+          </div>
+        )}
+
+        {/* Search Results - styled to match modal */}
+        {!term ? (
+          <div className="py-16 text-center">
+            <p className="text-gray-500 dark:text-gray-400">
+              Enter a search term to see results.
+            </p>
+          </div>
+        ) : !result?.total ? (
+          <div className="py-8">
+            <SearchResultsPredictive.Empty term={{current: term}} />
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <SearchResultsPredictive.Creators
+              creators={result?.items?.creators || []}
+              closeSearch={noOpCloseSearch}
+              term={{current: term}}
+            />
+            <SearchResultsPredictive.Products
+              products={result?.items?.products || []}
+              closeSearch={noOpCloseSearch}
+              term={{current: term}}
+            />
+            {/* Note: Collections, Pages, and Articles are not shown in predictive search results */}
+          </div>
+        )}
+
+        <Analytics.SearchView data={{searchTerm: term, searchResults: result}} />
+      </div>
     </div>
   );
 }

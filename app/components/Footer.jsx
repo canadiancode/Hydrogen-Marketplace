@@ -4,7 +4,6 @@ const navigation = {
   thingsYouCanBuy: [
     { name: 'Search', href: '/search' },
     { name: 'Shop All', href: '/shop' },
-    { name: 'Find a Creator', href: '/creators' },
     { name: 'Shop by Category', href: '/shop?filter=find-category' },
 
   ],
@@ -17,11 +16,10 @@ const navigation = {
   creators: [
     { name: 'Creator Login', href: '/creator/login' },
     { name: 'Become a Creator', href: '/creator/login' },
-    { name: 'Browse Creators', href: '/creators' },
-    { name: 'Creator Guidelines', href: '/creators/guidelines' },
+    { name: 'Find a Creator', href: '/creators' },
+    { name: 'Creator Guidelines', href: '/guidelines' },
   ],
   about: [
-    { name: 'Our Mission', href: '/about/mission' },
     { name: 'Privacy & Discretion', href: '/about/privacy' },
     { name: 'Contact & Support', href: '/about/contact' },
   ],

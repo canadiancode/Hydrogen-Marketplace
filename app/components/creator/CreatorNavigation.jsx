@@ -13,7 +13,6 @@ import {
   TruckIcon,
   LinkIcon,
 } from '@heroicons/react/24/outline'
-import { Bars3Icon, MagnifyingGlassIcon } from '@heroicons/react/20/solid'
 
 const navigation = [
   { name: 'Creator Dashboard', href: '/creator/dashboard', icon: Squares2X2Icon },
@@ -303,36 +302,6 @@ export function CreatorNavigation({isAdmin = false}) {
             </ul>
           </nav>
         </div>
-      </div>
-
-      {/* Search Header and Secondary Navigation */}
-      <div className="xl:pl-72 bg-white dark:bg-gray-900">
-        {/* Sticky search header */}
-        <div className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-x-6 border-b border-gray-200 bg-white px-4 shadow-xs sm:px-6 lg:px-8 dark:border-white/5 dark:bg-gray-900 dark:shadow-none">
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(true)}
-            className="-m-2.5 p-2.5 text-gray-900 xl:hidden dark:text-white"
-          >
-            <span className="sr-only">Open sidebar</span>
-            <Bars3Icon aria-hidden="true" className="size-5" />
-          </button>
-
-          <div className="flex flex-1 gap-x-4 self-stretch lg:gap-x-6">
-            <form action="#" method="GET" className="relative flex-1 max-w-lg mt-2">
-              <div className="relative">
-                <input
-                  name="search"
-                  type="search"
-                  placeholder="Search..."
-                  aria-label="Search"
-                  className="block w-full rounded-lg border-0 bg-gray-100 py-2 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-0 dark:bg-gray-800 dark:text-white dark:placeholder:text-gray-400 dark:focus:bg-gray-700 dark:focus:ring-indigo-400"
-                />
-              </div>
-            </form>
-          </div>
-        </div>
-
       </div>
     </>
   )
