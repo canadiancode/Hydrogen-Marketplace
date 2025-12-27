@@ -1,6 +1,6 @@
-import {Form, redirect, useActionData} from 'react-router';
+import {Form, redirect, useActionData, useLoaderData} from 'react-router';
 import {checkCreatorAuth, sendMagicLink, initiateGoogleOAuth} from '~/lib/supabase';
-import {getClientIP} from '~/lib/auth-helpers';
+import {getClientIP, generateCSRFToken, constantTimeEquals} from '~/lib/auth-helpers';
 import {rateLimit} from '~/lib/rate-limit';
 import {validateAndSanitizeEmail} from '~/lib/validation';
 
@@ -22,7 +22,11 @@ export async function loader({context, request}) {
     return redirect('/creator/dashboard');
   }
   
-  return {};
+  // Generate CSRF token for form protection
+  const csrfToken = await generateCSRFToken(request, context.env.SESSION_SECRET);
+  context.session.set('csrf_token', csrfToken);
+  
+  return {csrfToken};
 }
 
 export async function action({request, context}) {
@@ -37,6 +41,29 @@ export async function action({request, context}) {
     console.error('Missing Supabase environment variables');
     return {error: 'Server configuration error. Please contact support.'};
   }
+  
+  // CSRF protection: Validate CSRF token using constant-time comparison
+  const csrfToken = formData.get('csrf_token')?.toString();
+  const storedCSRFToken = context.session.get('csrf_token');
+  
+  if (!csrfToken || !storedCSRFToken || !constantTimeEquals(csrfToken, storedCSRFToken)) {
+    console.error('CSRF token validation failed', {
+      hasCsrfToken: !!csrfToken,
+      hasStoredToken: !!storedCSRFToken,
+    });
+    return {error: 'Invalid security token. Please refresh the page and try again.'};
+  }
+  
+  // Check if CSRF token was already used (prevent replay attacks)
+  const csrfUsed = context.session.get('csrf_token_used');
+  if (csrfUsed === csrfToken) {
+    console.error('CSRF token already used');
+    return {error: 'Security token has already been used. Please refresh the page and try again.'};
+  }
+  
+  // Mark CSRF token as used and clear it (one-time use)
+  context.session.set('csrf_token_used', csrfToken);
+  context.session.unset('csrf_token');
   
   // Rate limiting: 50 requests per 15 minutes per IP (increased for frequent refreshes)
   // ⚠️ PRODUCTION NOTE: This uses in-memory rate limiting which doesn't work
@@ -118,6 +145,7 @@ export async function action({request, context}) {
 
 export default function CreatorLogin() {
   const actionData = useActionData();
+  const {csrfToken} = useLoaderData();
   
   return (
     <div className="flex min-h-full flex-col justify-center py-12 sm:px-6 lg:px-8">
@@ -148,6 +176,7 @@ export default function CreatorLogin() {
           )}
           
           <Form method="post" className="space-y-6">
+            <input type="hidden" name="csrf_token" value={csrfToken} />
             <input type="hidden" name="authMethod" value="magic-link" />
             
             <div>
@@ -186,6 +215,7 @@ export default function CreatorLogin() {
 
             <div className="mt-6">
               <Form method="post">
+                <input type="hidden" name="csrf_token" value={csrfToken} />
                 <input type="hidden" name="authMethod" value="google" />
                 <button
                   type="submit"

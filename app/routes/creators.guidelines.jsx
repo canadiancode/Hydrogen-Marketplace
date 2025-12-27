@@ -1,5 +1,6 @@
 import {useLoaderData, useRouteError, isRouteErrorResponse} from 'react-router';
 import {Breadcrumbs} from '~/components/Breadcrumbs';
+import {validateAndEscapeJSONLD} from '~/lib/json-ld';
 
 /**
  * Validates and sanitizes base URL to prevent XSS attacks
@@ -151,13 +152,18 @@ export default function CreatorGuidelinesPage() {
   const dateModified = data?.dateModified || new Date().toISOString().split('T')[0];
   const structuredData = generateStructuredData(baseUrl, datePublished, dateModified);
   
+  // Validate and safely stringify JSON-LD to prevent XSS attacks
+  const structuredDataJson = validateAndEscapeJSONLD(structuredData);
+  
   return (
     <>
-      {/* JSON-LD Structured Data */}
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{__html: JSON.stringify(structuredData)}}
-      />
+      {/* JSON-LD Structured Data - Pre-validated and safe */}
+      {structuredDataJson && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{__html: structuredDataJson}}
+        />
+      )}
       
       <div className="bg-white dark:bg-gray-900 min-h-screen">
         <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
