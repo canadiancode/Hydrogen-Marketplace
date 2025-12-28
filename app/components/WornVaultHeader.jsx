@@ -33,8 +33,8 @@ const shopItems = [
 ];
 
 const howItWorksItems = [
-  { name: 'For Buyers', href: '/#buyers' },
-  { name: 'For Creators', href: '/#creators' },
+  { name: 'For Buyers', href: '/for-buyers' },
+  { name: 'For Creators', href: '/for-creators' },
   { name: 'Fees & Payouts', href: '/fees-payouts' },
   { name: 'Verification & Trust', href: '/verification' },
 ];
@@ -45,8 +45,8 @@ const creatorsItems = [
 ];
 
 const aboutItems = [
-  { name: 'Privacy & Discretion', href: '/about/privacy' },
-  { name: 'Contact & Support', href: '/about/contact' },
+  { name: 'Privacy & Discretion', href: '/privacy' },
+  { name: 'Contact & Support', href: '/contact' },
 ];
 
 const buyerAccountItems = [
@@ -768,7 +768,7 @@ function MobileAuthButtons({isLoggedIn, isCreator, onClose}) {
   return (
     <>
       <Link
-        to="/account/login"
+        to="/creator/login"
         className="-mx-3 block rounded-lg px-3 py-2.5 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
         onClick={onClose}
       >

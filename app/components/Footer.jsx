@@ -8,8 +8,8 @@ const navigation = {
 
   ],
   howItWorks: [
-    { name: 'For Buyers', href: '/#buyers' },
-    { name: 'For Creators', href: '/#creators' },
+    { name: 'For Buyers', href: '/for-buyers' },
+    { name: 'For Creators', href: '/for-creators' },
     { name: 'Fees & Payouts', href: '/fees-payouts' },
     { name: 'Verification & Trust', href: '/verification' },
   ],
@@ -20,8 +20,8 @@ const navigation = {
     { name: 'Creator Guidelines', href: '/guidelines' },
   ],
   about: [
-    { name: 'Privacy & Discretion', href: '/about/privacy' },
-    { name: 'Contact & Support', href: '/about/contact' },
+    { name: 'Privacy & Discretion', href: '/privacy' },
+    { name: 'Contact & Support', href: '/contact' },
   ],
   social: [
     {
