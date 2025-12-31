@@ -13,11 +13,26 @@ export const meta = () => {
  * Handles the OAuth redirect from various platforms and verifies account ownership
  */
 export async function loader({context, request}) {
+  // Extract OAuth parameters first (before auth check) to handle errors and preserve for redirect
+  const url = new URL(request.url);
+  const code = url.searchParams.get('code');
+  const state = url.searchParams.get('state');
+  const error = url.searchParams.get('error');
+  const errorDescription = url.searchParams.get('error_description');
+
+  // Handle OAuth errors first (before auth check)
+  if (error) {
+    console.error('OAuth error:', error, errorDescription);
+    return redirect(`/creator/social-links?error=${encodeURIComponent(errorDescription || error)}`);
+  }
+
   // Require authentication
   const {user, session} = await requireAuth(request, context.env);
   
+  // If not authenticated, preserve the full callback URL with OAuth parameters
   if (!user?.email || !session?.access_token) {
-    return redirect('/creator/login?returnTo=/creator/social-links');
+    const fullCallbackUrl = request.url;
+    return redirect(`/creator/login?returnTo=${encodeURIComponent(fullCallbackUrl)}`);
   }
 
   // Rate limiting
@@ -29,18 +44,6 @@ export async function loader({context, request}) {
   
   if (!rateLimit.allowed) {
     return redirect('/creator/social-links?error=rate_limit');
-  }
-
-  const url = new URL(request.url);
-  const code = url.searchParams.get('code');
-  const state = url.searchParams.get('state');
-  const error = url.searchParams.get('error');
-  const errorDescription = url.searchParams.get('error_description');
-
-  // Handle OAuth errors
-  if (error) {
-    console.error('OAuth error:', error, errorDescription);
-    return redirect(`/creator/social-links?error=${encodeURIComponent(errorDescription || error)}`);
   }
 
   // Validate state token (CSRF protection)
