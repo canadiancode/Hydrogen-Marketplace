@@ -587,6 +587,10 @@ export async function updateCreatorProfile(userEmail, updates, supabaseUrl, anon
   if (updates.displayName !== undefined) dbUpdates.display_name = updates.displayName;
   if (updates.bio !== undefined) dbUpdates.bio = updates.bio;
   if (updates.payoutMethod !== undefined) dbUpdates.payout_method = updates.payoutMethod;
+  if (updates.paypalEmail !== undefined) dbUpdates.paypal_email = updates.paypalEmail;
+  if (updates.paypalEmailVerified !== undefined) dbUpdates.paypal_email_verified = updates.paypalEmailVerified;
+  if (updates.paypalPayerId !== undefined) dbUpdates.paypal_payer_id = updates.paypalPayerId;
+  if (updates.paypalEmailVerifiedAt !== undefined) dbUpdates.paypal_email_verified_at = updates.paypalEmailVerifiedAt;
   if (updates.username !== undefined) dbUpdates.handle = updates.username;
   if (updates.firstName !== undefined) dbUpdates.first_name = updates.firstName;
   if (updates.lastName !== undefined) dbUpdates.last_name = updates.lastName;
@@ -677,6 +681,43 @@ export async function updateCreatorProfile(userEmail, updates, supabaseUrl, anon
       // Handle PGRST116 (no rows returned) - shouldn't happen, but handle gracefully
       if (error.code === 'PGRST116') {
         throw new Error('Profile not found. Please refresh the page and try again.');
+      }
+      
+      // Handle missing column errors (e.g., paypal_email_verified not in schema)
+      if (error.message?.includes('Could not find') && error.message?.includes('column')) {
+        // Try updating without verification fields if they're causing the issue
+        const verificationFields = ['paypal_email_verified', 'paypal_payer_id', 'paypal_email_verified_at'];
+        const hasVerificationFields = verificationFields.some(field => dbUpdates[field] !== undefined);
+        
+        if (hasVerificationFields) {
+          // Remove verification fields and retry
+          const dbUpdatesWithoutVerification = { ...dbUpdates };
+          verificationFields.forEach(field => {
+            delete dbUpdatesWithoutVerification[field];
+          });
+          
+          // Retry update without verification fields
+          const {data: retryData, error: retryError} = await supabase
+            .from('creators')
+            .update(dbUpdatesWithoutVerification)
+            .eq('email', userEmail)
+            .select()
+            .single();
+          
+          if (retryError) {
+            console.error('Error updating creator profile (retry without verification fields):', {
+              error: retryError,
+              userEmail,
+              updates: dbUpdatesWithoutVerification,
+              timestamp: new Date().toISOString(),
+            });
+            throw new Error(retryError.message || 'Failed to update profile. Please try again.');
+          }
+          
+          // Log warning about missing verification columns
+          console.warn('PayPal verification columns not found in database. Please run migration to add them.');
+          return retryData;
+        }
       }
       
       console.error('Error updating creator profile:', {

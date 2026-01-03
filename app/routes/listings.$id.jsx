@@ -45,6 +45,33 @@ export async function loader({context, params}) {
     throw new Response('Listing not found', {status: 404});
   }
   
+  // Fetch creator's social links from creator_verifications
+  let creatorSocialLinks = null;
+  if (listing.creator?.id) {
+    const {createServerSupabaseClient} = await import('~/lib/supabase');
+    const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
+    
+    const {data: verification, error: verificationError} = await supabase
+      .from('creator_verifications')
+      .select('submitted_links')
+      .eq('creator_id', listing.creator.id)
+      .order('created_at', {ascending: false})
+      .limit(1)
+      .maybeSingle();
+    
+    if (!verificationError && verification?.submitted_links) {
+      const submittedLinks = verification.submitted_links;
+      creatorSocialLinks = {
+        instagram: submittedLinks.instagram_url || submittedLinks.instagram || null,
+        facebook: submittedLinks.facebook_url || submittedLinks.facebook || null,
+        tiktok: submittedLinks.tiktok_url || submittedLinks.tiktok || null,
+        x: submittedLinks.x_url || submittedLinks.x || null,
+        youtube: submittedLinks.youtube_url || submittedLinks.youtube || null,
+        twitch: submittedLinks.twitch_url || submittedLinks.twitch || null,
+      };
+    }
+  }
+  
   // Fetch Shopify variant data if shopify_variant_id or shopify_product_id exists
   let shopifyVariant = null;
   let variantIdGid = null;
@@ -262,6 +289,7 @@ export async function loader({context, params}) {
     listing,
     shopifyVariant,
     variantIdGid,
+    creatorSocialLinks,
   };
 }
 
@@ -280,7 +308,7 @@ function formatDate(dateString) {
 }
 
 export default function ListingDetail() {
-  const {listing, shopifyVariant, variantIdGid} = useLoaderData();
+  const {listing, shopifyVariant, variantIdGid, creatorSocialLinks} = useLoaderData();
   const [copied, setCopied] = useState(false);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const {open} = useAside();
@@ -624,31 +652,89 @@ export default function ListingDetail() {
                             )}
                           </div>
                           
-                          {/* Social Share Links */}
-                          <div className="ml-4 flex items-center gap-4 flex-shrink-0">
-                            <a
-                              href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-gray-400 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-400 transition-colors"
-                              aria-label="Share on Facebook"
-                            >
-                              <svg className="size-5" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M20 10c0-5.523-4.477-10-10-10S0 4.477 0 10c0 4.991 3.657 9.128 8.438 9.878v-6.987h-2.54V10h2.54V7.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V10h2.773l-.443 2.89h-2.33v6.988C16.343 19.128 20 14.991 20 10z" clipRule="evenodd" />
-                              </svg>
-                            </a>
-                            <a
-                              href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`${listing.creator.display_name ? decodeHTMLEntities(listing.creator.display_name) : 'Creator'} on WornVault`)}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-gray-400 dark:text-gray-500 hover:text-gray-500 dark:hover:text-gray-400 transition-colors"
-                              aria-label="Share on X"
-                            >
-                              <svg className="size-5" fill="currentColor" viewBox="0 0 20 20">
-                                <path d="M11.4678 8.77491L17.2961 2H15.915L10.8543 7.88256L6.81232 2H2.15039L8.26263 10.8955L2.15039 18H3.53159L8.87581 11.7878L13.1444 18H17.8063L11.4675 8.77491H11.4678ZM9.57608 10.9738L8.95678 10.0881L4.02925 3.03974H6.15068L10.1273 8.72795L10.7466 9.61374L15.9156 17.0075H13.7942L9.57608 10.9742V10.9738Z" />
-                              </svg>
-                            </a>
-                          </div>
+                          {/* Social Media Links */}
+                          {creatorSocialLinks && Object.values(creatorSocialLinks).some(url => url) && (
+                            <div className="ml-4 flex items-center gap-4 flex-shrink-0">
+                              {creatorSocialLinks.instagram && (
+                                <a
+                                  href={creatorSocialLinks.instagram}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-gray-400 dark:text-gray-500 hover:text-pink-600 dark:hover:text-pink-400 transition-colors"
+                                  aria-label="Instagram"
+                                >
+                                  <svg className="size-5" fill="currentColor" viewBox="0 0 24 24">
+                                    <path fillRule="evenodd" d="M12.315 2c2.43 0 2.784.013 3.808.06 1.064.049 1.791.218 2.427.465a4.902 4.902 0 011.772 1.153 4.902 4.902 0 011.153 1.772c.247.636.416 1.363.465 2.427.048 1.067.06 1.407.06 4.123v.08c0 2.643-.012 2.987-.06 4.043-.049 1.064-.218 1.791-.465 2.427a4.902 4.902 0 01-1.153 1.772 4.902 4.902 0 01-1.772 1.153c-.636.247-1.363.416-2.427.465-1.067.048-1.407.06-4.123.06h-.08c-2.643 0-2.987-.012-4.043-.06-1.064-.049-1.791-.218-2.427-.465a4.902 4.902 0 01-1.772-1.153 4.902 4.902 0 01-1.153-1.772c-.247-.636-.416-1.363-.465-2.427-.047-1.024-.06-1.379-.06-3.808v-.63c0-2.43.013-2.784.06-3.808.049-1.064.218-1.791.465-2.427a4.902 4.902 0 011.153-1.772A4.902 4.902 0 015.45 2.525c.636-.247 1.363-.416 2.427-.465C8.901 2.013 9.256 2 11.685 2h.63zm-.081 1.802h-.468c-2.456 0-2.784.011-3.807.058-.975.045-1.504.207-1.857.344-.467.182-.8.398-1.15.748-.35.35-.566.683-.748 1.15-.137.353-.3.882-.344 1.857-.047 1.023-.058 1.351-.058 3.807v.468c0 2.456.011 2.784.058 3.807.045.975.207 1.504.344 1.857.182.466.399.8.748 1.15.35.35.683.566 1.15.748.353.137.882.3 1.857.344 1.054.048 1.37.058 4.041.058h.08c2.597 0 2.917-.01 3.96-.058.976-.045 1.505-.207 1.858-.344.466-.182.8-.398 1.15-.748.35-.35.566-.683.748-1.15.137-.353.3-.882.344-1.857.048-1.055.058-1.37.058-4.041v-.08c0-2.597-.01-2.917-.058-3.96-.045-.976-.207-1.505-.344-1.858a3.097 3.097 0 00-.748-1.15 3.098 3.098 0 00-1.15-.748c-.353-.137-.882-.3-1.857-.344-1.023-.047-1.351-.058-3.807-.058zM12 6.865a5.135 5.135 0 110 10.27 5.135 5.135 0 010-10.27zm0 1.802a3.333 3.333 0 100 6.666 3.333 3.333 0 000-6.666zm5.338-3.205a1.2 1.2 0 110 2.4 1.2 1.2 0 010-2.4z" clipRule="evenodd" />
+                                  </svg>
+                                </a>
+                              )}
+                              {creatorSocialLinks.facebook && (
+                                <a
+                                  href={creatorSocialLinks.facebook}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                                  aria-label="Facebook"
+                                >
+                                  <svg className="size-5" fill="currentColor" viewBox="0 0 24 24">
+                                    <path fillRule="evenodd" d="M22 12c0-5.523-4.477-10-10-10S2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.878v-6.987h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v6.988C18.343 21.128 22 16.991 22 12z" clipRule="evenodd" />
+                                  </svg>
+                                </a>
+                              )}
+                              {creatorSocialLinks.tiktok && (
+                                <a
+                                  href={creatorSocialLinks.tiktok}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-gray-400 dark:text-gray-500 hover:text-black dark:hover:text-white transition-colors"
+                                  aria-label="TikTok"
+                                >
+                                  <svg className="size-5" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z" />
+                                  </svg>
+                                </a>
+                              )}
+                              {creatorSocialLinks.x && (
+                                <a
+                                  href={creatorSocialLinks.x}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-gray-400 dark:text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors"
+                                  aria-label="X (Twitter)"
+                                >
+                                  <svg className="size-5" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M13.6823 10.6218L20.2391 3H18.6854L12.9921 9.61788L8.44486 3H3.2002L10.0765 13.0074L3.2002 21H4.75404L10.7663 14.0113L15.5685 21H20.8131L13.6819 10.6218H13.6823ZM11.5541 13.0956L10.8574 12.0991L5.31391 4.16971H7.70053L12.1742 10.5689L12.8709 11.5655L18.6861 19.8835H16.2995L11.5541 13.096V13.0956Z" />
+                                  </svg>
+                                </a>
+                              )}
+                              {creatorSocialLinks.youtube && (
+                                <a
+                                  href={creatorSocialLinks.youtube}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                                  aria-label="YouTube"
+                                >
+                                  <svg className="size-5" fill="currentColor" viewBox="0 0 24 24">
+                                    <path fillRule="evenodd" d="M19.812 5.418c.861.23 1.538.907 1.768 1.768C21.998 8.746 22 12 22 12s0 3.255-.418 4.814a2.504 2.504 0 0 1-1.768 1.768c-1.56.419-7.814.419-7.814.419s-6.255 0-7.814-.419a2.505 2.505 0 0 1-1.768-1.768C2 15.255 2 12 2 12s0-3.255.417-4.814a2.507 2.507 0 0 1 1.768-1.768C5.744 5 11.998 5 11.998 5s6.255 0 7.814.418ZM15.194 12 10 15V9l5.194 3Z" clipRule="evenodd" />
+                                  </svg>
+                                </a>
+                              )}
+                              {creatorSocialLinks.twitch && (
+                                <a
+                                  href={creatorSocialLinks.twitch}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-gray-400 dark:text-gray-500 hover:text-purple-600 dark:hover:text-purple-400 transition-colors"
+                                  aria-label="Twitch"
+                                >
+                                  <svg className="size-5" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z" />
+                                  </svg>
+                                </a>
+                              )}
+                            </div>
+                          )}
                         </div>
                         
                         {/* View Full Profile Link */}

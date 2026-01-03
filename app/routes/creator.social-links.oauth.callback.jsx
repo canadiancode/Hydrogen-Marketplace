@@ -59,10 +59,6 @@ export async function loader({context, request}) {
     return redirect('/creator/social-links?error=invalid_state');
   }
 
-  // Clear OAuth state tokens (one-time use)
-  context.session.unset(`oauth_state_${platform}`);
-  context.session.unset(`oauth_platform_${state}`);
-
   if (!code) {
     return redirect('/creator/social-links?error=no_code');
   }
@@ -373,12 +369,33 @@ export async function loader({context, request}) {
           return redirect('/creator/social-links?error=update_failed');
         }
 
+        // Clear OAuth state tokens only after successful verification
+        context.session.unset(`oauth_state_${platform}`);
+        context.session.unset(`oauth_platform_${state}`);
+        
         return redirect('/creator/social-links?verified=true');
       }
     }
 
+    // Clear state tokens even if verification failed (one-time use)
+    context.session.unset(`oauth_state_${platform}`);
+    context.session.unset(`oauth_platform_${state}`);
+    // Also clear code verifier for X platform if present
+    if (platform === 'x') {
+      context.session.unset(`oauth_code_verifier_${platform}`);
+    }
+    
     return redirect('/creator/social-links?error=verification_failed');
   } catch (error) {
+    // Clear state tokens and code verifier on error (one-time use)
+    if (platform && state) {
+      context.session.unset(`oauth_state_${platform}`);
+      context.session.unset(`oauth_platform_${state}`);
+      // Also clear code verifier for X platform if present
+      if (platform === 'x') {
+        context.session.unset(`oauth_code_verifier_${platform}`);
+      }
+    }
     const isProduction = context.env.NODE_ENV === 'production';
     console.error('OAuth callback error:', {
       error: error.message || 'Unknown error',

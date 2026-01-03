@@ -1,11 +1,13 @@
 import {useState, useEffect, useMemo} from 'react';
-import {Form, useLoaderData, useActionData, useNavigation} from 'react-router';
+import {Form, useLoaderData, useActionData, useNavigation, redirect} from 'react-router';
 import {requireAuth, generateCSRFToken, validateCSRFToken, getClientIP, constantTimeEquals} from '~/lib/auth-helpers';
 import {fetchCreatorProfile, updateCreatorProfile} from '~/lib/supabase';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
 import {sanitizeHTML} from '~/lib/sanitize';
 import {decodeHTMLEntities} from '~/lib/html-entities';
 import {ChevronDownIcon} from '@heroicons/react/16/solid';
+import {createClient} from '@supabase/supabase-js';
+import {verifyPayPalEmail} from '~/lib/paypal-verification';
 
 export const meta = () => {
   return [{title: 'WornVault | Account Settings'}];
@@ -72,6 +74,10 @@ export async function loader({context, request}) {
           displayName: profile.display_name || '',
           bio: profile.bio || '',
           payoutMethod: profile.payout_method || '',
+          paypalEmail: profile.paypal_email || '',
+          paypalEmailVerified: profile.paypal_email_verified || false,
+          paypalPayerId: profile.paypal_payer_id || null,
+          paypalEmailVerifiedAt: profile.paypal_email_verified_at || null,
           profileImageUrl: profile.profile_image_url || '',
           coverImageStoragePath: profile.cover_image_storage_path || '',
           coverImageUrl: coverImageUrl,
@@ -84,6 +90,10 @@ export async function loader({context, request}) {
           displayName: '',
           bio: '',
           payoutMethod: '',
+          paypalEmail: '',
+          paypalEmailVerified: false,
+          paypalPayerId: null,
+          paypalEmailVerifiedAt: null,
           profileImageUrl: '',
           coverImageStoragePath: '',
           coverImageUrl: '',
@@ -102,7 +112,103 @@ export async function action({request, context}) {
     };
   }
   
-  // Rate limiting: max 10 requests per minute per user
+  const formData = await request.formData();
+  
+  // Handle delete account action (logout only, no data deletion)
+  // Check this BEFORE general rate limiting since it has stricter limits
+  const actionType = formData.get('action')?.toString();
+  if (actionType === 'deleteAccount') {
+    // Rate limiting: stricter for account deletion
+    const clientIP = getClientIP(request);
+    const rateLimitKey = `delete-account:${user.email}:${clientIP}`;
+    const rateLimit = await rateLimitMiddleware(request, rateLimitKey, {
+      maxRequests: 3, // Stricter limit for account deletion
+      windowMs: 300000, // 5 minutes
+    });
+    
+    if (!rateLimit.allowed) {
+      return {
+        success: false,
+        error: `Too many requests. Please wait before trying again. You can try again after ${new Date(rateLimit.resetAt).toLocaleTimeString()}.`,
+        formSection: 'deleteAccount',
+      };
+    }
+    
+    // Validate CSRF token
+    const csrfToken = formData.get('csrf_token')?.toString();
+    const storedCSRFToken = context.session.get('csrf_token');
+    
+    if (!csrfToken || !storedCSRFToken || !constantTimeEquals(csrfToken, storedCSRFToken)) {
+      return {
+        success: false,
+        error: 'Invalid security token. Please refresh the page and try again.',
+        formSection: 'deleteAccount',
+      };
+    }
+    
+    // Clear CSRF token
+    context.session.unset('csrf_token');
+    
+    // Logout: Clear Supabase session and redirect to login
+    try {
+      // Clear the Supabase session cookie
+      const projectRef = context.env.SUPABASE_URL?.split('//')[1]?.split('.')[0];
+      const cookieName = `sb-${projectRef}-auth-token`;
+      
+      // Determine if we're in a secure context
+      const isSecure = request.url.startsWith('https://') || 
+                       request.headers.get('x-forwarded-proto') === 'https' ||
+                       context.env.NODE_ENV === 'production';
+      const secureFlag = isSecure ? '; Secure' : '';
+      
+      // Sign out from Supabase
+      const supabase = createClient(context.env.SUPABASE_URL, context.env.SUPABASE_ANON_KEY, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      });
+      
+      // Get the session to sign out
+      const cookieHeader = request.headers.get('Cookie') || '';
+      const cookies = cookieHeader.split(';').reduce((acc, cookie) => {
+        const [key, ...valueParts] = cookie.trim().split('=');
+        if (key && valueParts.length > 0) {
+          acc[key.trim()] = decodeURIComponent(valueParts.join('='));
+        }
+        return acc;
+      }, {});
+      
+      if (cookies[cookieName]) {
+        try {
+          const sessionData = JSON.parse(cookies[cookieName]);
+          if (sessionData?.access_token) {
+            await supabase.auth.signOut();
+          }
+        } catch (err) {
+          console.error('Error during logout:', err.message || 'Unknown error');
+        }
+      }
+      
+      // Create redirect response that clears the cookie
+      const response = redirect('/creator/login?message=account_logged_out');
+      response.headers.set(
+        'Set-Cookie',
+        `${cookieName}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT${secureFlag}`
+      );
+      
+      return response;
+    } catch (error) {
+      console.error('Error during account logout:', error);
+      return {
+        success: false,
+        error: 'Failed to log out. Please try again.',
+        formSection: 'deleteAccount',
+      };
+    }
+  }
+  
+  // Rate limiting: max 10 requests per minute per user (for regular updates)
   const clientIP = getClientIP(request);
   const rateLimitKey = `settings:${user.email}:${clientIP}`;
   const rateLimit = await rateLimitMiddleware(request, rateLimitKey, {
@@ -117,7 +223,8 @@ export async function action({request, context}) {
     };
   }
   
-  const formData = await request.formData();
+  // Extract form section identifier early (for error context)
+  const formSection = formData.get('formSection')?.toString() || 'personal';
   
   // Validate CSRF token using constant-time comparison to prevent timing attacks
   const csrfToken = formData.get('csrf_token')?.toString();
@@ -128,6 +235,7 @@ export async function action({request, context}) {
     return {
       success: false,
       error: 'Invalid security token. Please refresh the page and try again.',
+      formSection,
     };
   }
   
@@ -288,6 +396,7 @@ export async function action({request, context}) {
       displayName: formData.get('displayName')?.toString().trim(),
       bio: formData.get('bio')?.toString().trim(),
       payoutMethod: formData.get('payoutMethod')?.toString().trim(),
+      paypalEmail: formData.get('paypalEmail')?.toString().trim(),
       // Note: email is intentionally excluded - it's read-only and tied to auth
     };
     
@@ -329,6 +438,7 @@ export async function action({request, context}) {
     const MAX_USERNAME_LENGTH = 30;
     const MAX_DISPLAY_NAME_LENGTH = 100;
     const MAX_BIO_LENGTH = 1000;
+    const MAX_EMAIL_LENGTH = 255;
     
     // Sanitize and validate all inputs
     const sanitizeInput = (value, type) => {
@@ -382,6 +492,24 @@ export async function action({request, context}) {
             sanitized = 'paypal';
           }
           break;
+        case 'email':
+          // Email: validate format and limit length
+          // Remove control characters and dangerous patterns
+          sanitized = sanitized
+            .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
+            .toLowerCase(); // Normalize to lowercase
+          
+          // Basic email format validation (RFC 5322 simplified)
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(sanitized)) {
+            return null; // Invalid email format
+          }
+          
+          // Limit length
+          if (sanitized.length > MAX_EMAIL_LENGTH) {
+            sanitized = sanitized.substring(0, MAX_EMAIL_LENGTH);
+          }
+          break;
         default:
           // Default: remove control characters and limit length
           sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, '');
@@ -397,6 +525,10 @@ export async function action({request, context}) {
     const updates = {};
     Object.keys(rawUpdates).forEach((key) => {
       const value = rawUpdates[key];
+      // Skip undefined values (fields not present in form submission)
+      if (value === undefined) {
+        return;
+      }
       if (value === '' || value === null) {
         // Skip empty values unless they're required fields
         if (key === 'displayName' || key === 'username') {
@@ -415,6 +547,12 @@ export async function action({request, context}) {
           sanitized = sanitizeInput(value, 'bio');
         } else if (key === 'payoutMethod') {
           sanitized = sanitizeInput(value, 'payoutMethod');
+        } else if (key === 'paypalEmail') {
+          sanitized = sanitizeInput(value, 'email');
+          // If PayPal email is provided but invalid, add error
+          if (value && !sanitized) {
+            fieldErrors.paypalEmail = 'Please enter a valid email address';
+          }
         } else if (key === 'profileImageUrl') {
           // Validate image URL format and origin
           try {
@@ -475,35 +613,39 @@ export async function action({request, context}) {
       }
     });
     
-    // Validate required fields with comprehensive checks
-    if (!updates.displayName) {
-      fieldErrors.displayName = 'Display name is required';
-    } else if (updates.displayName.length === 0) {
-      fieldErrors.displayName = 'Display name cannot be empty';
-    } else if (updates.displayName.length > MAX_DISPLAY_NAME_LENGTH) {
-      fieldErrors.displayName = `Display name must be ${MAX_DISPLAY_NAME_LENGTH} characters or less.`;
-    } else if (updates.displayName.trim().length === 0) {
-      fieldErrors.displayName = 'Display name cannot be only whitespace';
+    // Validate required fields with comprehensive checks (only if they're being updated)
+    if (rawUpdates.displayName !== undefined) {
+      if (!updates.displayName) {
+        fieldErrors.displayName = 'Display name is required';
+      } else if (updates.displayName.length === 0) {
+        fieldErrors.displayName = 'Display name cannot be empty';
+      } else if (updates.displayName.length > MAX_DISPLAY_NAME_LENGTH) {
+        fieldErrors.displayName = `Display name must be ${MAX_DISPLAY_NAME_LENGTH} characters or less.`;
+      } else if (updates.displayName.trim().length === 0) {
+        fieldErrors.displayName = 'Display name cannot be only whitespace';
+      }
     }
     
-    // Validate username format (alphanumeric and hyphens only - no underscores)
-    if (!updates.username) {
-      fieldErrors.username = 'Username is required';
-    } else if (updates.username.length === 0) {
-      fieldErrors.username = 'Username cannot be empty';
-    } else {
-      // Username validation: only alphanumeric characters and hyphens (no underscores)
-      // Must start and end with alphanumeric character
-      const usernameRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
-      if (!usernameRegex.test(updates.username)) {
-        fieldErrors.username = 'Username can only contain letters, numbers, and hyphens. It must start and end with a letter or number.';
-      }
-      // Additional length validation
-      if (updates.username.length < MIN_USERNAME_LENGTH) {
-        fieldErrors.username = `Username must be at least ${MIN_USERNAME_LENGTH} characters long.`;
-      }
-      if (updates.username.length > MAX_USERNAME_LENGTH) {
-        fieldErrors.username = `Username must be ${MAX_USERNAME_LENGTH} characters or less.`;
+    // Validate username format (alphanumeric and hyphens only - no underscores) (only if being updated)
+    if (rawUpdates.username !== undefined) {
+      if (!updates.username) {
+        fieldErrors.username = 'Username is required';
+      } else if (updates.username.length === 0) {
+        fieldErrors.username = 'Username cannot be empty';
+      } else {
+        // Username validation: only alphanumeric characters and hyphens (no underscores)
+        // Must start and end with alphanumeric character
+        const usernameRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
+        if (!usernameRegex.test(updates.username)) {
+          fieldErrors.username = 'Username can only contain letters, numbers, and hyphens. It must start and end with a letter or number.';
+        }
+        // Additional length validation
+        if (updates.username.length < MIN_USERNAME_LENGTH) {
+          fieldErrors.username = `Username must be at least ${MIN_USERNAME_LENGTH} characters long.`;
+        }
+        if (updates.username.length > MAX_USERNAME_LENGTH) {
+          fieldErrors.username = `Username must be ${MAX_USERNAME_LENGTH} characters or less.`;
+        }
       }
     }
     
@@ -532,9 +674,92 @@ export async function action({request, context}) {
       }
     }
     
-    // Validate payout method (should only be 'paypal')
-    if (updates.payoutMethod && updates.payoutMethod !== 'paypal') {
-      updates.payoutMethod = 'paypal'; // Force to paypal for security
+    // Validate payout method and PayPal email (only if payout fields are being submitted)
+    // Check if payout-related fields are actually present in the form (not undefined)
+    const hasPayoutMethodField = rawUpdates.payoutMethod !== undefined && rawUpdates.payoutMethod !== null;
+    const hasPaypalEmailField = rawUpdates.paypalEmail !== undefined && rawUpdates.paypalEmail !== null;
+    const isPayoutFormSubmission = hasPayoutMethodField || hasPaypalEmailField;
+    
+    if (isPayoutFormSubmission) {
+      // Validate payout method (should only be 'paypal')
+      const finalPayoutMethod = updates.payoutMethod || rawUpdates.payoutMethod || 'paypal';
+      if (finalPayoutMethod !== 'paypal') {
+        updates.payoutMethod = 'paypal'; // Force to paypal for security
+      } else {
+        updates.payoutMethod = 'paypal';
+      }
+      
+      // Validate PayPal email when payout method is PayPal
+      if (finalPayoutMethod === 'paypal') {
+        if (!updates.paypalEmail || !updates.paypalEmail.trim()) {
+          fieldErrors.paypalEmail = 'PayPal email is required when PayPal is selected as payout method';
+        } else {
+          // Validate email format (already sanitized, but double-check)
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          const normalizedEmail = updates.paypalEmail.toLowerCase().trim();
+          if (!emailRegex.test(normalizedEmail)) {
+            fieldErrors.paypalEmail = 'Please enter a valid PayPal email address';
+          } else {
+            // PayPal API verification (non-blocking)
+            // Note: AddressVerify API requires API credentials (USER/PWD/SIGNATURE)
+            // OAuth credentials (Client ID/Secret) cannot be used for AddressVerify
+            const paypalClientId = context.env.PAYPAL_CLIENT_ID;
+            const paypalClientSecret = context.env.PAYPAL_CLIENT_SECRET;
+            const paypalApiSignature = context.env.PAYPAL_API_SIGNATURE;
+            const isPayPalSandbox = context.env.PAYPAL_SANDBOX === 'true';
+            
+            // Only verify if PayPal credentials are configured
+            if (paypalClientId && paypalClientSecret) {
+              try {
+                const verification = await verifyPayPalEmail(
+                  normalizedEmail,
+                  paypalClientId,
+                  paypalClientSecret,
+                  paypalApiSignature || '',
+                  isPayPalSandbox
+                );
+                
+                if (verification.verified) {
+                  // Email is verified - store verification status
+                  updates.paypalEmailVerified = true;
+                  updates.paypalPayerId = verification.payerId || null;
+                  updates.paypalEmailVerifiedAt = new Date().toISOString();
+                } else {
+                  // Email not verified - mark as unverified but don't block submission
+                  updates.paypalEmailVerified = false;
+                  updates.paypalPayerId = null;
+                  updates.paypalEmailVerifiedAt = null;
+                  
+                  // Log if verification was skipped due to missing API signature
+                  if (verification.error && verification.error.includes('API Signature')) {
+                    console.log('PayPal email verification skipped:', {
+                      reason: 'API Signature not configured',
+                      note: 'OAuth credentials (Client ID/Secret) cannot be used for AddressVerify API. API credentials (USER/PWD/SIGNATURE) are required.',
+                    });
+                  }
+                }
+              } catch (error) {
+                // Log error but don't block submission
+                console.error('PayPal verification error:', {
+                  error: error.message || 'Unknown error',
+                  errorName: error.name || 'Error',
+                  timestamp: new Date().toISOString(),
+                });
+                
+                // Mark as unverified on error
+                updates.paypalEmailVerified = false;
+                updates.paypalPayerId = null;
+                updates.paypalEmailVerifiedAt = null;
+              }
+            } else {
+              // PayPal API not configured - mark as unverified
+              updates.paypalEmailVerified = false;
+              updates.paypalPayerId = null;
+              updates.paypalEmailVerifiedAt = null;
+            }
+          }
+        }
+      }
     }
     
     // Return field-level errors if any
@@ -543,6 +768,7 @@ export async function action({request, context}) {
         success: false,
         error: 'Please fix the errors below',
         fieldErrors,
+        formSection,
       };
     }
     
@@ -580,12 +806,26 @@ export async function action({request, context}) {
       }
     }
     
+    // Determine success message based on form section
+    const successMessage = formSection === 'payouts' 
+      ? 'Payout settings updated successfully'
+      : 'Profile updated successfully';
+    
+    // Include PayPal verification status in response if it was updated
+    const paypalVerificationStatus = updates.paypalEmailVerified !== undefined ? {
+      paypalEmailVerified: updates.paypalEmailVerified,
+      paypalPayerId: updates.paypalPayerId || null,
+      paypalEmailVerifiedAt: updates.paypalEmailVerifiedAt || null,
+    } : {};
+    
     return {
       success: true,
-      message: 'Profile updated successfully',
+      message: successMessage,
       profileImageUrl: updatedProfile?.profile_image_url || imageUrl || null,
       coverImageStoragePath: finalCoverImageStoragePath,
       coverImageUrl: responseCoverImageUrl,
+      formSection,
+      ...paypalVerificationStatus,
     };
   } catch (error) {
     // Log error details server-side only (no stack trace or email in production)
@@ -597,6 +837,9 @@ export async function action({request, context}) {
       timestamp: new Date().toISOString(),
       ...(isProduction ? {} : {errorStack: error.stack, userEmail: user.email}),
     });
+    
+    // Get form section from formData (for error context)
+    const errorFormSection = formData.get('formSection')?.toString() || 'personal';
     
     // Sanitize error messages for client - don't expose internal details
     const fieldErrors = {};
@@ -623,6 +866,7 @@ export async function action({request, context}) {
       success: false,
       error: userFriendlyError,
       fieldErrors: Object.keys(fieldErrors).length > 0 ? fieldErrors : undefined,
+      formSection: errorFormSection,
     };
   }
 }
@@ -637,6 +881,12 @@ export default function CreatorSettings() {
   // Track which image is being uploaded
   const [uploadingProfileImage, setUploadingProfileImage] = useState(false);
   const [uploadingCoverImage, setUploadingCoverImage] = useState(false);
+  
+  // Track payout method selection to conditionally show PayPal email input
+  const [payoutMethod, setPayoutMethod] = useState(profile.payoutMethod || 'paypal');
+  
+  // Track delete account confirmation state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   
   // Default placeholder image (SVG data URI - account/user icon)
   // Simple account icon: gray rounded square with user silhouette
@@ -674,6 +924,24 @@ export default function CreatorSettings() {
       setUploadingCoverImage(false);
     }
   }, [actionData, navigation.state]);
+  
+  // Sync payout method state when profile loads or updates
+  useEffect(() => {
+    if (profile.payoutMethod) {
+      setPayoutMethod(profile.payoutMethod);
+    }
+  }, [profile.payoutMethod]);
+  
+  // Update profile verification status from action response
+  const currentPaypalEmailVerified = actionData?.paypalEmailVerified !== undefined 
+    ? actionData.paypalEmailVerified 
+    : profile.paypalEmailVerified;
+  const currentPaypalPayerId = actionData?.paypalPayerId !== undefined 
+    ? actionData.paypalPayerId 
+    : profile.paypalPayerId;
+  const currentPaypalEmailVerifiedAt = actionData?.paypalEmailVerifiedAt !== undefined 
+    ? actionData.paypalEmailVerifiedAt 
+    : profile.paypalEmailVerifiedAt;
   
   // Cover image handling
   const currentCoverImageUrl = actionData?.coverImageUrl || profile.coverImageUrl || '';
@@ -781,8 +1049,9 @@ export default function CreatorSettings() {
 
           <Form method="post" encType="multipart/form-data" className="md:col-span-2">
             <input type="hidden" name="csrf_token" value={csrfToken} />
-            {/* Success/Error Messages */}
-            {actionData?.success && (
+            <input type="hidden" name="formSection" value="personal" />
+            {/* Success/Error Messages - only show for personal form */}
+            {actionData?.success && actionData?.formSection === 'personal' && (
               <div className="mb-6 rounded-md bg-green-50 p-4 dark:bg-green-900/20">
                 <p className="text-sm font-medium text-green-800 dark:text-green-200">
                   {actionData.message || 'Profile updated successfully'}
@@ -790,7 +1059,7 @@ export default function CreatorSettings() {
               </div>
             )}
             
-            {actionData?.error && (
+            {actionData?.error && actionData?.formSection === 'personal' && (
               <div className="mb-6 rounded-md bg-red-50 p-4 dark:bg-red-900/20">
                 <p className="text-sm font-medium text-red-800 dark:text-red-200">
                   {actionData.error}
@@ -798,13 +1067,15 @@ export default function CreatorSettings() {
               </div>
             )}
             
-            {/* Field-level error messages */}
-            {actionData?.fieldErrors && Object.keys(actionData.fieldErrors).length > 0 && (
+            {/* Field-level error messages - only show personal form errors */}
+            {actionData?.fieldErrors && actionData?.formSection === 'personal' && Object.keys(actionData.fieldErrors).filter(key => key !== 'payoutMethod' && key !== 'paypalEmail').length > 0 && (
               <div className="mb-6 rounded-md bg-red-50 p-4 dark:bg-red-900/20">
                 <ul className="list-disc list-inside space-y-1 text-sm text-red-800 dark:text-red-200">
-                  {Object.entries(actionData.fieldErrors).map(([field, message]) => (
-                    <li key={field}>{message}</li>
-                  ))}
+                  {Object.entries(actionData.fieldErrors)
+                    .filter(([field]) => field !== 'payoutMethod' && field !== 'paypalEmail')
+                    .map(([field, message]) => (
+                      <li key={field}>{message}</li>
+                    ))}
                 </ul>
               </div>
             )}
@@ -1207,25 +1478,6 @@ export default function CreatorSettings() {
                 </div>
               </div>
 
-              <div className="col-span-full">
-                <label htmlFor="payoutMethod" className="block text-sm/6 font-medium text-gray-900 dark:text-white">
-                  Payout Method
-                </label>
-                <div className="mt-2 grid grid-cols-1">
-                  <select
-                    id="payoutMethod"
-                    name="payoutMethod"
-                    defaultValue={profile.payoutMethod || 'paypal'}
-                    className="col-start-1 row-start-1 w-full appearance-none rounded-md bg-white py-1.5 pr-8 pl-3 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:*:bg-gray-800 dark:focus:outline-indigo-500"
-                  >
-                    <option value="paypal">PayPal</option>
-                  </select>
-                  <ChevronDownIcon
-                    aria-hidden="true"
-                    className="pointer-events-none col-start-1 row-start-1 mr-2 size-5 self-center justify-self-end text-gray-400 dark:text-gray-300 sm:size-4"
-                  />
-                </div>
-              </div>
             </div>
 
             <div className="mt-8 flex">
@@ -1240,24 +1492,219 @@ export default function CreatorSettings() {
           </Form>
         </div>
 
+        {/* Payouts Section */}
+        <div className="grid max-w-7xl grid-cols-1 gap-x-8 gap-y-10 px-4 py-16 sm:px-6 md:grid-cols-3 lg:px-8 bg-white dark:bg-gray-900">
+          <div>
+            <h2 className="text-base/7 font-semibold text-gray-900 dark:text-white">Payouts</h2>
+            <p className="mt-1 text-sm/6 text-gray-500 dark:text-gray-300">
+              Configure how you receive payments for your listings. Set up your payout method and associated email address.
+            </p>
+          </div>
+
+          <Form method="post" encType="multipart/form-data" className="md:col-span-2">
+            <input type="hidden" name="csrf_token" value={csrfToken} />
+            <input type="hidden" name="formSection" value="payouts" />
+            
+            {/* Success/Error Messages - only show for payouts form */}
+            {actionData?.success && actionData?.formSection === 'payouts' && (
+              <div className="mb-6 rounded-md bg-green-50 p-4 dark:bg-green-900/20">
+                <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                  {actionData.message || 'Payout settings updated successfully'}
+                </p>
+              </div>
+            )}
+            
+            {actionData?.error && actionData?.formSection === 'payouts' && (
+              <div className="mb-6 rounded-md bg-red-50 p-4 dark:bg-red-900/20">
+                <p className="text-sm font-medium text-red-800 dark:text-red-200">
+                  {actionData.error}
+                </p>
+              </div>
+            )}
+            
+            {/* Field-level error messages - only show payout form errors */}
+            {actionData?.fieldErrors && actionData?.formSection === 'payouts' && (actionData.fieldErrors.payoutMethod || actionData.fieldErrors.paypalEmail) && (
+              <div className="mb-6 rounded-md bg-red-50 p-4 dark:bg-red-900/20">
+                <ul className="list-disc list-inside space-y-1 text-sm text-red-800 dark:text-red-200">
+                  {actionData.fieldErrors.payoutMethod && (
+                    <li>{actionData.fieldErrors.payoutMethod}</li>
+                  )}
+                  {actionData.fieldErrors.paypalEmail && (
+                    <li>{actionData.fieldErrors.paypalEmail}</li>
+                  )}
+                </ul>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-x-6 gap-y-8 sm:max-w-xl sm:grid-cols-6">
+              <div className="col-span-full">
+                <label htmlFor="payoutMethod" className="block text-sm/6 font-medium text-gray-900 dark:text-white">
+                  Payout Method
+                </label>
+                <div className="mt-2 grid grid-cols-1">
+                  <select
+                    id="payoutMethod"
+                    name="payoutMethod"
+                    value={payoutMethod}
+                    onChange={(e) => setPayoutMethod(e.target.value)}
+                    className="col-start-1 row-start-1 w-full appearance-none rounded-md bg-white py-1.5 pr-8 pl-3 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:*:bg-gray-800 dark:focus:outline-indigo-500"
+                  >
+                    <option value="paypal">PayPal</option>
+                  </select>
+                  <ChevronDownIcon
+                    aria-hidden="true"
+                    className="pointer-events-none col-start-1 row-start-1 mr-2 size-5 self-center justify-self-end text-gray-400 dark:text-gray-300 sm:size-4"
+                  />
+                </div>
+              </div>
+
+              {/* PayPal Email Input - shown when PayPal is selected */}
+              {payoutMethod === 'paypal' && (
+                <div className="col-span-full">
+                  <label htmlFor="paypalEmail" className="block text-sm/6 font-medium text-gray-900 dark:text-white">
+                    PayPal Email Address
+                  </label>
+                  <div className="mt-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        id="paypalEmail"
+                        name="paypalEmail"
+                        type="email"
+                        autoComplete="email"
+                        placeholder="your.email@example.com"
+                        defaultValue={profile.paypalEmail || ''}
+                        required={payoutMethod === 'paypal'}
+                        maxLength={255}
+                        aria-invalid={actionData?.fieldErrors?.paypalEmail ? 'true' : 'false'}
+                        aria-describedby={actionData?.fieldErrors?.paypalEmail ? 'paypalEmail-error' : undefined}
+                        className={`flex-1 rounded-md bg-white px-3 py-1.5 text-base outline-1 -outline-offset-1 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 sm:text-sm/6 dark:bg-white/5 dark:outline-white/10 dark:placeholder:text-gray-500 ${
+                          actionData?.fieldErrors?.paypalEmail
+                            ? 'text-red-900 outline-red-300 focus:outline-red-600 dark:text-red-200 dark:outline-red-500 dark:focus:outline-red-400'
+                            : 'text-gray-900 outline-gray-300 focus:outline-indigo-600 dark:text-white dark:focus:outline-indigo-500'
+                        }`}
+                      />
+                      {/* Verification Status Badge */}
+                      {profile.paypalEmail && currentPaypalEmailVerified && (
+                        <span className="inline-flex items-center rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20 dark:bg-green-900/20 dark:text-green-400">
+                          <svg className="mr-1 h-3 w-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a1 1 0 00-1.714-1.029L9.5 9.5 8.207 8.207a1 1 0 00-1.414 1.414l1.5 1.5a1 1 0 001.414 0l3-3z" clipRule="evenodd" />
+                          </svg>
+                          Verified
+                        </span>
+                      )}
+                      {profile.paypalEmail && !currentPaypalEmailVerified && (
+                        <span className="inline-flex items-center rounded-md bg-yellow-50 px-2 py-1 text-xs font-medium text-yellow-700 ring-1 ring-inset ring-yellow-600/20 dark:bg-yellow-900/20 dark:text-yellow-400">
+                          <svg className="mr-1 h-3 w-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                          Unverified
+                        </span>
+                      )}
+                    </div>
+                    {actionData?.fieldErrors?.paypalEmail && (
+                      <p id="paypalEmail-error" className="mt-1 text-sm text-red-600 dark:text-red-400">
+                        {actionData.fieldErrors.paypalEmail}
+                      </p>
+                    )}
+                    {!actionData?.fieldErrors?.paypalEmail && (
+                      <div className="mt-1 space-y-1">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          The email address associated with your PayPal account for receiving payouts.
+                        </p>
+                        {profile.paypalEmail && !currentPaypalEmailVerified && (
+                          <p className="text-xs text-yellow-600 dark:text-yellow-400">
+                            ⚠️ This email hasn't been verified yet. Email verification requires PayPal API credentials (API Signature). Your email will be saved and can be verified manually before processing payouts.
+                          </p>
+                        )}
+                        {profile.paypalEmail && currentPaypalEmailVerified && currentPaypalEmailVerifiedAt && (
+                          <p className="text-xs text-green-600 dark:text-green-400">
+                            ✓ Verified on {new Date(currentPaypalEmailVerifiedAt).toLocaleDateString()}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-8 flex">
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
+              >
+                {isSubmitting ? 'Saving...' : 'Save payout settings'}
+              </button>
+            </div>
+          </Form>
+        </div>
+
         {/* Delete Account Section */}
         <div className="grid max-w-7xl grid-cols-1 gap-x-8 gap-y-10 px-4 py-16 sm:px-6 md:grid-cols-3 lg:px-8 bg-white dark:bg-gray-900">
           <div>
             <h2 className="text-base/7 font-semibold text-gray-900 dark:text-white">Delete account</h2>
             <p className="mt-1 text-sm/6 text-gray-500 dark:text-gray-300">
-              No longer want to use our service? You can delete your account here. This action is not reversible.
-              All information related to this account will be deleted permanently.
+              No longer want to use our service? You can log out and disable your account access here.
+              Note: Your account data will be preserved but you will be logged out immediately.
             </p>
           </div>
 
-          <form className="flex items-start md:col-span-2">
-            <button
-              type="submit"
-              className="rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-red-500 dark:bg-red-500 dark:shadow-none dark:hover:bg-red-400"
-            >
-              Yes, delete my account
-            </button>
-          </form>
+          <div className="md:col-span-2">
+            {!showDeleteConfirm ? (
+              <div className="flex items-start gap-4">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-red-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 dark:bg-red-500 dark:shadow-none dark:hover:bg-red-400 dark:focus-visible:outline-red-400"
+                >
+                  Log out and disable account access
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="rounded-md bg-yellow-50 p-4 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+                  <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200 mb-2">
+                    Are you sure you want to log out?
+                  </p>
+                  <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                    You will be logged out immediately and redirected to the login page. Your account data will be preserved.
+                  </p>
+                </div>
+                
+                {actionData?.error && actionData?.formSection === 'deleteAccount' && (
+                  <div className="rounded-md bg-red-50 p-4 dark:bg-red-900/20">
+                    <p className="text-sm font-medium text-red-800 dark:text-red-200">
+                      {actionData.error}
+                    </p>
+                  </div>
+                )}
+                
+                <Form method="post" className="flex items-center gap-4">
+                  <input type="hidden" name="csrf_token" value={csrfToken} />
+                  <input type="hidden" name="action" value="deleteAccount" />
+                  <input type="hidden" name="formSection" value="deleteAccount" />
+                  
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-red-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-red-500 dark:shadow-none dark:hover:bg-red-400 dark:focus-visible:outline-red-400"
+                  >
+                    {isSubmitting ? 'Logging out...' : 'Yes, log me out'}
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(false)}
+                    disabled={isSubmitting}
+                    className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-white/10 dark:text-white dark:ring-white/10 dark:hover:bg-white/20"
+                  >
+                    Cancel
+                  </button>
+                </Form>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </main>
