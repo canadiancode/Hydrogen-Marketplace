@@ -882,6 +882,10 @@ export default function CreatorSettings() {
   const [uploadingProfileImage, setUploadingProfileImage] = useState(false);
   const [uploadingCoverImage, setUploadingCoverImage] = useState(false);
   
+  // Track preview URLs for newly selected images (before upload)
+  const [profileImagePreview, setProfileImagePreview] = useState(null);
+  const [coverImagePreview, setCoverImagePreview] = useState(null);
+  
   // Track payout method selection to conditionally show PayPal email input
   const [payoutMethod, setPayoutMethod] = useState(profile.payoutMethod || 'paypal');
   
@@ -893,8 +897,8 @@ export default function CreatorSettings() {
   // Using proper URL encoding for SVG data URI
   const defaultAvatar = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'%3E%3Crect width='96' height='96' rx='8' fill='%23E5E7EB'/%3E%3Ccircle cx='48' cy='36' r='12' fill='%236B7280'/%3E%3Cpath d='M48 56C38 56 30 62 26 70V80H70V70C66 62 58 56 48 56Z' fill='%236B7280'/%3E%3C/svg%3E";
   
-  // Use actionData profileImageUrl if available (from successful upload), otherwise use profile data
-  const currentImageUrl = actionData?.profileImageUrl || profile.profileImageUrl;
+  // Use preview URL if available (newly selected), otherwise use actionData or profile data
+  const currentImageUrl = profileImagePreview || actionData?.profileImageUrl || profile.profileImageUrl;
   
   // State for image error handling - reset when profile image URL changes
   const [imageError, setImageError] = useState(false);
@@ -943,8 +947,8 @@ export default function CreatorSettings() {
     ? actionData.paypalEmailVerifiedAt 
     : profile.paypalEmailVerifiedAt;
   
-  // Cover image handling
-  const currentCoverImageUrl = actionData?.coverImageUrl || profile.coverImageUrl || '';
+  // Cover image handling - use preview URL if available (newly selected), otherwise use actionData or profile data
+  const currentCoverImageUrl = coverImagePreview || actionData?.coverImageUrl || profile.coverImageUrl || '';
   const [coverImageError, setCoverImageError] = useState(false);
   
   // Construct cover image URL if we have storage path but no URL
@@ -959,11 +963,53 @@ export default function CreatorSettings() {
     }
   }, [coverImageUrl]);
   
+  // Cleanup blob URLs when component unmounts or previews change
+  useEffect(() => {
+    const profilePreview = profileImagePreview;
+    const coverPreview = coverImagePreview;
+    
+    return () => {
+      // Clean up profile image preview blob URL
+      if (profilePreview && (profilePreview.startsWith('blob:') || profilePreview.startsWith('http://') || profilePreview.startsWith('https://'))) {
+        try {
+          URL.revokeObjectURL(profilePreview);
+        } catch (error) {
+          console.warn('Error revoking profile image blob URL:', error);
+        }
+      }
+      // Clean up cover image preview blob URL
+      if (coverPreview && (coverPreview.startsWith('blob:') || coverPreview.startsWith('http://') || coverPreview.startsWith('https://'))) {
+        try {
+          URL.revokeObjectURL(coverPreview);
+        } catch (error) {
+          console.warn('Error revoking cover image blob URL:', error);
+        }
+      }
+    };
+  }, [profileImagePreview, coverImagePreview]);
+  
+  // Clear previews when upload completes successfully
+  useEffect(() => {
+    if (actionData?.success) {
+      if (actionData?.profileImageUrl) {
+        setProfileImagePreview(null);
+      }
+      if (actionData?.coverImageUrl) {
+        setCoverImagePreview(null);
+      }
+    }
+  }, [actionData]);
+  
   // Add cache-busting query parameter to force browser to reload image
   // This helps when the image URL hasn't changed but the file has been updated
   // Include imageVersion to force reload after successful save
+  // Don't add cache-busting to blob URLs (previews)
   const imageUrlToDisplay = useMemo(() => {
     if (!currentImageUrl || imageError) return null;
+    // Don't modify blob URLs (previews)
+    if (currentImageUrl.startsWith('blob:')) {
+      return currentImageUrl;
+    }
     try {
       const urlObj = new URL(currentImageUrl);
       // Add timestamp and version as cache-busting parameters
@@ -976,8 +1022,13 @@ export default function CreatorSettings() {
   }, [currentImageUrl, imageError, imageVersion]);
   
   // Add cache-busting for cover image as well
+  // Don't add cache-busting to blob URLs (previews)
   const coverImageUrlToDisplay = useMemo(() => {
     if (!coverImageUrl || coverImageError) return null;
+    // Don't modify blob URLs (previews)
+    if (coverImageUrl.startsWith('blob:')) {
+      return coverImageUrl;
+    }
     try {
       const urlObj = new URL(coverImageUrl);
       // Add timestamp and version as cache-busting parameters
@@ -1132,8 +1183,39 @@ export default function CreatorSettings() {
                       accept="image/jpeg,image/png,image/webp,image/gif"
                       className="sr-only"
                       onChange={(e) => {
-                        // Auto-submit form when image is selected
+                        // Create preview URL for immediate display
                         if (e.target.files && e.target.files[0]) {
+                          const file = e.target.files[0];
+                          try {
+                            // Validate file type
+                            const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+                            if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+                              alert('Invalid image type. Only JPEG, PNG, WebP, and GIF are allowed.');
+                              e.target.value = ''; // Clear the input
+                              return;
+                            }
+                            
+                            // Validate file size (5MB max)
+                            const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+                            if (file.size > MAX_IMAGE_SIZE) {
+                              alert('Image file size exceeds 5MB limit. Please choose a smaller image.');
+                              e.target.value = ''; // Clear the input
+                              return;
+                            }
+                            
+                            // Create blob URL for preview
+                            const preview = URL.createObjectURL(file);
+                            if (preview && typeof preview === 'string') {
+                              setProfileImagePreview(preview);
+                              setImageError(false);
+                            } else {
+                              console.error('Failed to create blob URL for profile image');
+                            }
+                          } catch (error) {
+                            console.error('Error creating profile image preview:', error);
+                          }
+                          
+                          // Auto-submit form when image is selected
                           setUploadingProfileImage(true);
                           const form = e.target.closest('form');
                           if (form) {
@@ -1205,8 +1287,39 @@ export default function CreatorSettings() {
                         accept="image/jpeg,image/png,image/webp,image/gif"
                         className="sr-only"
                         onChange={(e) => {
-                          // Auto-submit form when image is selected
+                          // Create preview URL for immediate display
                           if (e.target.files && e.target.files[0]) {
+                            const file = e.target.files[0];
+                            try {
+                              // Validate file type
+                              const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+                              if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+                                alert('Invalid image type. Only JPEG, PNG, WebP, and GIF are allowed.');
+                                e.target.value = ''; // Clear the input
+                                return;
+                              }
+                              
+                              // Validate file size (5MB max)
+                              const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+                              if (file.size > MAX_IMAGE_SIZE) {
+                                alert('Cover image file size exceeds 5MB limit. Please choose a smaller image.');
+                                e.target.value = ''; // Clear the input
+                                return;
+                              }
+                              
+                              // Create blob URL for preview
+                              const preview = URL.createObjectURL(file);
+                              if (preview && typeof preview === 'string') {
+                                setCoverImagePreview(preview);
+                                setCoverImageError(false);
+                              } else {
+                                console.error('Failed to create blob URL for cover image');
+                              }
+                            } catch (error) {
+                              console.error('Error creating cover image preview:', error);
+                            }
+                            
+                            // Auto-submit form when image is selected
                             setUploadingCoverImage(true);
                             const form = e.target.closest('form');
                             if (form) {

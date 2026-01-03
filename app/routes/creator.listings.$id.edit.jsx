@@ -788,10 +788,23 @@ export default function EditListing() {
     // Filter to only image files
     const imageFiles = fileArray.filter(file => file.type.startsWith('image/'));
     
+    if (imageFiles.length === 0) {
+      console.warn('No image files found in selection');
+      return;
+    }
+    
     // Create preview URLs for all new files
     const newPhotoItems = imageFiles.map((file) => {
       try {
+        // Create blob URL for immediate preview
         const preview = URL.createObjectURL(file);
+        
+        // Verify the blob URL was created successfully
+        if (!preview || typeof preview !== 'string') {
+          console.error('Failed to create blob URL for file:', file.name);
+          return null;
+        }
+        
         return {
           file,
           preview,
@@ -799,13 +812,15 @@ export default function EditListing() {
           isExisting: false,
         };
       } catch (error) {
-        console.error('Error creating preview URL:', error);
+        console.error('Error creating preview URL:', error, {fileName: file.name, fileType: file.type});
         return null;
       }
     }).filter(Boolean);
     
     if (newPhotoItems.length > 0) {
       setNewPhotos((prev) => [...prev, ...newPhotoItems]);
+    } else {
+      console.warn('No valid photos were processed from selected files');
     }
   };
 
@@ -857,17 +872,25 @@ export default function EditListing() {
     }
   };
 
-  // Cleanup object URLs on unmount
+  // Cleanup object URLs on unmount or when photos change
   useEffect(() => {
+    // Store current photos for cleanup
+    const currentPhotos = newPhotos;
+    
     return () => {
-      // Clean up all blob URLs when component unmounts
-      newPhotos.forEach((photo) => {
-        if (photo.preview && photo.preview.startsWith('blob:')) {
-          URL.revokeObjectURL(photo.preview);
+      // Clean up all blob URLs when component unmounts or photos change
+      currentPhotos.forEach((photo) => {
+        if (photo.preview && (photo.preview.startsWith('blob:') || photo.preview.startsWith('http://') || photo.preview.startsWith('https://'))) {
+          try {
+            URL.revokeObjectURL(photo.preview);
+          } catch (error) {
+            // Ignore errors when revoking URLs (e.g., already revoked)
+            console.warn('Error revoking blob URL:', error);
+          }
         }
       });
     };
-  }, []); // Only run cleanup on unmount
+  }, [newPhotos]); // Cleanup when photos change or component unmounts
 
   // Handle category selection
   const handleCategorySelect = (category) => {
@@ -1030,6 +1053,19 @@ export default function EditListing() {
     <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
       <div className="pb-32 max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
+          {/* Back Button */}
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={() => navigate('/creator/listings')}
+              className="inline-flex items-center text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors"
+            >
+              <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+              Back to Listings
+            </button>
+          </div>
           <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">Edit Listing</h1>
           <p className="text-lg text-gray-600 dark:text-gray-400">
             Update your listing details. Changes will be saved immediately.
@@ -1333,19 +1369,28 @@ export default function EditListing() {
                                   <img
                                     key={`${photo.id}-${imageVersion}`}
                                     src={getImageUrlWithCacheBust(photo.url || photo.preview)}
-                                    alt={`Preview ${index + 1}`}
+                                    alt={`Preview ${index + 1}: ${photo.file?.name || 'image'}`}
                                     className="absolute inset-0 w-full h-full object-cover"
                                     style={{
-                                      display: 'block'
+                                      display: 'block',
+                                      maxWidth: '100%',
+                                      maxHeight: '100%'
                                     }}
+                                    loading="lazy"
                                     onError={(e) => {
                                       console.error('Failed to load image preview:', {
                                         preview: photo.url || photo.preview,
                                         id: photo.id,
+                                        fileName: photo.file?.name,
+                                        fileType: photo.file?.type,
+                                        fileSize: photo.file?.size,
+                                        error: e
                                       });
                                       setImageErrors(prev => new Set(prev).add(photo.id));
                                     }}
                                     onLoad={(e) => {
+                                      // Image loaded successfully
+                                      // Remove from errors if it was there
                                       setImageErrors(prev => {
                                         const next = new Set(prev);
                                         next.delete(photo.id);

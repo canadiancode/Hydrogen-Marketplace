@@ -20,7 +20,8 @@ export default async function handleRequest(
   // Extract Supabase project domain from URL for tighter CSP
   // Format: https://<project-ref>.supabase.co
   // Instead of allowing all *.supabase.co, we restrict to storage subdomain pattern
-  let supabaseImgSrc = ["'self'", 'https://cdn.shopify.com'];
+  // Include 'blob:' to allow client-side image previews (created via URL.createObjectURL)
+  let supabaseImgSrc = ["'self'", 'https://cdn.shopify.com', 'blob:'];
   
   if (context.env.SUPABASE_URL) {
     try {

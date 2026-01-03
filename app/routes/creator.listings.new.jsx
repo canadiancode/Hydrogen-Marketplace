@@ -780,21 +780,33 @@ export default function CreateListing() {
     const fileArray = Array.from(files || []);
     if (fileArray.length === 0) return;
     
-    
     // Filter to only image files
     const imageFiles = fileArray.filter(file => file.type.startsWith('image/'));
+    
+    if (imageFiles.length === 0) {
+      console.warn('No image files found in selection');
+      return;
+    }
     
     // Create preview URLs for all new files
     const newPhotos = imageFiles.map((file) => {
       try {
+        // Create blob URL for immediate preview
         const preview = URL.createObjectURL(file);
+        
+        // Verify the blob URL was created successfully
+        if (!preview || typeof preview !== 'string') {
+          console.error('Failed to create blob URL for file:', file.name);
+          return null;
+        }
+        
         return {
           file,
           preview,
           id: `${Date.now()}-${Math.random().toString(36).substring(7)}`,
         };
       } catch (error) {
-        console.error('Error creating preview URL:', error);
+        console.error('Error creating preview URL:', error, {fileName: file.name, fileType: file.type});
         return null;
       }
     }).filter(Boolean); // Remove any null entries
@@ -804,6 +816,8 @@ export default function CreateListing() {
         const updated = [...prev, ...newPhotos];
         return updated;
       });
+    } else {
+      console.warn('No valid photos were processed from selected files');
     }
   };
 
@@ -860,18 +874,25 @@ export default function CreateListing() {
   };
 
 
-  // Cleanup object URLs on unmount
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Cleanup object URLs on unmount or when photos change
   useEffect(() => {
+    // Store current photos for cleanup
+    const currentPhotos = selectedPhotos;
+    
     return () => {
-      // Clean up all blob URLs when component unmounts
-      selectedPhotos.forEach((photo) => {
-        if (photo.preview && photo.preview.startsWith('blob:')) {
-          URL.revokeObjectURL(photo.preview);
+      // Clean up all blob URLs when component unmounts or photos change
+      currentPhotos.forEach((photo) => {
+        if (photo.preview && (photo.preview.startsWith('blob:') || photo.preview.startsWith('http://') || photo.preview.startsWith('https://'))) {
+          try {
+            URL.revokeObjectURL(photo.preview);
+          } catch (error) {
+            // Ignore errors when revoking URLs (e.g., already revoked)
+            console.warn('Error revoking blob URL:', error);
+          }
         }
       });
     };
-  }, []); // Only run cleanup on unmount
+  }, [selectedPhotos]); // Cleanup when photos change or component unmounts
 
   // Handle category selection
   const handleCategorySelect = (category) => {
@@ -1282,13 +1303,18 @@ export default function CreateListing() {
                                     alt={`Preview ${index + 1}: ${photo.file?.name || 'image'}`}
                                     className="absolute inset-0 w-full h-full object-cover"
                                     style={{
-                                      display: 'block'
+                                      display: 'block',
+                                      maxWidth: '100%',
+                                      maxHeight: '100%'
                                     }}
+                                    loading="lazy"
                                     onError={(e) => {
                                       console.error('Failed to load image preview:', {
                                         preview: photo.preview,
                                         id: photo.id,
                                         fileName: photo.file?.name,
+                                        fileType: photo.file?.type,
+                                        fileSize: photo.file?.size,
                                         error: e
                                       });
                                       // Mark this image as having an error
