@@ -1,6 +1,7 @@
 import {useRouteError, isRouteErrorResponse, useLoaderData} from 'react-router';
 import {Link} from 'react-router';
 import {Breadcrumbs} from '~/components/Breadcrumbs';
+import {LockClosedIcon, TruckIcon, ShieldCheckIcon} from '@heroicons/react/20/solid';
 
 /**
  * Safely extracts base URL from request with security validation
@@ -321,10 +322,76 @@ export default function ForBuyersPage() {
           </div>
           
           {/* Intro Section */}
-          <div className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
-            <p className="text-lg text-gray-700 dark:text-gray-300 leading-relaxed mb-4">
-              Every item on WornVault is one-of-one, creator-owned, and deeply personal. That means trust, discretion, and delivery matter just as much as the item itself. Our fulfillment system is built to protect all three.
-            </p>
+          <div className="overflow-hidden bg-white py-12 sm:py-16 dark:bg-gray-900 mb-12 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8">
+            <div className="mx-auto max-w-7xl">
+              <div className="mx-auto grid max-w-2xl grid-cols-1 gap-x-8 gap-y-16 sm:gap-y-20 lg:mx-0 lg:max-w-none lg:grid-cols-2">
+                <div className="lg:pt-4 lg:pr-8">
+                  <div className="lg:max-w-lg">
+                    <h2 className="text-base/7 font-semibold text-indigo-600 dark:text-indigo-400">
+                      Trusted fulfillment
+                    </h2>
+                    <p className="mt-2 text-4xl font-semibold tracking-tight text-pretty text-gray-900 sm:text-5xl dark:text-white">
+                      Built for one-of-one items
+                    </p>
+                    <p className="mt-6 text-lg/8 text-gray-700 dark:text-gray-300">
+                      Every item on WornVault is one-of-one, creator-owned, and deeply personal. That means trust, discretion, and delivery matter just as much as the item itself. Our fulfillment system is built to protect all three.
+                    </p>
+                    <dl className="mt-10 max-w-xl space-y-8 text-base/7 text-gray-600 lg:max-w-none dark:text-gray-400">
+                      <div className="relative pl-9">
+                        <dt className="inline font-semibold text-gray-900 dark:text-white">
+                          <LockClosedIcon
+                            aria-hidden="true"
+                            className="absolute top-1 left-1 size-5 text-indigo-600 dark:text-indigo-400"
+                          />
+                          Trust & discretion
+                        </dt>{' '}
+                        <dd className="inline">
+                          All shipments follow strict packaging and privacy standards. No branding, no creator identifiers — just discreet delivery to your door.
+                        </dd>
+                      </div>
+                      <div className="relative pl-9">
+                        <dt className="inline font-semibold text-gray-900 dark:text-white">
+                          <TruckIcon
+                            aria-hidden="true"
+                            className="absolute top-1 left-1 size-5 text-indigo-600 dark:text-indigo-400"
+                          />
+                          Direct delivery
+                        </dt>{' '}
+                        <dd className="inline">
+                          Your item ships directly to you using WornVault-issued labels, avoiding unnecessary transfers or holding facilities for faster delivery.
+                        </dd>
+                      </div>
+                      <div className="relative pl-9">
+                        <dt className="inline font-semibold text-gray-900 dark:text-white">
+                          <ShieldCheckIcon
+                            aria-hidden="true"
+                            className="absolute top-1 left-1 size-5 text-indigo-600 dark:text-indigo-400"
+                          />
+                          Professional oversight
+                        </dt>{' '}
+                        <dd className="inline">
+                          WornVault oversees tracking, enforces ship-by deadlines, and steps in immediately if something goes wrong. You contact us — not the creator.
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+                </div>
+                <img
+                  alt="WornVault product page"
+                  src="https://cdn.shopify.com/s/files/1/0024/9551/2691/files/WornVault_Product_Page_Dark_Mode.png?v=1767424778"
+                  width={2432}
+                  height={1442}
+                  className="w-3xl max-w-none rounded-xl shadow-xl ring-1 ring-gray-400/10 not-dark:hidden sm:w-228 md:-ml-4 lg:-ml-0 dark:ring-white/10"
+                />
+                <img
+                  alt="WornVault product page"
+                  src="https://cdn.shopify.com/s/files/1/0024/9551/2691/files/WornVault_Product_Page_Dark_Mode.png?v=1767424778"
+                  width={2432}
+                  height={1442}
+                  className="w-3xl max-w-none rounded-xl shadow-xl ring-1 ring-gray-400/10 sm:w-228 md:-ml-4 lg:-ml-0 dark:hidden dark:ring-white/10"
+                />
+              </div>
+            </div>
           </div>
           
           {/* How Shipping Works Section */}

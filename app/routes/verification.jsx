@@ -58,7 +58,7 @@ function generateStructuredData(baseUrl) {
     '@context': 'https://schema.org',
     '@type': 'Article',
     headline: 'Trust Without Exposure | WornVault',
-    description: 'WornVault verification ensures buyers can trust what they\'re purchasing, while creators remain protected, private, and in control. Learn how authenticity works.',
+    description: 'WornVault verification ensures buyers can trust what they are purchasing, while creators remain protected, private, and in control. Learn how authenticity works.',
     author: {
       '@type': 'Organization',
       name: 'WornVault',
@@ -198,13 +198,13 @@ export const meta = ({request}) => {
     {title: 'Trust Without Exposure | WornVault'},
     {
       name: 'description',
-      content: 'WornVault verification ensures buyers can trust what they\'re purchasing, while creators remain protected, private, and in control. Learn how authenticity works.',
+      content: 'WornVault verification ensures buyers can trust what they are purchasing, while creators remain protected, private, and in control. Learn how authenticity works.',
     },
     {rel: 'canonical', href: canonicalUrl},
     {property: 'og:title', content: 'Trust Without Exposure | WornVault'},
     {
       property: 'og:description',
-      content: 'WornVault verification ensures buyers can trust what they\'re purchasing, while creators remain protected, private, and in control.',
+      content: 'WornVault verification ensures buyers can trust what they are purchasing, while creators remain protected, private, and in control.',
     },
     {property: 'og:type', content: 'article'},
     {property: 'og:url', content: canonicalUrl},
@@ -322,7 +322,7 @@ export default function VerificationPage() {
           {/* Intro Section */}
           <div className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
             <p className="text-lg text-gray-700 dark:text-gray-300 leading-relaxed mb-4">
-              WornVault is built around one-of-one, creator-owned items — many of which are personal, intimate, or impossible to replace. Verification ensures buyers can trust what they\'re purchasing, while creators remain protected, private, and in control.
+              WornVault is built around one-of-one, creator-owned items — many of which are personal, intimate, or impossible to replace. Verification ensures buyers can trust what they are purchasing, while creators remain protected, private, and in control.
             </p>
           </div>
           
@@ -420,7 +420,7 @@ export default function VerificationPage() {
               </li>
             </ul>
             <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-              Verified creators stand out — and buyers know exactly who they\'re buying from, without compromising anyone\'s privacy.
+              Verified creators stand out — and buyers know exactly who they're buying from, without compromising anyone's privacy.
             </p>
           </section>
           

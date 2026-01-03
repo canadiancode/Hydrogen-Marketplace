@@ -437,8 +437,8 @@ export default function FeesPayoutsPage() {
               Shipping is handled and paid for by WornVault.
             </p>
             <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-              There are no separate shipping charges for buyers or creators.
-              All fulfillment costs are included in the creator take-rate.
+              There are no separate shipping charges for creators.
+              All creator fulfillment costs are included in the creator take-rate.
             </p>
           </section>
           

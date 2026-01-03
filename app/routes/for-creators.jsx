@@ -1,5 +1,6 @@
 import {useRouteError, isRouteErrorResponse, useLoaderData} from 'react-router';
 import {Breadcrumbs} from '~/components/Breadcrumbs';
+import {LockClosedIcon, ChatBubbleLeftRightIcon, CheckCircleIcon} from '@heroicons/react/20/solid';
 
 /**
  * Safely extracts base URL from request with security validation
@@ -320,10 +321,76 @@ export default function ForCreatorsPage() {
           </div>
           
           {/* Intro Section */}
-          <div className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
-            <p className="text-lg text-gray-700 dark:text-gray-300 leading-relaxed mb-4">
-              Selling personal, one-of-one items online comes with risk, stress, and constant decision-making. WornVault was built to take that weight off your shoulders, so you can focus on creating — not managing logistics, buyers, or problems.
-            </p>
+          <div className="overflow-hidden bg-white py-12 sm:py-16 dark:bg-gray-900 mb-12 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8">
+            <div className="mx-auto max-w-7xl">
+              <div className="mx-auto grid max-w-2xl grid-cols-1 gap-x-8 gap-y-16 sm:gap-y-20 lg:mx-0 lg:max-w-none lg:grid-cols-2">
+                <div className="lg:pt-4 lg:pr-8">
+                  <div className="lg:max-w-lg">
+                    <h2 className="text-base/7 font-semibold text-indigo-600 dark:text-indigo-400">
+                      Remove friction
+                    </h2>
+                    <p className="mt-2 text-4xl font-semibold tracking-tight text-pretty text-gray-900 sm:text-5xl dark:text-white">
+                      Focus on creating, not logistics
+                    </p>
+                    <p className="mt-6 text-lg/8 text-gray-700 dark:text-gray-300">
+                      Selling personal, one-of-one items online comes with risk, stress, and constant decision-making. WornVault was built to take that weight off your shoulders, so you can focus on creating — not managing logistics, buyers, or problems.
+                    </p>
+                    <dl className="mt-10 max-w-xl space-y-8 text-base/7 text-gray-600 lg:max-w-none dark:text-gray-400">
+                      <div className="relative pl-9">
+                        <dt className="inline font-semibold text-gray-900 dark:text-white">
+                          <LockClosedIcon
+                            aria-hidden="true"
+                            className="absolute top-1 left-1 size-5 text-indigo-600 dark:text-indigo-400"
+                          />
+                          Privacy protection
+                        </dt>{' '}
+                        <dd className="inline">
+                          Your personal address, email, and contact details are never shared with buyers. All shipping is issued and tracked through WornVault.
+                        </dd>
+                      </div>
+                      <div className="relative pl-9">
+                        <dt className="inline font-semibold text-gray-900 dark:text-white">
+                          <ChatBubbleLeftRightIcon
+                            aria-hidden="true"
+                            className="absolute top-1 left-1 size-5 text-indigo-600 dark:text-indigo-400"
+                          />
+                          No buyer management
+                        </dt>{' '}
+                        <dd className="inline">
+                          You never deal with buyers directly. No messages, bargaining, or uncomfortable conversations. WornVault handles all communication and issue resolution.
+                        </dd>
+                      </div>
+                      <div className="relative pl-9">
+                        <dt className="inline font-semibold text-gray-900 dark:text-white">
+                          <CheckCircleIcon
+                            aria-hidden="true"
+                            className="absolute top-1 left-1 size-5 text-indigo-600 dark:text-indigo-400"
+                          />
+                          Managed fulfillment
+                        </dt>{' '}
+                        <dd className="inline">
+                          We send you packaging and prepaid labels. You pack and drop off. We handle tracking, delivery confirmation, and any issues that arise.
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+                </div>
+                <img
+                  alt="WornVault creator dashboard"
+                  src="https://cdn.shopify.com/s/files/1/0024/9551/2691/files/WornVault_Creator_Dashboard_Dark_Mode.png?v=1767425189"
+                  width={2432}
+                  height={1442}
+                  className="w-3xl max-w-none rounded-xl shadow-xl ring-1 ring-gray-400/10 not-dark:hidden sm:w-228 md:-ml-4 lg:-ml-0 dark:ring-white/10"
+                />
+                <img
+                  alt="WornVault creator dashboard"
+                  src="https://cdn.shopify.com/s/files/1/0024/9551/2691/files/WornVault_Creator_Dashboard_Dark_Mode.png?v=1767425189"
+                  width={2432}
+                  height={1442}
+                  className="w-3xl max-w-none rounded-xl shadow-xl ring-1 ring-gray-400/10 sm:w-228 md:-ml-4 lg:-ml-0 dark:hidden dark:ring-white/10"
+                />
+              </div>
+            </div>
           </div>
           
           {/* How Fulfillment Works Section */}

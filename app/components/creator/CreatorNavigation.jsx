@@ -22,6 +22,7 @@ const navigation = [
   { name: 'Social Links', href: '/creator/social-links', icon: LinkIcon },
   { name: 'Logistics', href: '/creator/logistics', icon: TruckIcon },
   { name: 'Sales', href: '/creator/sales', icon: ShoppingCartIcon },
+  { name: 'Payouts', href: '/creator/payouts', icon: BanknotesIcon },
 ]
 
 const settingsNavigation = [
