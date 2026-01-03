@@ -1,5 +1,6 @@
 import {useRouteError, isRouteErrorResponse, useLoaderData} from 'react-router';
 import {Link} from 'react-router';
+import {useEffect, useState} from 'react';
 import {Breadcrumbs} from '~/components/Breadcrumbs';
 import {LockClosedIcon, TruckIcon, ShieldCheckIcon} from '@heroicons/react/20/solid';
 
@@ -80,6 +81,47 @@ function generateStructuredData(baseUrl) {
     articleSection: 'Buyer Information',
     inLanguage: 'en-US',
   };
+}
+
+/**
+ * Custom hook to detect system color scheme preference
+ * Uses matchMedia API for accurate system theme detection
+ * @returns {boolean} - true if dark mode is preferred, false otherwise
+ */
+function useSystemTheme() {
+  const [isDark, setIsDark] = useState(() => {
+    // SSR-safe: default to false (light mode) if window is not available
+    if (typeof window === 'undefined') {
+      return false;
+    }
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+
+  useEffect(() => {
+    // Only run on client side
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    
+    // Update state when preference changes
+    const handleChange = (e) => {
+      setIsDark(e.matches);
+    };
+
+    // Modern browsers support addEventListener
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', handleChange);
+      return () => mediaQuery.removeEventListener('change', handleChange);
+    } else {
+      // Fallback for older browsers
+      mediaQuery.addListener(handleChange);
+      return () => mediaQuery.removeListener(handleChange);
+    }
+  }, []);
+
+  return isDark;
 }
 
 /**
@@ -259,6 +301,7 @@ export async function loader({request}) {
 
 export default function ForBuyersPage() {
   const {baseUrl, structuredDataJson} = useLoaderData();
+  const isDarkMode = useSystemTheme();
   
   return (
     <>
@@ -378,17 +421,14 @@ export default function ForBuyersPage() {
                 </div>
                 <img
                   alt="WornVault product page"
-                  src="https://cdn.shopify.com/s/files/1/0024/9551/2691/files/WornVault_Product_Page_Dark_Mode.png?v=1767424778"
+                  src={
+                    isDarkMode
+                      ? "https://cdn.shopify.com/s/files/1/0024/9551/2691/files/WornVault_Product_Page_Dark_Mode.png?v=1767424778"
+                      : "https://cdn.shopify.com/s/files/1/0024/9551/2691/files/WornVault_Product_Page.png?v=1767424815"
+                  }
                   width={2432}
                   height={1442}
-                  className="w-3xl max-w-none rounded-xl shadow-xl ring-1 ring-gray-400/10 not-dark:hidden sm:w-228 md:-ml-4 lg:-ml-0 dark:ring-white/10"
-                />
-                <img
-                  alt="WornVault product page"
-                  src="https://cdn.shopify.com/s/files/1/0024/9551/2691/files/WornVault_Product_Page_Dark_Mode.png?v=1767424778"
-                  width={2432}
-                  height={1442}
-                  className="w-3xl max-w-none rounded-xl shadow-xl ring-1 ring-gray-400/10 sm:w-228 md:-ml-4 lg:-ml-0 dark:hidden dark:ring-white/10"
+                  className="w-3xl max-w-none rounded-xl shadow-xl ring-1 ring-gray-400/10 sm:w-228 md:-ml-4 lg:-ml-0 dark:ring-white/10"
                 />
               </div>
             </div>

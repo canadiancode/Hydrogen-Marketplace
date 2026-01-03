@@ -384,7 +384,7 @@ export default function ForCreatorsPage() {
                 />
                 <img
                   alt="WornVault creator dashboard"
-                  src="https://cdn.shopify.com/s/files/1/0024/9551/2691/files/WornVault_Creator_Dashboard_Dark_Mode.png?v=1767425189"
+                  src="https://cdn.shopify.com/s/files/1/0024/9551/2691/files/WornVault_Creator_Dashboard.png?v=1767425178"
                   width={2432}
                   height={1442}
                   className="w-3xl max-w-none rounded-xl shadow-xl ring-1 ring-gray-400/10 sm:w-228 md:-ml-4 lg:-ml-0 dark:hidden dark:ring-white/10"
