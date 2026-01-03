@@ -59,7 +59,7 @@ function generateStructuredData(baseUrl) {
     '@context': 'https://schema.org',
     '@type': 'Article',
     headline: 'For Buyers | WornVault',
-    description: 'Discover why WornVault is the trusted marketplace for authentic, verified items. Learn about our buyer protection, discreet delivery, and unique curated collections.',
+    description: 'Buying on WornVault is different — by design. Learn how our fulfillment system protects trust, discretion, and delivery for every one-of-one, creator-owned item.',
     author: {
       '@type': 'Organization',
       name: 'WornVault',
@@ -199,13 +199,13 @@ export const meta = ({request}) => {
     {title: 'For Buyers | WornVault'},
     {
       name: 'description',
-      content: 'Discover why WornVault is the trusted marketplace for authentic, verified items. Learn about our buyer protection, discreet delivery, and unique curated collections.',
+      content: 'Buying on WornVault is different — by design. Learn how our fulfillment system protects trust, discretion, and delivery for every one-of-one, creator-owned item.',
     },
     {rel: 'canonical', href: canonicalUrl},
     {property: 'og:title', content: 'For Buyers | WornVault'},
     {
       property: 'og:description',
-      content: 'Discover why WornVault is the trusted marketplace for authentic, verified items with buyer protection and discreet delivery.',
+      content: 'Buying on WornVault is different — by design. Learn how our fulfillment system protects trust, discretion, and delivery.',
     },
     {property: 'og:type', content: 'article'},
     {property: 'og:url', content: canonicalUrl},
@@ -287,10 +287,10 @@ export default function ForBuyersPage() {
           <div className="relative z-0 mx-auto max-w-4xl py-24 sm:py-32">
             <div className="text-center">
               <h1 className="text-5xl font-semibold tracking-tight text-balance text-gray-900 sm:text-6xl dark:text-white">
-                Why Shop with WornVault
+                Buying on WornVault is different — by design.
               </h1>
               <p className="mt-6 text-lg font-medium text-pretty text-gray-600 sm:text-xl/8 dark:text-gray-400">
-                Authentic items, verified creators, buyer protection
+                Trust, discretion, and delivery matter just as much as the item itself
               </p>
             </div>
           </div>
@@ -320,144 +320,144 @@ export default function ForBuyersPage() {
             />
           </div>
           
-          {/* Why Shop with WornVault Section */}
+          {/* Intro Section */}
+          <div className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
+            <p className="text-lg text-gray-700 dark:text-gray-300 leading-relaxed mb-4">
+              Every item on WornVault is one-of-one, creator-owned, and deeply personal. That means trust, discretion, and delivery matter just as much as the item itself. Our fulfillment system is built to protect all three.
+            </p>
+          </div>
+          
+          {/* How Shipping Works Section */}
           <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 mt-0">
-              Why Shop with WornVault
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
+              How Shipping Works on WornVault
             </h2>
-            
-            <div className="space-y-6">
-              {/* Authentic & Verified */}
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 mt-1">
-                  <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">✔</span>
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                    Authentic & Verified
-                  </h3>
-                  <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed mb-2">
-                    Every item on WornVault comes from a verified creator — so what you're buying is genuine and creator-owned. No surprises. No uncertainty.
-                  </p>
-                </div>
-              </div>
-
-              {/* Platform-Backed Protection */}
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 mt-1">
-                  <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">✔</span>
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                    Platform-Backed Protection
-                  </h3>
-                  <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed mb-2">
-                    Our marketplace isn't peer-to-peer. That means WornVault protects every purchase with buyer safeguards, quality checks, and secure fulfillment.
-                  </p>
-                </div>
-              </div>
-
-              {/* Discreet & Secure Delivery */}
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 mt-1">
-                  <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">✔</span>
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                    Discreet & Secure Delivery
-                  </h3>
-                  <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed mb-2">
-                    Your privacy matters. All purchases are shipped in unbranded packaging with secure delivery so only you know what's inside.
-                  </p>
-                </div>
-              </div>
-
-              {/* Unique Items With Stories */}
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 mt-1">
-                  <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">✔</span>
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                    Unique Items With Stories
-                  </h3>
-                  <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed mb-2">
-                    Browse rare, reworn, and reclaimed pieces that reflect personality, character, and creator craftsmanship — not mass-produced inventory.
-                  </p>
-                </div>
-              </div>
-            </div>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              When you purchase an item, WornVault manages the shipping process from start to finish — even though the item ships directly from the creator.
+            </p>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              Here's what that means for you:
+            </p>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Shipping is prepaid and arranged by WornVault</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Tracking is monitored by WornVault</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Delivery timelines are enforced by WornVault</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Support and resolution are handled by WornVault</span>
+              </li>
+            </ul>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              Creators don't choose how to ship your item. We do.
+            </p>
+            <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
+              Items ship directly to you using WornVault-issued labels and packaging standards, ensuring speed, discretion, and consistency — without unnecessary handling or delays.
+            </p>
           </section>
           
-          {/* How It Works Section */}
+          {/* Why This Matters Section */}
           <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 mt-0">
-              How It Works (Buyer-Friendly)
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
+              Why This Matters for Buyers
             </h2>
             
             <div className="space-y-6">
-              {/* Step 1 */}
+              {/* Faster Delivery */}
               <div>
                 <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">
-                  1. Explore Curated Collections
+                  Faster Delivery
                 </h3>
                 <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                  Find pieces by category, creator, or featured picks — from apparel and accessories to specialty items.
+                  Your item ships directly to you, avoiding unnecessary transfers or holding facilities. Fewer steps means faster delivery and fewer things that can go wrong.
                 </p>
               </div>
 
-              {/* Step 2 */}
+              {/* Discretion by Default */}
               <div>
                 <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">
-                  2. Shop With Confidence
+                  Discretion by Default
                 </h3>
                 <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                  Items are listed with clear conditions, photos, and creator background — so you know exactly what you're buying.
+                  All shipments follow strict packaging and privacy standards. No branding, no creator identifiers, no unnecessary information — just discreet delivery to your door.
                 </p>
               </div>
 
-              {/* Step 3 */}
+              {/* Accountability, Not Guesswork */}
               <div>
                 <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">
-                  3. Platform Handling & Verification
+                  Accountability, Not Guesswork
                 </h3>
-                <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed mb-2">
-                  Once an order is placed, your item is sent to WornVault for intake, inspection, and secure repackaging.
+                <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
+                  You're not relying on individual creators to manage logistics. WornVault oversees tracking, enforces ship-by deadlines, and steps in immediately if something goes wrong.
                 </p>
               </div>
 
-              {/* Step 4 */}
+              {/* Single Point of Support */}
               <div>
                 <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">
-                  4. Delivery to Your Door
+                  Single Point of Support
                 </h3>
                 <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                  Your purchase is shipped directly to you in discreet packaging — no seller details shared.
+                  If you have a question, concern, or issue, you contact WornVault — not the creator. We take responsibility for resolving problems so you don't have to negotiate or chase anyone.
+                </p>
+              </div>
+
+              {/* Reduced Risk */}
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">
+                  Reduced Risk
+                </h3>
+                <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
+                  Because WornVault controls shipping, timelines, and delivery confirmation, buyers experience fewer delays, fewer disputes, and a smoother overall transaction.
                 </p>
               </div>
             </div>
           </section>
           
-          {/* Our Promise Section */}
-          <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 mt-0">
-              Our Promise to You
+          {/* One-of-One Section */}
+          <section className="mb-8">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
+              One-of-One, Without the Stress
             </h2>
-            
-            <div className="space-y-4">
-              <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                Verified creators, trusted quality
-              </p>
-              <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                Buyer protection on every order
-              </p>
-              <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                Discreet service from checkout to delivery
-              </p>
-              <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                Customer support you can rely on
-              </p>
-            </div>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              WornVault was built for items that can't be replaced — and buyers who expect more than a typical resale experience.
+            </p>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              You get:
+            </p>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Unique items you can't find anywhere else</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Direct-to-you delivery without added risk</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Professional oversight without warehouse delays</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>A trusted platform standing behind every order</span>
+              </li>
+            </ul>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              This isn't peer-to-peer shipping.
+            </p>
+            <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
+              It's WornVault-managed fulfillment — designed for trust, privacy, and peace of mind.
+            </p>
           </section>
         </div>
       </div>

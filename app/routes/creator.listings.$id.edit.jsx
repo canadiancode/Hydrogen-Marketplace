@@ -38,10 +38,31 @@ export async function loader({params, context, request}) {
   }
 
   // Fetch creator profile to get creator_id
-  const creatorProfile = await fetchCreatorProfile(user.email, supabaseUrl, anonKey, accessToken);
+  let creatorProfile;
+  try {
+    creatorProfile = await fetchCreatorProfile(user.email, supabaseUrl, anonKey, accessToken);
+  } catch (error) {
+    // Log error but don't crash - treat as profile not found
+    const isProduction = context.env.NODE_ENV === 'production';
+    console.error('Loader: Error fetching creator profile:', isProduction ? error.message : error);
+    const message = encodeURIComponent('Please complete your profile before editing listings');
+    throw redirect(`/creator/settings?message=${message}`);
+  }
   
   if (!creatorProfile || !creatorProfile.id) {
-    throw new Response('Creator profile not found', {status: 404});
+    // Profile doesn't exist - redirect to settings
+    const message = encodeURIComponent('Please complete your profile before editing listings');
+    throw redirect(`/creator/settings?message=${message}`);
+  }
+
+  // Check if required fields are filled out
+  const hasUsername = creatorProfile.handle && creatorProfile.handle.trim().length > 0;
+  const hasDisplayName = creatorProfile.display_name && creatorProfile.display_name.trim().length > 0;
+
+  if (!hasUsername || !hasDisplayName) {
+    // Required fields missing - redirect to settings
+    const message = encodeURIComponent('Please complete your username and display name before editing listings');
+    throw redirect(`/creator/settings?message=${message}`);
   }
 
   // Fetch listing by ID

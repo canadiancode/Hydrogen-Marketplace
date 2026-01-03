@@ -11,28 +11,28 @@ const steps = [
     number: '1',
     name: 'List with Structure',
     description:
-      'Creators list items using a guided flow — including category, condition, and story — ensuring clarity and consistency for buyers.',
+      'Creators list items using a guided flow — including category, condition, and description — ensuring clarity and consistency for buyers.',
     icon: ClipboardDocumentListIcon,
   },
   {
     number: '2',
-    name: 'Item Routes Through WornVault',
+    name: 'WornVault Prepares Fulfillment',
     description:
-      'Once sold, the item ships to WornVault using a prepaid label (or optional white-glove pickup).',
+      'Once an item sells, WornVault initiates shipping on your behalf. We send the creator the right packaging and a prepaid, WornVault-issued label for the buyer.',
     icon: TruckIcon,
   },
   {
     number: '3',
-    name: 'Intake & Handling',
+    name: 'Creator Packs, WornVault Manages',
     description:
-      'We verify, quality-check, and repackage each item with discretion and care.',
+      'The creator packs the item using the provided materials and ships it directly to the buyer using the WornVault label. WornVault monitors tracking, enforces timelines, and handles buyer updates.',
     icon: CheckCircleIcon,
   },
   {
     number: '4',
-    name: 'Buyer Fulfillment',
+    name: 'Discreet Buyer Delivery',
     description:
-      'The item ships to the buyer from WornVault — never directly from the creator.',
+      'The item arrives in discreet, platform-controlled packaging with no creator-identifying information. Neither party ever receives the other\'s personal address or contact details.',
     icon: GiftIcon,
   },
 ];
@@ -51,7 +51,7 @@ export function HowMarketplaceWorks() {
                 A trusted process
               </p>
               <p className="mt-6 text-lg/8 text-gray-700 dark:text-gray-300">
-                Every item sold on WornVault passes through our platform for intake, handling, and fulfillment. Buyers never interact directly with sellers. Creators never expose personal information.
+                Every order on WornVault follows a platform-controlled flow built for privacy, discretion, and consistency. Buyers never interact directly with creators. Creators never expose personal information.
               </p>
               <dl className="mt-10 max-w-xl space-y-8 text-base/7 text-gray-600 lg:max-w-none dark:text-gray-400">
                 {steps.map((step) => (
@@ -69,7 +69,7 @@ export function HowMarketplaceWorks() {
               </dl>
               <div className="mt-10 pt-8 border-t border-gray-200 dark:border-gray-700">
                 <p className="text-base/7 font-semibold text-gray-900 dark:text-white">
-                  This removes peer-to-peer risk entirely.
+                  This keeps the experience private, predictable, and easy for everyone involved.
                 </p>
               </div>
             </div>

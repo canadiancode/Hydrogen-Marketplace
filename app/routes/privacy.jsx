@@ -322,10 +322,10 @@ export default function PrivacyPage() {
           {/* Intro Section */}
           <div className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
             <p className="text-lg text-gray-700 dark:text-gray-300 leading-relaxed mb-4">
-              WornVault is designed for transactions where privacy matters.
+              <strong className="font-semibold text-gray-900 dark:text-white">Built to protect creators and buyers — by default.</strong>
             </p>
             <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed mb-4">
-              From identity verification to fulfillment, every step is intentionally structured to minimize exposure, risk, and unnecessary personal disclosure.
+              WornVault is designed for transactions where privacy matters. From identity verification to fulfillment, every step is intentionally structured to minimize exposure, risk, and unnecessary personal disclosure.
             </p>
             <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed font-semibold">
               Privacy isn't a feature here — it's the foundation.
@@ -338,12 +338,21 @@ export default function PrivacyPage() {
               Your Personal Information Stays Private
             </h2>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
-              WornVault never shares personal addresses, emails, or contact details between creators and buyers.
+              WornVault <strong className="font-semibold text-gray-900 dark:text-white">never shares personal addresses, emails, or contact details</strong> between creators and buyers.
             </p>
-            <ul className="list-disc pl-6 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
-              <li>Creators never see buyer contact information</li>
-              <li>Buyers never receive creator addresses or personal details</li>
-              <li>All communication and fulfillment is handled through WornVault</li>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Creators never see buyer contact information</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Buyers never receive creator addresses or personal details</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>All communication and logistics are handled through WornVault's secure system</span>
+              </li>
             </ul>
             <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
               You never have to trust a stranger with your personal information.
@@ -356,16 +365,24 @@ export default function PrivacyPage() {
               Discreet Fulfillment, Always
             </h2>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
-              Every item sold through WornVault is routed through our fulfillment process.
+              Every item sold through WornVault is shipped directly from the creator using <strong className="font-semibold text-gray-900 dark:text-white">WornVault-issued packaging and labels</strong>.
             </p>
-            <ul className="list-disc pl-6 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
-              <li>Items are shipped to WornVault first</li>
-              <li>We inspect and verify that the item matches the listing</li>
-              <li>Orders are repackaged and shipped discreetly</li>
-              <li>No creator branding, personal names, or identifying details</li>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Packages contain no personal or creator-identifying information</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No names, return addresses, or external branding</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Discreet, neutral, and professionally controlled packaging</span>
+              </li>
             </ul>
             <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-              Packages are clean, neutral, and intentionally unremarkable.
+              Your privacy — and discretion — are enforced with every delivery.
             </p>
           </section>
           
@@ -377,14 +394,26 @@ export default function PrivacyPage() {
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
               WornVault removes the pressure and risk of direct interaction.
             </p>
-            <ul className="list-disc pl-6 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
-              <li>No DMs</li>
-              <li>No negotiations</li>
-              <li>No post-sale conversations</li>
-              <li>No emotional or personal boundary crossing</li>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No DMs</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No negotiations</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No post-sale conversations</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No personal boundary crossing</span>
+              </li>
             </ul>
             <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-              This protects both sides and keeps transactions professional.
+              All buyer and creator communication runs through WornVault's platform so interactions remain professional and secure.
             </p>
           </section>
           
@@ -396,31 +425,87 @@ export default function PrivacyPage() {
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
               Creators can connect verified social platforms to prove account ownership and authenticity — without revealing private credentials.
             </p>
-            <ul className="list-disc pl-6 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
-              <li>OAuth-based verification confirms account access</li>
-              <li>Only public profile links and icons are displayed</li>
-              <li>Login credentials are never shared or stored</li>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>OAuth-based verification confirms account access</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Only public profile links and icons are displayed</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Login credentials are never shared or stored</span>
+              </li>
             </ul>
             <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-              Buyers know who they're buying from — without creators giving up control.
+              Buyers know who they\'re buying from — without creators giving up control.
             </p>
           </section>
           
-          {/* Secure Payments & Platform-Level Protection Section */}
+          {/* Secure Payments, Processing & Protection Section */}
           <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
-              Secure Payments & Platform-Level Protection
+              Secure Payments, Processing & Protection
             </h2>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
-              Payments, disputes, and delivery confirmations are handled by WornVault.
+              WornVault manages all payments, chargebacks, delivery confirmations, and dispute resolution.
             </p>
-            <ul className="list-disc pl-6 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
-              <li>No peer-to-peer payments</li>
-              <li>No direct chargeback exposure</li>
-              <li>No need to handle disputes alone</li>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No peer-to-peer payments</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No direct chargeback exposure</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Delivery tracking and verification managed by WornVault</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Disputes handled at the platform level</span>
+              </li>
             </ul>
             <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-              You sell through a system — not a private transaction.
+              You sell or buy through a system — not a private transaction.
+            </p>
+          </section>
+          
+          {/* How We Collect, Use & Protect Your Data Section */}
+          <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
+              How We Collect, Use & Protect Your Data
+            </h2>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              We collect personal information only to support transactions on the platform, including:
+            </p>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Account creation and identity verification</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Order processing and delivery coordination</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Payment processing and payouts</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Platform safety, fraud prevention, and compliance</span>
+              </li>
+            </ul>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              We use industry-standard security practices to protect your data. We do not sell your personal information to third parties.
+            </p>
+            <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
+              Where required by law (such as GDPR or CCPA), we provide additional disclosures and controls over your data rights.
             </p>
           </section>
           
@@ -433,32 +518,48 @@ export default function PrivacyPage() {
               WornVault acknowledges that some items carry personal, emotional, or adult context.
             </p>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
-              Our platform is built to respect that reality without judgment or exposure.
+              Our platform is built to respect that reality <strong className="font-semibold text-gray-900 dark:text-white">without judgment or exposure</strong>.
             </p>
-            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed font-medium">
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
               Privacy is enforced through:
             </p>
-            <ul className="list-disc pl-6 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
-              <li>Structured logistics</li>
-              <li>Controlled communication</li>
-              <li>Neutral packaging</li>
-              <li>Clear platform boundaries</li>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Structured logistics</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Controlled communication</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Neutral packaging</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Clear platform boundaries</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Secure data handling</span>
+              </li>
             </ul>
           </section>
           
           {/* Privacy You Don't Have to Manage Section */}
-          <section className="mb-12 pb-8">
+          <section className="mb-8">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
               Privacy You Don't Have to Manage
             </h2>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
-              You shouldn't need to think about protecting yourself.
+              You shouldn't have to protect yourself manually.
             </p>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
-              WornVault is built so you don't have to.
+              Whether you're a creator or a buyer, discretion is built into every transaction — automatically.
             </p>
             <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-              Whether you're a creator or a buyer, discretion is built into every transaction — automatically.
+              WornVault is proud to protect your identity, your data, and your peace of mind.
             </p>
           </section>
         </div>

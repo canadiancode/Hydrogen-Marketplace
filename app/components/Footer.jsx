@@ -1,4 +1,5 @@
-import {Link} from 'react-router';
+import {Link, useFetcher} from 'react-router';
+import {useEffect, useRef} from 'react';
 
 const navigation = {
   thingsYouCanBuy: [
@@ -89,6 +90,79 @@ const navigation = {
 };
 
 /**
+ * Newsletter subscription form component
+ * Uses useFetcher to submit without navigation
+ */
+function NewsletterForm() {
+  const fetcher = useFetcher();
+  const formRef = useRef(null);
+  const inputRef = useRef(null);
+  const actionData = fetcher.data;
+  const isSubmitting = fetcher.state === 'submitting';
+
+  // Reset form on successful submission
+  useEffect(() => {
+    if (actionData?.success && formRef.current) {
+      formRef.current.reset();
+      // Focus back to input after a brief delay for better UX
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, 100);
+    }
+  }, [actionData?.success]);
+
+  return (
+    <div className="mt-6 sm:max-w-md lg:mt-0">
+      <fetcher.Form ref={formRef} method="POST" action="/newsletter/subscribe" className="sm:flex sm:w-full">
+        <label htmlFor="email-address" className="sr-only">
+          Email address
+        </label>
+        <div className="w-full sm:flex sm:items-center">
+          <input
+            ref={inputRef}
+            id="email-address"
+            name="email"
+            type="email"
+            required
+            placeholder="Enter your email"
+            autoComplete="email"
+            disabled={isSubmitting}
+            className="w-full min-w-0 rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus-visible:outline-indigo-600 sm:w-56 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-gray-700 dark:placeholder:text-gray-500 dark:focus-visible:outline-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          />
+          <div className="mt-4 sm:mt-0 sm:ml-4 sm:shrink-0">
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="flex w-full items-center justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
+            >
+              {isSubmitting ? 'Subscribing...' : 'Subscribe'}
+            </button>
+          </div>
+        </div>
+      </fetcher.Form>
+      {/* Success Message */}
+      {actionData?.success && (
+        <div className="mt-2">
+          <p className="text-sm font-medium text-green-600 dark:text-green-400">
+            {actionData.message || 'Thank you for subscribing!'}
+          </p>
+        </div>
+      )}
+      {/* Error Message */}
+      {actionData?.error && !actionData.success && (
+        <div className="mt-2">
+          <p className="text-sm font-medium text-red-600 dark:text-red-400">
+            {actionData.error}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * @param {FooterProps}
  */
 export function Footer({footer: footerPromise, header, publicStoreDomain}) {
@@ -173,31 +247,10 @@ export function Footer({footer: footerPromise, header, publicStoreDomain}) {
           <div>
             <h3 className="text-sm/6 font-semibold text-gray-900 dark:text-white">Subscribe to our newsletter</h3>
             <p className="mt-2 text-sm/6 text-gray-600 dark:text-gray-400">
-              The latest news, articles, and resources, sent to your inbox weekly.
+              The latest news, updates, and feature announcements sent to you.
             </p>
           </div>
-          <form className="mt-6 sm:flex sm:max-w-md lg:mt-0">
-            <label htmlFor="email-address" className="sr-only">
-              Email address
-            </label>
-            <input
-              id="email-address"
-              name="email-address"
-              type="email"
-              required
-              placeholder="Enter your email"
-              autoComplete="email"
-              className="w-full min-w-0 rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus-visible:outline-indigo-600 sm:w-56 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-gray-700 dark:placeholder:text-gray-500 dark:focus-visible:outline-indigo-500"
-            />
-            <div className="mt-4 sm:mt-0 sm:ml-4 sm:shrink-0">
-              <button
-                type="submit"
-                className="flex w-full items-center justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
-              >
-                Subscribe
-              </button>
-            </div>
-          </form>
+          <NewsletterForm />
         </div>
         <div className="mt-8 border-t border-gray-900/10 pt-8 md:flex md:items-center md:justify-between dark:border-white/10">
           <div className="flex gap-x-6 md:order-2">

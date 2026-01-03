@@ -1,5 +1,5 @@
 import {useState, useEffect, useMemo} from 'react';
-import {Form, useLoaderData, useActionData, useNavigation, redirect} from 'react-router';
+import {Form, useLoaderData, useActionData, useNavigation, redirect, useSearchParams} from 'react-router';
 import {requireAuth, generateCSRFToken, validateCSRFToken, getClientIP, constantTimeEquals} from '~/lib/auth-helpers';
 import {fetchCreatorProfile, updateCreatorProfile} from '~/lib/supabase';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
@@ -876,7 +876,21 @@ export default function CreatorSettings() {
   const {profile, user, csrfToken, supabaseUrl: loaderSupabaseUrl} = loaderData;
   const actionData = useActionData();
   const navigation = useNavigation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isSubmitting = navigation.state === 'submitting';
+  
+  // Get message from URL query parameter (for redirects from other pages)
+  const redirectMessage = searchParams.get('message');
+  
+  // Clear message from URL after displaying it
+  useEffect(() => {
+    if (redirectMessage) {
+      const newSearchParams = new URLSearchParams(searchParams);
+      newSearchParams.delete('message');
+      setSearchParams(newSearchParams, {replace: true});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [redirectMessage]); // Only depend on redirectMessage to avoid unnecessary re-runs
   
   // Track which image is being uploaded
   const [uploadingProfileImage, setUploadingProfileImage] = useState(false);
@@ -1086,6 +1100,26 @@ export default function CreatorSettings() {
   return (
     <main className="bg-white dark:bg-gray-900">
       <h1 className="sr-only">Account Settings</h1>
+
+      {/* Redirect Message Banner */}
+      {redirectMessage && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+          <div className="mb-6 rounded-md bg-blue-50 dark:bg-blue-900/20 p-4 border border-blue-200 dark:border-blue-800">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3 flex-1">
+                <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                  {redirectMessage}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Settings forms */}
       <div className="divide-y divide-gray-200 dark:divide-white/10 bg-white dark:bg-gray-900">

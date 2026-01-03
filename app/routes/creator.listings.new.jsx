@@ -17,6 +17,48 @@ export async function loader({context, request}) {
   // Require authentication
   const {user, session} = await requireAuth(request, context.env);
   
+  if (!user?.email || !session?.access_token) {
+    throw new Response('Unauthorized', {status: 401});
+  }
+
+  const supabaseUrl = context.env.SUPABASE_URL;
+  const anonKey = context.env.SUPABASE_ANON_KEY;
+  const accessToken = session.access_token;
+
+  if (!supabaseUrl || !anonKey || !accessToken) {
+    console.error('Loader: Missing Supabase configuration');
+    throw new Response('Server configuration error', {status: 500});
+  }
+
+  // Check if creator profile exists and has required fields (username and display name)
+  const {fetchCreatorProfile} = await import('~/lib/supabase');
+  let creatorProfile;
+  try {
+    creatorProfile = await fetchCreatorProfile(user.email, supabaseUrl, anonKey, accessToken);
+  } catch (error) {
+    // Log error but don't crash - treat as profile not found
+    const isProduction = context.env.NODE_ENV === 'production';
+    console.error('Loader: Error fetching creator profile:', isProduction ? error.message : error);
+    const message = encodeURIComponent('Please complete your profile before creating a listing');
+    throw redirect(`/creator/settings?message=${message}`);
+  }
+  
+  if (!creatorProfile || !creatorProfile.id) {
+    // Profile doesn't exist - redirect to settings
+    const message = encodeURIComponent('Please complete your profile before creating a listing');
+    throw redirect(`/creator/settings?message=${message}`);
+  }
+
+  // Check if required fields are filled out
+  const hasUsername = creatorProfile.handle && creatorProfile.handle.trim().length > 0;
+  const hasDisplayName = creatorProfile.display_name && creatorProfile.display_name.trim().length > 0;
+
+  if (!hasUsername || !hasDisplayName) {
+    // Required fields missing - redirect to settings
+    const message = encodeURIComponent('Please complete your username and display name before creating a listing');
+    throw redirect(`/creator/settings?message=${message}`);
+  }
+  
   // Generate CSRF token for form protection
   const csrfToken = await generateCSRFToken(request, context.env.SESSION_SECRET);
   context.session.set('csrf_token', csrfToken);

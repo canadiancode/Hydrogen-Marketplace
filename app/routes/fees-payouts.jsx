@@ -289,7 +289,7 @@ export default function FeesPayoutsPage() {
                 Fees & Payouts
               </h1>
               <p className="mt-6 text-lg font-medium text-pretty text-gray-600 sm:text-xl/8 dark:text-gray-400">
-                How Pricing Works
+              Clear pricing. Predictable payouts. No surprises.
               </p>
             </div>
           </div>
@@ -334,9 +334,9 @@ export default function FeesPayoutsPage() {
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
               Creator Fee
             </h2>
-            <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4">
+            <p className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
               Standard Take-Rate
-            </h3>
+            </p>
             <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-6 mb-6">
               <p className="text-3xl font-bold text-indigo-900 dark:text-indigo-100">
                 15% of the final sale price
@@ -345,13 +345,31 @@ export default function FeesPayoutsPage() {
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
               This fee includes full end-to-end handling of every order:
             </p>
-            <ul className="list-disc pl-6 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
-              <li>Shipping coordination and cost</li>
-              <li>Discreet, platform-controlled packaging</li>
-              <li>Secure fulfillment and delivery tracking</li>
-              <li>Platform-backed issue resolution and disputes</li>
-              <li>No buyer messages, negotiations, or follow-ups</li>
-              <li>No exposure of personal information or addresses</li>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Shipping coordination and cost</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Discreet, platform-controlled packaging</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Secure fulfillment and delivery tracking</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Platform-backed issue resolution and disputes</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No buyer messages, negotiations, or follow-ups</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No exposure of personal information or addresses</span>
+              </li>
             </ul>
             <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
               Creators receive a clean net payout with no additional actions required.
@@ -382,11 +400,23 @@ export default function FeesPayoutsPage() {
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
               This minimum ensures:
             </p>
-            <ul className="list-disc pl-6 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
-              <li>Shipping and discreet packaging are fully covered</li>
-              <li>Fulfillment quality remains high</li>
-              <li>Platform-backed support and issue resolution are sustainable</li>
-              <li>The marketplace maintains a premium standard</li>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Shipping and discreet packaging are fully covered</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Fulfillment quality remains high</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Platform-backed support and issue resolution are sustainable</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>The marketplace maintains a premium standard</span>
+              </li>
             </ul>
             <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 mt-4">
               <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed font-medium">
@@ -432,13 +462,16 @@ export default function FeesPayoutsPage() {
               Payouts
             </h2>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
-              Creators receive their payout after the order is successfully completed and confirmed.
+              Payouts are initiated as soon as the shipping carrier confirms successful delivery to the destination.
             </p>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
               Payouts reflect the sale price minus the applicable take-rate, with no additional deductions or hidden fees.
             </p>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              Currently, payouts are processed via PayPal. Once initiated, PayPal processing typically takes 2-3 business days to appear in your account.
+            </p>
             <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-              Currently, payouts are processed via PayPal. We plan to offer additional payout options in the future.
+              We plan to offer additional payout options in the future.
             </p>
           </section>
         </div>

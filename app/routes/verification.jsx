@@ -50,15 +50,15 @@ function getSafeBaseUrl(request) {
 }
 
 /**
- * Generate JSON-LD structured data for the verification and trust page
+ * Generate JSON-LD structured data for the trust without exposure page
  * @param {string} baseUrl - Base URL for the site
  */
 function generateStructuredData(baseUrl) {
   return {
     '@context': 'https://schema.org',
     '@type': 'Article',
-    headline: 'WornVault — Verification & Trust',
-    description: 'Learn how WornVault ensures authenticity through OAuth-verified creator profiles, platform-controlled item validation, and discreet fulfillment.',
+    headline: 'Trust Without Exposure | WornVault',
+    description: 'WornVault verification ensures buyers can trust what they\'re purchasing, while creators remain protected, private, and in control. Learn how authenticity works.',
     author: {
       '@type': 'Organization',
       name: 'WornVault',
@@ -195,16 +195,16 @@ export const meta = ({request}) => {
   const canonicalUrl = `${baseUrl}/verification`;
   
   return [
-    {title: 'Verification & Trust | WornVault'},
+    {title: 'Trust Without Exposure | WornVault'},
     {
       name: 'description',
-      content: 'Learn how WornVault ensures authenticity through OAuth-verified creator profiles, platform-controlled item validation, and discreet fulfillment.',
+      content: 'WornVault verification ensures buyers can trust what they\'re purchasing, while creators remain protected, private, and in control. Learn how authenticity works.',
     },
     {rel: 'canonical', href: canonicalUrl},
-    {property: 'og:title', content: 'Verification & Trust | WornVault'},
+    {property: 'og:title', content: 'Trust Without Exposure | WornVault'},
     {
       property: 'og:description',
-      content: 'Learn how WornVault ensures authenticity through OAuth-verified creator profiles and platform-controlled validation.',
+      content: 'WornVault verification ensures buyers can trust what they\'re purchasing, while creators remain protected, private, and in control.',
     },
     {property: 'og:type', content: 'article'},
     {property: 'og:url', content: canonicalUrl},
@@ -286,7 +286,7 @@ export default function VerificationPage() {
           <div className="relative z-0 mx-auto max-w-4xl py-24 sm:py-32">
             <div className="text-center">
               <h1 className="text-5xl font-semibold tracking-tight text-balance text-gray-900 sm:text-6xl dark:text-white">
-                Verification & Trust
+                Trust Without Exposure
               </h1>
               <p className="mt-6 text-lg font-medium text-pretty text-gray-600 sm:text-xl/8 dark:text-gray-400">
                 How Authenticity Works
@@ -314,7 +314,7 @@ export default function VerificationPage() {
             <Breadcrumbs 
               items={[
                 {name: 'Home', href: '/', current: false},
-                {name: 'Verification & Trust', href: '/verification', current: true},
+                {name: 'Trust Without Exposure', href: '/verification', current: true},
               ]}
             />
           </div>
@@ -322,133 +322,212 @@ export default function VerificationPage() {
           {/* Intro Section */}
           <div className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
             <p className="text-lg text-gray-700 dark:text-gray-300 leading-relaxed mb-4">
-              WornVault is built around verified identity, controlled logistics, and buyer confidence.
-            </p>
-            <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-              Every item on WornVault is tied to a real creator, authenticated through platform-level verification and validated through hands-on fulfillment. Trust is not optional — it is built into the system.
+              WornVault is built around one-of-one, creator-owned items — many of which are personal, intimate, or impossible to replace. Verification ensures buyers can trust what they\'re purchasing, while creators remain protected, private, and in control.
             </p>
           </div>
           
-          {/* Creator Verification Section */}
+          {/* How Creator Verification Works Section */}
           <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
-              Creator Verification
+              How Creator Verification Works
             </h2>
-            
-            <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4">
-              Connected Accounts, Not Self-Submitted Links
-            </h3>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
               Creators verify their identity by securely connecting their social accounts through OAuth.
             </p>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
-              Supported platforms include:
+              When a creator connects a social account:
             </p>
-            <ul className="list-disc pl-6 space-y-2 text-base text-gray-700 dark:text-gray-300 mb-6">
-              <li>Instagram</li>
-              <li>Facebook</li>
-              <li>YouTube</li>
-              <li>TikTok</li>
-              <li>Twitch</li>
-              <li>X (Twitter)</li>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>We verify that they have direct access to that profile</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>We confirm the account is actively controlled by the creator</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>We ensure the profile represents the individual listing the item</span>
+              </li>
             </ul>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
-              When a creator connects an account, we verify that they have direct access to that profile. Only verified accounts can be displayed on a creator page.
+              Only verified social accounts can be displayed on a creator's page.
             </p>
-            <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-6 mb-6">
-              <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed font-medium mb-2">
-                Creators cannot manually add profile links.
-              </p>
-              <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                Verified social icons appear on the creator's profile and link directly to the authenticated account, allowing buyers to confirm who they are purchasing from — without ambiguity or impersonation.
-              </p>
-            </div>
-            
-            <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4 mt-8">
-              What Verification Means
-            </h3>
-            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed font-medium">
-              Proof of Ownership, Not Endorsement
+            <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
+              WornVault never asks for passwords, and we never gain posting access. Verification simply confirms ownership — nothing more.
             </p>
+          </section>
+          
+          {/* What Verification Confirms Section */}
+          <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
+              What Verification Confirms
+            </h2>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
               Verification confirms that:
             </p>
-            <ul className="list-disc pl-6 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
-              <li>The creator controls the connected social account</li>
-              <li>The profile belongs to the individual listing the item</li>
-              <li>The item is being sold directly by that creator</li>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>The creator controls the connected social account</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>The profile belongs to the individual listing the item</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>The item is being sold directly by that creator — not a third party, impersonator, or reseller</span>
+              </li>
             </ul>
             <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-              Verification does not represent platform endorsement or guarantee future activity on any external platform. It exists solely to establish authenticity and accountability.
+              This allows buyers to purchase with confidence, knowing the item is authentic and directly sourced.
             </p>
           </section>
           
-          {/* Item Validation Section */}
+          {/* Why Verification Matters Section */}
           <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
-              Item Validation
+              Why Verification Matters
             </h2>
-            <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4">
-              Every Item Is Physically Reviewed
-            </h3>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
-              All items sold on WornVault are shipped to us first.
+              WornVault is not an anonymous resale marketplace.
             </p>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
-              Before any item is sent to a buyer, we:
+              Verification ensures:
             </p>
-            <ul className="list-disc pl-6 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
-              <li>Receive the item directly from the creator</li>
-              <li>Confirm it matches the listing description</li>
-              <li>Validate condition, contents, and accuracy</li>
-              <li>Prepare it for controlled fulfillment</li>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Authentic creator identity</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Direct creator-to-buyer sourcing</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Reduced fraud and impersonation</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Higher buyer confidence</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Fewer disputes and failed transactions</span>
+              </li>
             </ul>
             <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-              This step ensures buyers receive exactly what was listed — no substitutions, no surprises.
+              Verified creators stand out — and buyers know exactly who they\'re buying from, without compromising anyone\'s privacy.
             </p>
           </section>
           
-          {/* Discreet Fulfillment Section */}
+          {/* Discreet Fulfillment by Design Section */}
           <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
-              Discreet Fulfillment
+              Discreet Fulfillment by Design
             </h2>
-            <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4">
-              Privacy Is Non-Negotiable
-            </h3>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              Verification doesn't stop at identity — it extends to fulfillment.
+            </p>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
               WornVault handles all packaging and shipping.
             </p>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
-              Items are shipped in discreet, platform-controlled packaging with no creator-identifying information. This is especially important for intimate or adult-oriented items.
+              Items are shipped using platform-controlled packaging and labels, with:
             </p>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No creator-identifying information</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No personal names or addresses</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No branding or external markings</span>
+              </li>
+            </ul>
             <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-              Neither party ever receives the other's personal address or contact details.
+              This is especially important for personal, intimate, or adult-oriented items, where discretion is essential.
             </p>
           </section>
           
-          {/* Buyer Confidence Section */}
+          {/* Privacy Is Non-Negotiable Section */}
           <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
-              Buyer Confidence
+              Privacy Is Non-Negotiable
             </h2>
-            <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4">
-              Trust Without Direct Interaction
-            </h3>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
-              Buyers never need to message creators to verify legitimacy.
+              WornVault is designed so that:
             </p>
-            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
-              Trust is established through:
-            </p>
-            <ul className="list-disc pl-6 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
-              <li>OAuth-verified creator profiles</li>
-              <li>Platform-controlled item validation</li>
-              <li>Centralized fulfillment and tracking</li>
-              <li>WornVault-managed issue resolution</li>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Buyers never receive a creator's personal address or contact details</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Creators never receive a buyer's personal address or contact details</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>All communication and logistics are managed through the platform</span>
+              </li>
             </ul>
             <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-              Every transaction is structured to remove uncertainty, exposure, and risk — while preserving discretion for both sides.
+              Your identity is verified — not exposed.
+            </p>
+          </section>
+          
+          {/* Verification Without Compromise Section */}
+          <section className="mb-8">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
+              Verification Without Compromise
+            </h2>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              WornVault's verification system balances two critical needs:
+            </p>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Buyer trust</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Creator privacy</span>
+              </li>
+            </ul>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              You don't have to choose between legitimacy and discretion.
+            </p>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              Verification on WornVault means:
+            </p>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Buyers know items are real</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Creators stay protected</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Transactions stay controlled</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Privacy remains intact</span>
+              </li>
+            </ul>
+            <p className="text-lg text-gray-700 dark:text-gray-300 leading-relaxed">
+              This is trust — without exposure.
             </p>
           </section>
         </div>

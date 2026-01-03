@@ -58,7 +58,7 @@ function generateStructuredData(baseUrl) {
     '@context': 'https://schema.org',
     '@type': 'Article',
     headline: 'For Creators | WornVault',
-    description: 'Sell what you own. Keep your privacy. Let us handle the rest. Join WornVault as a verified creator and monetize your authentic items with platform-backed protection.',
+    description: 'WornVault exists to remove friction — not add it. Sell personal, one-of-one items without managing logistics, buyers, or problems. Focus on creating while we handle fulfillment.',
     author: {
       '@type': 'Organization',
       name: 'WornVault',
@@ -198,13 +198,13 @@ export const meta = ({request}) => {
     {title: 'For Creators | WornVault'},
     {
       name: 'description',
-      content: 'Sell what you own. Keep your privacy. Let us handle the rest. Join WornVault as a verified creator and monetize your authentic items with platform-backed protection.',
+      content: 'WornVault exists to remove friction — not add it. Sell personal, one-of-one items without managing logistics, buyers, or problems. Focus on creating while we handle fulfillment.',
     },
     {rel: 'canonical', href: canonicalUrl},
     {property: 'og:title', content: 'For Creators | WornVault'},
     {
       property: 'og:description',
-      content: 'Sell what you own. Keep your privacy. Let us handle the rest. Join WornVault as a verified creator.',
+      content: 'WornVault exists to remove friction — not add it. Sell personal, one-of-one items without managing logistics, buyers, or problems.',
     },
     {property: 'og:type', content: 'article'},
     {property: 'og:url', content: canonicalUrl},
@@ -286,10 +286,10 @@ export default function ForCreatorsPage() {
           <div className="relative z-0 mx-auto max-w-4xl py-24 sm:py-32">
             <div className="text-center">
               <h1 className="text-5xl font-semibold tracking-tight text-balance text-gray-900 sm:text-6xl dark:text-white">
-                For Creators
+                WornVault exists to remove friction — not add it.
               </h1>
               <p className="mt-6 text-lg font-medium text-pretty text-gray-600 sm:text-xl/8 dark:text-gray-400">
-                Sell what you own. Keep your privacy. Let us handle the rest.
+                Focus on creating — not managing logistics, buyers, or problems
               </p>
             </div>
           </div>
@@ -322,193 +322,310 @@ export default function ForCreatorsPage() {
           {/* Intro Section */}
           <div className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
             <p className="text-lg text-gray-700 dark:text-gray-300 leading-relaxed mb-4">
-              WornVault is a premium marketplace built for creators who want to sell one-of-one, creator-owned items without the stress, exposure, or logistics of peer-to-peer selling.
-            </p>
-            <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-              We remove the friction so you can focus on creating — not managing buyers, shipping, or disputes.
+              Selling personal, one-of-one items online comes with risk, stress, and constant decision-making. WornVault was built to take that weight off your shoulders, so you can focus on creating — not managing logistics, buyers, or problems.
             </p>
           </div>
           
+          {/* How Fulfillment Works Section */}
+          <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
+              How Fulfillment Works for Creators
+            </h2>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              When one of your items sells, WornVault handles the shipping setup for you.
+            </p>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              You receive:
+            </p>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>A properly sized package sent directly to you</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>A prepaid shipping label addressed to the buyer</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Clear packing instructions and a ship-by deadline</span>
+              </li>
+            </ul>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              You don't need to:
+            </p>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Buy packaging</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Print labels</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Pay for shipping</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Choose a courier</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Manage tracking or delivery issues</span>
+              </li>
+            </ul>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              You simply pack the item and drop it off.
+            </p>
+            <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
+              We manage the rest.
+            </p>
+          </section>
+          
+          {/* Your Privacy Is Protected Section */}
+          <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
+              Your Privacy Is Protected
+            </h2>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              Your personal address, email, and contact details are never shared with buyers.
+            </p>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              Buyers do not see:
+            </p>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Your home address</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Your return address</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Your personal email</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Your phone number</span>
+              </li>
+            </ul>
+            <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
+              All shipping is issued and tracked through WornVault, keeping your identity and location private at all times.
+            </p>
+          </section>
+          
+          {/* No Buyer DMs. No Negotiations Section */}
+          <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
+              No Buyer DMs. No Negotiations.
+            </h2>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              You never deal with buyers directly.
+            </p>
+            <ul className="list-none pl-0 space-y-2 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No messages.</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No bargaining.</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No uncomfortable conversations.</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No follow-ups.</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No pressure.</span>
+              </li>
+            </ul>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              WornVault handles:
+            </p>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Buyer communication</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Shipping updates</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Questions and concerns</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Issue resolution</span>
+              </li>
+            </ul>
+            <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
+              This protects your time, boundaries, and mental energy.
+            </p>
+          </section>
+          
+          {/* We Remove the Friction Section */}
+          <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
+              We Remove the Friction
+            </h2>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              Selling online usually means juggling platforms, payments, shipping, and disputes. WornVault replaces all of that with a single, managed flow.
+            </p>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              You don't have to:
+            </p>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Track packages</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Prove shipment</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Respond to "where is my order?" messages</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Handle delivery delays</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Fight chargebacks</span>
+              </li>
+            </ul>
+            <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
+              Because shipping is managed by WornVault, buyers can't bypass the system — and you aren't left exposed when something goes wrong.
+            </p>
+          </section>
+          
+          {/* No Chargebacks. No Guesswork Section */}
+          <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
+              No Chargebacks. No Guesswork.
+            </h2>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              WornVault controls the transaction, the shipping label, and the delivery confirmation.
+            </p>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              That means:
+            </p>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Chargebacks are prevented at the platform level</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Delivery is verified through WornVault-issued tracking</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Payouts are tied to confirmed shipment and receipt</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Disputes are handled by us — not you</span>
+              </li>
+            </ul>
+            <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
+              You sell with confidence, not uncertainty.
+            </p>
+          </section>
+          
+          {/* Designed for One-of-One Items Section */}
+          <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
+              Designed for One-of-One Items
+            </h2>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              WornVault isn't built for bulk resellers or mass listings.
+            </p>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              It's built for:
+            </p>
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Personal items</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Limited pieces</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Creator-owned goods</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>Items that can't be replaced</span>
+              </li>
+            </ul>
+            <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
+              That's why we prioritize discretion, trust, and professional oversight — so you don't have to manage risk alone.
+            </p>
+          </section>
+          
           {/* Why Creators Choose WornVault Section */}
           <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 mt-0">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
               Why Creators Choose WornVault
             </h2>
-            
-            <div className="space-y-6">
-              {/* Verified creator profiles */}
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 mt-1">
-                  <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">✔</span>
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                    Verified creator profiles
-                  </h3>
-                  <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed mb-2">
-                    Buyers know exactly who they're buying from.
-                  </p>
-                </div>
-              </div>
-
-              {/* No buyer DMs or negotiations */}
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 mt-1">
-                  <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">✔</span>
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                    No buyer DMs or negotiations
-                  </h3>
-                  <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed mb-2">
-                    List once. Sell without inbox pressure.
-                  </p>
-                </div>
-              </div>
-
-              {/* Full privacy protection */}
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 mt-1">
-                  <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">✔</span>
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                    Full privacy protection
-                  </h3>
-                  <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed mb-2">
-                    Your personal address and contact details are never shared.
-                  </p>
-                </div>
-              </div>
-
-              {/* Discreet, professional fulfillment */}
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 mt-1">
-                  <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">✔</span>
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                    Discreet, professional fulfillment
-                  </h3>
-                  <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed mb-2">
-                    Every item is repackaged and shipped discreetly by WornVault.
-                  </p>
-                </div>
-              </div>
-
-              {/* Platform-level trust */}
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 mt-1">
-                  <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">✔</span>
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                    Platform-level trust
-                  </h3>
-                  <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed mb-2">
-                    We receive, inspect, and validate every item before it reaches the buyer.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </section>
-          
-          {/* How It Works Section */}
-          <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 mt-0">
-              How It Works
-            </h2>
-            
-            <div className="space-y-6">
-              {/* Step 1 */}
-              <div>
-                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">
-                  1. List Your Item
-                </h3>
-                <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                  Create a listing with details, condition, and story. You stay in control of what you sell.
-                </p>
-              </div>
-
-              {/* Step 2 */}
-              <div>
-                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">
-                  2. We Handle Fulfillment
-                </h3>
-                <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed mb-2">
-                  Once your item sells, ship it using our prepaid label or request pickup.
-                </p>
-                <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                  We receive it, verify it, and prepare it for delivery.
-                </p>
-              </div>
-
-              {/* Step 3 */}
-              <div>
-                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">
-                  3. Get Paid
-                </h3>
-                <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                  Payouts are issued on a clear schedule after verification and delivery.
-                </p>
-              </div>
-            </div>
-          </section>
-          
-          {/* Built for Privacy, Not Exposure Section */}
-          <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 mt-0">
-              Built for Privacy, Not Exposure
-            </h2>
-            
-            <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed mb-4">
-              WornVault is designed to eliminate the risks that come with selling directly to buyers:
-            </p>
-            
-            <div className="space-y-4 mb-6">
-              <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                No sharing your address
-              </p>
-              <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                No awkward conversations
-              </p>
-              <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                No chargebacks or disputes handled alone
-              </p>
-              <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                No pressure to manage packaging or couriers
-              </p>
-            </div>
-            
-            <p className="text-lg font-semibold text-gray-900 dark:text-white leading-relaxed">
-              You sell. We handle the rest.
+            <ul className="list-none pl-0 space-y-3 text-base text-gray-700 dark:text-gray-300 mb-6">
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No shipping costs</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No packaging stress</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No buyer negotiations</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No personal information exposure</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No fulfillment headaches</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No chargeback anxiety</span>
+              </li>
+              <li className="flex items-start">
+                <span className="mr-2 text-gray-900 dark:text-white">•</span>
+                <span>No platform chaos</span>
+              </li>
+            </ul>
+            <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
+              Just a clean, controlled way to sell unique items — with WornVault handling the hard parts.
             </p>
           </section>
           
-          {/* Who WornVault Is For Section */}
-          <section className="mb-12 pb-8">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 mt-0">
-              Who WornVault Is For
-            </h2>
-            
-            <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed mb-4">
-              WornVault is ideal for creators who:
+          {/* Closing Section */}
+          <section className="mb-8">
+            <p className="text-lg text-gray-700 dark:text-gray-300 leading-relaxed">
+              WornVault isn't just a marketplace.<br />
+              It's infrastructure for creators who want less friction and more peace of mind.
             </p>
-            
-            <div className="space-y-4">
-              <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                Sell one-of-one or personal items
-              </p>
-              <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                Value discretion and control
-              </p>
-              <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                Want a trusted, high-end marketplace
-              </p>
-              <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-                Prefer operations handled professionally
-              </p>
-            </div>
           </section>
         </div>
       </div>
