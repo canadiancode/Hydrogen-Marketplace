@@ -1,7 +1,9 @@
-import {Form, useLoaderData, useActionData, useNavigation} from 'react-router';
+import {Form, useLoaderData, useActionData, useNavigation, useRevalidator, data} from 'react-router';
+import {useEffect} from 'react';
 import {requireAuth, generateCSRFToken, getClientIP, constantTimeEquals} from '~/lib/auth-helpers';
 import {fetchCreatorProfile, createUserSupabaseClient, createServerSupabaseClient} from '~/lib/supabase';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
+import {storeOAuthState} from '~/lib/oauth-state';
 import {CheckCircleIcon, XCircleIcon} from '@heroicons/react/24/solid';
 import {EllipsisVerticalIcon} from '@heroicons/react/20/solid';
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/react';
@@ -20,6 +22,50 @@ const ALLOWED_DOMAINS = {
   x: ['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com'],
   youtube: ['youtube.com', 'www.youtube.com', 'youtu.be'],
   twitch: ['twitch.tv', 'www.twitch.tv'],
+};
+
+// Security: Explicit platform field mapping to prevent injection and ensure type safety
+const PLATFORM_FIELD_MAP = {
+  instagram: {
+    url: 'instagram_url',
+    username: 'instagram_username',
+    verified: 'instagram_verified',
+  },
+  facebook: {
+    url: 'facebook_url',
+    username: 'facebook_username',
+    verified: 'facebook_verified',
+  },
+  tiktok: {
+    url: 'tiktok_url',
+    username: 'tiktok_username',
+    verified: 'tiktok_verified',
+  },
+  x: {
+    url: 'x_url',
+    username: 'x_username',
+    verified: 'x_verified',
+  },
+  youtube: {
+    url: 'youtube_url',
+    username: 'youtube_username',
+    verified: 'youtube_verified',
+  },
+  twitch: {
+    url: 'twitch_url',
+    username: 'twitch_username',
+    verified: 'twitch_verified',
+  },
+};
+
+// Platform display names for user-facing messages
+const PLATFORM_DISPLAY_NAMES = {
+  instagram: 'Instagram',
+  facebook: 'Facebook',
+  tiktok: 'TikTok',
+  x: 'X',
+  youtube: 'YouTube',
+  twitch: 'Twitch',
 };
 
 const DEFAULT_SOCIAL_LINKS = {
@@ -55,9 +101,61 @@ function mapSubmittedLinksToSocialLinks(submittedLinks) {
   };
 }
 
-// Ensure loader revalidates after form submission
-export const shouldRevalidate = ({formMethod}) => {
+// Merge OAuth-verified data from creators table with manually entered links from creator_verifications
+function mergeSocialLinksFromBothSources(submittedLinksData, creatorsData) {
+  const socialLinks = mapSubmittedLinksToSocialLinks(submittedLinksData || {});
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'creator.social-links.jsx:mergeSocialLinksFromBothSources',message:'Merge function called',data:{hasCreatorsData:!!creatorsData,creatorsDataXUrl:creatorsData?.x_url,creatorsDataXVerified:creatorsData?.x_verified,initialSocialLinksX:socialLinks.x},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+  // #endregion
+  
+  // Override with OAuth-verified data from creators table (takes precedence)
+  if (creatorsData) {
+    const platforms = ['instagram', 'facebook', 'tiktok', 'x', 'youtube', 'twitch'];
+    platforms.forEach((platform) => {
+      const urlField = `${platform}_url`;
+      const usernameField = `${platform}_username`;
+      const verifiedField = `${platform}_verified`;
+      
+      // #region agent log
+      if (platform === 'x') {
+        fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'creator.social-links.jsx:mergeSocialLinksFromBothSources:forEach',message:'Processing X platform in merge',data:{platform,urlField,urlValue:creatorsData[urlField],verifiedValue:creatorsData[verifiedField],willUpdate:!!creatorsData[urlField]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      }
+      // #endregion
+      
+      // If OAuth-verified URL exists in creators table, use it (OAuth takes precedence)
+      if (creatorsData[urlField]) {
+        socialLinks[platform] = creatorsData[urlField];
+        socialLinks[`${platform}Verified`] = creatorsData[verifiedField] || false;
+        
+        // #region agent log
+        if (platform === 'x') {
+          fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'creator.social-links.jsx:mergeSocialLinksFromBothSources:update',message:'Updated X in socialLinks',data:{platform,newXValue:socialLinks[platform],newXVerified:socialLinks[`${platform}Verified`]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+        }
+        // #endregion
+      }
+    });
+  }
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'creator.social-links.jsx:mergeSocialLinksFromBothSources:return',message:'Merge function returning',data:{finalSocialLinksX:socialLinks.x,finalSocialLinksXVerified:socialLinks.xVerified},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+  // #endregion
+  
+  return socialLinks;
+}
+
+// Ensure loader revalidates after form submission and OAuth callback redirects
+export const shouldRevalidate = ({formMethod, currentUrl, nextUrl}) => {
   if (formMethod && formMethod !== 'GET') return true;
+  
+  // Revalidate when returning from OAuth callback (has verified=true or error param)
+  const currentParams = new URL(currentUrl).searchParams;
+  const nextParams = new URL(nextUrl).searchParams;
+  if (currentParams.has('verified') || currentParams.has('error') || 
+      nextParams.has('verified') || nextParams.has('error')) {
+    return true;
+  }
+  
   return false;
 };
 
@@ -108,6 +206,9 @@ export async function loader({context, request}) {
     
     if (profile?.id) {
       creatorId = profile.id;
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'creator.social-links.jsx:154',message:'Loader: Fetching social links',data:{creatorId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       
       // Use service role client to read creator_verifications (bypasses RLS)
       // Security: We validate creator_id matches authenticated user's profile
@@ -125,28 +226,36 @@ export async function loader({context, request}) {
           .limit(1)
           .maybeSingle();
         
-        if (!verificationError && verification?.submitted_links) {
-          // Extract social links from submitted_links JSONB
-          const submittedLinks = verification.submitted_links;
-          
-          // Debug logging (remove in production if needed)
-          if (context.env.NODE_ENV === 'development') {
-            console.log('Loaded submitted_links:', submittedLinks);
-          }
-          
-          socialLinks = mapSubmittedLinksToSocialLinks(submittedLinks);
-          
-          // Debug logging (remove in production if needed)
-          if (context.env.NODE_ENV === 'development') {
-            console.log('Mapped socialLinks:', socialLinks);
-          }
-        } else if (verificationError) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'creator.social-links.jsx:172',message:'Loader: creator_verifications query result',data:{hasVerification:!!verification,hasSubmittedLinks:!!verification?.submitted_links,submittedLinks:verification?.submitted_links,error:verificationError?.message||null,creatorId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        
+        // Check creators table for OAuth-verified platforms (FIX: Merge both data sources)
+        const {data: creatorData, error: creatorError} = await serverSupabase
+          .from('creators')
+          .select('x_url,x_username,x_verified,instagram_url,instagram_username,instagram_verified,facebook_url,facebook_username,facebook_verified,tiktok_url,tiktok_username,tiktok_verified,youtube_url,youtube_username,youtube_verified,twitch_url,twitch_username,twitch_verified')
+          .eq('id', creatorId)
+          .maybeSingle();
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'creator.social-links.jsx:180',message:'Loader: creators table query result',data:{hasCreatorData:!!creatorData,creatorData,error:creatorError?.message||null,creatorId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        
+        // Merge data from both sources: creator_verifications.submitted_links and creators table
+        const submittedLinks = verification?.submitted_links || {};
+        socialLinks = mergeSocialLinksFromBothSources(submittedLinks, creatorData);
+        
+        // Debug logging (remove in production if needed)
+        if (context.env.NODE_ENV === 'development') {
+          console.log('Loaded submitted_links:', submittedLinks);
+          console.log('Loaded creators data:', creatorData);
+          console.log('Merged socialLinks:', socialLinks);
+        }
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'creator.social-links.jsx:233',message:'Loader: Merged socialLinks from both sources',data:{socialLinks,creatorId,xUrl:creatorData?.x_url,xUsername:creatorData?.x_username,xVerified:creatorData?.x_verified,mergedX:socialLinks?.x,mergedXVerified:socialLinks?.xVerified},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+        // #endregion
+        
+        if (verificationError) {
           console.error('Error fetching verification record:', verificationError);
-        } else if (!verification) {
-          // No verification record found - this is normal for first-time users
-          if (context.env.NODE_ENV === 'development') {
-            console.log('No verification record found for creator_id:', creatorId);
-          }
         }
       } else {
         // Fallback: try with user client if service role key not available
@@ -164,10 +273,15 @@ export async function loader({context, request}) {
           .limit(1)
           .maybeSingle();
         
-        if (!verificationError && verification?.submitted_links) {
-          const submittedLinks = verification.submitted_links;
-          socialLinks = mapSubmittedLinksToSocialLinks(submittedLinks);
-        }
+        // Also fetch creators table data
+        const {data: creatorData} = await supabase
+          .from('creators')
+          .select('x_url,x_username,x_verified,instagram_url,instagram_username,instagram_verified,facebook_url,facebook_username,facebook_verified,tiktok_url,tiktok_username,tiktok_verified,youtube_url,youtube_username,youtube_verified,twitch_url,twitch_username,twitch_verified')
+          .eq('id', creatorId)
+          .maybeSingle();
+        
+        const submittedLinks = verification?.submitted_links || {};
+        socialLinks = mergeSocialLinksFromBothSources(submittedLinks, creatorData);
       }
     }
   } catch (error) {
@@ -178,13 +292,27 @@ export async function loader({context, request}) {
   const csrfToken = await generateCSRFToken(request, context.env.SESSION_SECRET);
   context.session.set('csrf_token', csrfToken);
 
-  return {
-    user,
-    socialLinks: socialLinks || DEFAULT_SOCIAL_LINKS,
-    csrfToken,
-    callbackMessage,
-    callbackError,
-  };
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'creator.social-links.jsx:276',message:'Loader: Returning socialLinks',data:{socialLinks,hasX:!!socialLinks?.x,xUrl:socialLinks?.x,xVerified:socialLinks?.xVerified,hasVerified:url.searchParams.has('verified'),hasError:url.searchParams.has('error'),verifiedParam:url.searchParams.get('verified'),errorParam:url.searchParams.get('error')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+  // #endregion
+  
+  // Prevent caching to ensure fresh data after OAuth redirects
+  return data(
+    {
+      user,
+      socialLinks: socialLinks || DEFAULT_SOCIAL_LINKS,
+      csrfToken,
+      callbackMessage,
+      callbackError,
+    },
+    {
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
+    }
+  );
 }
 
 export async function action({request, context}) {
@@ -249,16 +377,30 @@ export async function action({request, context}) {
       };
     }
 
+    // Get creator profile to get creator_id
+    const profile = await fetchCreatorProfile(
+      user.email,
+      context.env.SUPABASE_URL,
+      context.env.SUPABASE_ANON_KEY,
+      session.access_token,
+    );
+
+    if (!profile || !profile.id) {
+      return {
+        success: false,
+        error: 'Unable to initiate OAuth. Please try again.',
+      };
+    }
+
     // Generate OAuth state token for CSRF protection
     const oauthState = await generateCSRFToken(request, context.env.SESSION_SECRET);
-    context.session.set(`oauth_state_${platform}`, oauthState);
-    context.session.set(`oauth_platform_${oauthState}`, platform);
 
     // Build OAuth URL based on platform
     const baseUrl = new URL(request.url).origin;
     const redirectUri = `${baseUrl}/creator/social-links/oauth/callback`;
     
     let oauthUrl = '';
+    let codeVerifier = null;
     
     switch (platform) {
       case 'instagram':
@@ -275,12 +417,9 @@ export async function action({request, context}) {
         break;
       case 'x': {
         // Generate PKCE code verifier and challenge
-        const codeVerifier = generateRandomString(128);
+        codeVerifier = generateRandomString(128);
         const codeChallenge = await sha256(codeVerifier);
         const codeChallengeBase64 = base64UrlEncode(codeChallenge);
-        
-        // Store code verifier in session for later use
-        context.session.set(`oauth_code_verifier_${platform}`, codeVerifier);
         
         // X (Twitter) OAuth 2.0 with PKCE
         oauthUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${context.env.X_CLIENT_ID || 'YOUR_CLIENT_ID'}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=tweet.read%20users.read&state=${oauthState}&code_challenge=${codeChallengeBase64}&code_challenge_method=S256`;
@@ -299,6 +438,24 @@ export async function action({request, context}) {
           success: false,
           error: 'Unsupported platform',
         };
+    }
+
+    // Store OAuth state in Supabase instead of session cookie
+    try {
+      await storeOAuthState({
+        state: oauthState,
+        platform,
+        codeVerifier,
+        creatorId: profile.id,
+        supabaseUrl: context.env.SUPABASE_URL,
+        supabaseServiceKey: context.env.SUPABASE_SERVICE_ROLE_KEY,
+      });
+    } catch (error) {
+      console.error('Error storing OAuth state:', error);
+      return {
+        success: false,
+        error: 'Failed to initiate OAuth. Please try again.',
+      };
     }
 
     // Redirect to OAuth provider
@@ -522,6 +679,15 @@ export async function action({request, context}) {
       };
     }
 
+    // Security: Get platform field mapping - validates platform exists in map
+    const platformFields = PLATFORM_FIELD_MAP[platform];
+    if (!platformFields) {
+      return {
+        success: false,
+        error: 'Invalid platform specified',
+      };
+    }
+
     // Validate CSRF token
     const csrfToken = formData.get('csrf_token')?.toString();
     const storedCSRFToken = context.session.get('csrf_token');
@@ -564,6 +730,28 @@ export async function action({request, context}) {
         context.env.SUPABASE_SERVICE_ROLE_KEY,
       );
 
+      // CRITICAL FIX #1: Check if platform exists in creators table
+      // This handles OAuth-verified platforms that may not exist in submitted_links
+      const {data: creatorData, error: creatorCheckError} = await serverSupabase
+        .from('creators')
+        .select(`${platformFields.url}, ${platformFields.username}, ${platformFields.verified}`)
+        .eq('id', profile.id)
+        .single();
+
+      if (creatorCheckError) {
+        console.error('Error checking creator platform data:', creatorCheckError);
+        return {
+          success: false,
+          error: 'Failed to disconnect social link. Please try again.',
+        };
+      }
+
+      // CRITICAL FIX #2: Verify platform actually exists before disconnect
+      // Platform is considered connected if URL, username, or verified status is set
+      const hasPlatformInCreators = !!(creatorData?.[platformFields.url] || 
+                                       creatorData?.[platformFields.username] ||
+                                       creatorData?.[platformFields.verified]);
+
       // Fetch existing verification record
       const {data: existingVerification, error: checkError} = await serverSupabase
         .from('creator_verifications')
@@ -581,41 +769,49 @@ export async function action({request, context}) {
         };
       }
 
-      if (!existingVerification?.submitted_links) {
+      // CRITICAL FIX #3: Check if platform exists in submitted_links
+      const hasPlatformInSubmittedLinks = existingVerification?.submitted_links?.[`${platform}_url`] || 
+                                           existingVerification?.submitted_links?.[platform];
+
+      // Verify platform exists in at least one location
+      if (!hasPlatformInCreators && !hasPlatformInSubmittedLinks) {
         return {
           success: false,
-          error: 'No social links found to disconnect.',
+          error: 'Platform is not connected.',
         };
       }
 
-      // Remove the platform URL from submitted_links
-      const updatedLinks = {...existingVerification.submitted_links};
-      delete updatedLinks[`${platform}_url`];
-      delete updatedLinks[platform]; // Also remove alternative field names
+      // Store original state for potential rollback
+      const originalSubmittedLinks = existingVerification?.submitted_links ? 
+        JSON.parse(JSON.stringify(existingVerification.submitted_links)) : null;
+      const originalCreatorData = creatorData ? JSON.parse(JSON.stringify(creatorData)) : null;
 
-      // Update the creator_verifications record
-      const {error: updateError} = await serverSupabase
-        .from('creator_verifications')
-        .update({
-          submitted_links: updatedLinks,
-        })
-        .eq('id', existingVerification.id)
-        .eq('creator_id', profile.id); // Additional security: ensure creator_id matches
+      // Update creator_verifications if it has the platform
+      let verificationUpdateSuccess = true;
+      if (hasPlatformInSubmittedLinks && existingVerification?.id) {
+        const updatedLinks = {...existingVerification.submitted_links};
+        delete updatedLinks[`${platform}_url`];
+        delete updatedLinks[platform]; // Also remove alternative field names
 
-      if (updateError) {
-        console.error('Error disconnecting social link from creator_verifications:', updateError);
-        return {
-          success: false,
-          error: 'Failed to disconnect social link. Please try again.',
-        };
+        const {error: updateError} = await serverSupabase
+          .from('creator_verifications')
+          .update({
+            submitted_links: updatedLinks,
+          })
+          .eq('id', existingVerification.id)
+          .eq('creator_id', profile.id); // Additional security: ensure creator_id matches
+
+        if (updateError) {
+          console.error('Error disconnecting social link from creator_verifications:', updateError);
+          verificationUpdateSuccess = false;
+        }
       }
 
-      // Clear the platform fields in the creators table
-      // Set URL and username to null, and verified to false
+      // CRITICAL FIX #4: Clear platform fields in creators table using explicit mapping
       const creatorUpdates = {
-        [`${platform}_url`]: null,
-        [`${platform}_username`]: null,
-        [`${platform}_verified`]: false,
+        [platformFields.url]: null,
+        [platformFields.username]: null,
+        [platformFields.verified]: false,
       };
 
       const {error: creatorUpdateError} = await serverSupabase
@@ -623,13 +819,47 @@ export async function action({request, context}) {
         .update(creatorUpdates)
         .eq('id', profile.id); // Security: only update the authenticated user's creator record
 
+      // CRITICAL FIX #5: Rollback logic if second update fails
       if (creatorUpdateError) {
         console.error('Error clearing social link from creators table:', creatorUpdateError);
+        
+        // Rollback creator_verifications update if it succeeded
+        if (verificationUpdateSuccess && originalSubmittedLinks && existingVerification?.id) {
+          const {error: rollbackError} = await serverSupabase
+            .from('creator_verifications')
+            .update({
+              submitted_links: originalSubmittedLinks,
+            })
+            .eq('id', existingVerification.id)
+            .eq('creator_id', profile.id);
+
+          if (rollbackError) {
+            console.error('CRITICAL: Failed to rollback creator_verifications update:', rollbackError);
+            // Log for manual intervention
+            console.error('Manual intervention required - data inconsistency detected', {
+              creatorId: profile.id,
+              platform,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        }
+
         return {
           success: false,
           error: 'Failed to disconnect social link. Please try again.',
         };
       }
+
+      // Security: Audit logging for disconnect operations
+      const clientIP = getClientIP(request);
+      console.log('Social platform disconnected', {
+        creatorId: profile.id,
+        platform,
+        platformDisplayName: PLATFORM_DISPLAY_NAMES[platform] || platform,
+        timestamp: new Date().toISOString(),
+        ip: clientIP,
+        userEmail: user.email,
+      });
 
       // Regenerate CSRF token for next request
       const newCsrfToken = await generateCSRFToken(request, context.env.SESSION_SECRET);
@@ -637,13 +867,29 @@ export async function action({request, context}) {
 
       return {
         success: true,
-        message: `${platform.charAt(0).toUpperCase() + platform.slice(1)} disconnected successfully`,
+        message: `${PLATFORM_DISPLAY_NAMES[platform] || platform} disconnected successfully`,
       };
     } catch (error) {
       const isProduction = context.env.NODE_ENV === 'production';
+      let profileId = null;
+      try {
+        // Attempt to get profile ID for logging, but don't fail if it errors
+        const profile = await fetchCreatorProfile(
+          user.email,
+          context.env.SUPABASE_URL,
+          context.env.SUPABASE_ANON_KEY,
+          session.access_token,
+        );
+        profileId = profile?.id;
+      } catch {
+        // Ignore errors fetching profile for logging
+      }
+      
       console.error('Error disconnecting social link:', {
         error: error.message || 'Unknown error',
         timestamp: new Date().toISOString(),
+        platform,
+        creatorId: profileId,
         ...(isProduction ? {} : {errorStack: error.stack}),
       });
       
@@ -664,7 +910,25 @@ export default function CreatorSocialLinks() {
   const {user, socialLinks, csrfToken, callbackMessage, callbackError} = useLoaderData();
   const actionData = useActionData();
   const navigation = useNavigation();
+  const revalidator = useRevalidator();
   const isSubmitting = navigation.state === 'submitting';
+  
+  // Force revalidation when returning from OAuth callback to ensure fresh data
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('verified') || url.searchParams.has('error')) {
+      // Small delay to ensure redirect has completed, then revalidate
+      const timer = setTimeout(() => {
+        revalidator.revalidate();
+        // Clean up URL params after revalidation
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete('verified');
+        cleanUrl.searchParams.delete('error');
+        window.history.replaceState({}, '', cleanUrl.toString());
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [revalidator]);
   
   // Debug logging (remove in production if needed)
   if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {

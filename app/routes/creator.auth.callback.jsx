@@ -66,8 +66,17 @@ export async function loader({request, context}) {
       return redirect('/creator/login?error=config_error');
     }
     
-    // Redirect to dashboard
-    const response = redirect('/creator/dashboard');
+    // Check for returnTo in URL or session
+    const returnTo = url.searchParams.get('returnTo');
+    let redirectPath = '/creator/dashboard';
+    
+    // Validate returnTo is a safe internal URL
+    if (returnTo && returnTo.startsWith('/') && !returnTo.includes('//') && !returnTo.startsWith('http')) {
+      redirectPath = returnTo;
+    }
+    
+    // Redirect to returnTo or dashboard
+    const response = redirect(redirectPath);
     response.headers.set('Set-Cookie', cookieHeader);
     
     return response;
@@ -85,6 +94,7 @@ export async function action({request, context}) {
   const expiresAt = formData.get('expires_at');
   const expiresIn = formData.get('expires_in');
   const tokenType = formData.get('token_type');
+  const returnTo = formData.get('returnTo'); // Get returnTo from form data
   
   const {env} = context;
   
@@ -147,9 +157,14 @@ export async function action({request, context}) {
     return redirect('/creator/login?error=config_error');
   }
   
-  // Always redirect to dashboard after successful authentication
-  // Profile creation can be handled on the dashboard if needed
-  const redirectUrl = '/creator/dashboard';
+  // Check for returnTo parameter - validate it's a safe internal URL
+  let redirectUrl = '/creator/dashboard';
+  if (returnTo && typeof returnTo === 'string') {
+    // Validate returnTo is a safe internal URL
+    if (returnTo.startsWith('/') && !returnTo.includes('//') && !returnTo.startsWith('http')) {
+      redirectUrl = returnTo;
+    }
+  }
   
   // Create response with cookie
   const response = redirect(redirectUrl);
@@ -168,11 +183,16 @@ export default function AuthCallback() {
       // First check query params for OAuth code (server-side exchange)
       const urlParams = new URLSearchParams(window.location.search);
       const code = urlParams.get('code');
+      const returnTo = urlParams.get('returnTo'); // Get returnTo from URL
       
       if (code) {
         // OAuth code - reload page to trigger server-side exchange in loader
-        // Remove hash to avoid double processing
-        window.location.href = window.location.pathname + '?code=' + code;
+        // Preserve returnTo if present
+        let reloadUrl = window.location.pathname + '?code=' + code;
+        if (returnTo) {
+          reloadUrl += '&returnTo=' + encodeURIComponent(returnTo);
+        }
+        window.location.href = reloadUrl;
         return;
       }
       
@@ -203,6 +223,13 @@ export default function AuthCallback() {
           form.appendChild(createInput('expires_at', expiresAt || ''));
           form.appendChild(createInput('expires_in', expiresIn || '3600'));
           form.appendChild(createInput('token_type', tokenType || 'bearer'));
+          
+          // Preserve returnTo if present in URL
+          const urlParams = new URLSearchParams(window.location.search);
+          const returnTo = urlParams.get('returnTo');
+          if (returnTo) {
+            form.appendChild(createInput('returnTo', returnTo));
+          }
           
           document.body.appendChild(form);
           form.submit();

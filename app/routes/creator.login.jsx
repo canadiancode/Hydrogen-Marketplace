@@ -19,6 +19,15 @@ export async function loader({context, request}) {
   // Check if already authenticated via Supabase
   const {isAuthenticated} = await checkCreatorAuth(request, context.env);
   if (isAuthenticated) {
+    // If authenticated and returnTo is provided, redirect there
+    const url = new URL(request.url);
+    const returnTo = url.searchParams.get('returnTo');
+    if (returnTo && returnTo.startsWith('/')) {
+      // Validate it's a safe internal URL
+      if (!returnTo.includes('//') && !returnTo.startsWith('http')) {
+        return redirect(returnTo);
+      }
+    }
     return redirect('/creator/dashboard');
   }
   
@@ -26,7 +35,12 @@ export async function loader({context, request}) {
   const csrfToken = await generateCSRFToken(request, context.env.SESSION_SECRET);
   context.session.set('csrf_token', csrfToken);
   
-  return {csrfToken};
+  // Get returnTo from query params to pass to component
+  const url = new URL(request.url);
+  const returnTo = url.searchParams.get('returnTo');
+  const message = url.searchParams.get('message');
+  
+  return {csrfToken, returnTo, message};
 }
 
 export async function action({request, context}) {
@@ -75,7 +89,14 @@ export async function action({request, context}) {
     return {error: 'Too many requests. Please try again in a few minutes.'};
   }
   
-  const redirectTo = new URL('/creator/auth/callback', request.url).toString();
+  // Preserve returnTo parameter through auth flow
+  const url = new URL(request.url);
+  const returnTo = url.searchParams.get('returnTo');
+  const redirectToUrl = new URL('/creator/auth/callback', request.url);
+  if (returnTo) {
+    redirectToUrl.searchParams.set('returnTo', returnTo);
+  }
+  const redirectTo = redirectToUrl.toString();
   
   if (authMethod === 'magic-link') {
     if (!email) {
@@ -145,7 +166,7 @@ export async function action({request, context}) {
 
 export default function CreatorLogin() {
   const actionData = useActionData();
-  const {csrfToken} = useLoaderData();
+  const {csrfToken, returnTo, message} = useLoaderData();
   
   return (
     <div className="flex min-h-full flex-col justify-center py-12 sm:px-6 lg:px-8">
@@ -163,6 +184,12 @@ export default function CreatorLogin() {
 
       <div className="mt-10 sm:mx-auto sm:w-full sm:max-w-[480px]">
         <div className="bg-white dark:bg-gray-800 px-6 py-12 shadow-sm sm:rounded-lg sm:px-12">
+          {message && (
+            <div className="mb-6 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4">
+              <p className="text-sm text-blue-800 dark:text-blue-300">{message}</p>
+            </div>
+          )}
+          
           {actionData?.error && (
             <div className="mb-6 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4">
               <p className="text-sm text-red-800 dark:text-red-300">{actionData.error}</p>

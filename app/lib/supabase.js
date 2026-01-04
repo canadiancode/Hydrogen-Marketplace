@@ -130,6 +130,10 @@ export async function getSupabaseSession(request, supabaseUrl, anonKey, isProduc
     return {session: null, user: null, needsRefresh: false};
   }
 
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase.js:getSupabaseSession',message:'Cookie parsing debug',data:{cookieHeader,cookieName,hasCookie:!!cookies[cookieName],cookieKeys:Object.keys(cookies),cookieNameInHeader:cookieHeader.includes(cookieName)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+  // #endregion
+
   const authToken = cookies[cookieName];
 
   if (!authToken) {
@@ -1329,9 +1333,11 @@ export function createSessionCookie(session, supabaseUrl, isProduction = false) 
 
   // Build cookie attributes with enhanced security
   const maxAge = session.expires_in || 3600;
-  // Always use Secure in production, SameSite=Strict for better CSRF protection
+  // Always use Secure in production
+  // Use SameSite=Lax (instead of Strict) to allow cookies on OAuth redirects
+  // Lax still provides CSRF protection while allowing top-level navigations (OAuth flows)
   const secureFlag = isProduction ? '; Secure' : '';
-  const sameSite = '; SameSite=Strict'; // More secure than Lax for auth cookies
+  const sameSite = '; SameSite=Lax'; // Lax allows OAuth redirects while preventing CSRF
   const cookieString = `${cookieName}=${encodeURIComponent(cookieValue)}; Path=/; HttpOnly${sameSite}; Max-Age=${maxAge}${secureFlag}`;
 
   return cookieString;
