@@ -7,7 +7,6 @@ import {sanitizeHTML} from '~/lib/sanitize';
 import {decodeHTMLEntities} from '~/lib/html-entities';
 import {ChevronDownIcon} from '@heroicons/react/16/solid';
 import {createClient} from '@supabase/supabase-js';
-import {verifyPayPalEmail} from '~/lib/paypal-verification';
 
 export const meta = () => {
   return [{title: 'WornVault | Account Settings'}];
@@ -700,63 +699,9 @@ export async function action({request, context}) {
           if (!emailRegex.test(normalizedEmail)) {
             fieldErrors.paypalEmail = 'Please enter a valid PayPal email address';
           } else {
-            // PayPal API verification (non-blocking)
-            // Note: AddressVerify API requires API credentials (USER/PWD/SIGNATURE)
-            // OAuth credentials (Client ID/Secret) cannot be used for AddressVerify
-            const paypalClientId = context.env.PAYPAL_CLIENT_ID;
-            const paypalClientSecret = context.env.PAYPAL_CLIENT_SECRET;
-            const paypalApiSignature = context.env.PAYPAL_API_SIGNATURE;
-            const isPayPalSandbox = context.env.PAYPAL_SANDBOX === 'true';
-            
-            // Only verify if PayPal credentials are configured
-            if (paypalClientId && paypalClientSecret) {
-              try {
-                const verification = await verifyPayPalEmail(
-                  normalizedEmail,
-                  paypalClientId,
-                  paypalClientSecret,
-                  paypalApiSignature || '',
-                  isPayPalSandbox
-                );
-                
-                if (verification.verified) {
-                  // Email is verified - store verification status
-                  updates.paypalEmailVerified = true;
-                  updates.paypalPayerId = verification.payerId || null;
-                  updates.paypalEmailVerifiedAt = new Date().toISOString();
-                } else {
-                  // Email not verified - mark as unverified but don't block submission
-                  updates.paypalEmailVerified = false;
-                  updates.paypalPayerId = null;
-                  updates.paypalEmailVerifiedAt = null;
-                  
-                  // Log if verification was skipped due to missing API signature
-                  if (verification.error && verification.error.includes('API Signature')) {
-                    console.log('PayPal email verification skipped:', {
-                      reason: 'API Signature not configured',
-                      note: 'OAuth credentials (Client ID/Secret) cannot be used for AddressVerify API. API credentials (USER/PWD/SIGNATURE) are required.',
-                    });
-                  }
-                }
-              } catch (error) {
-                // Log error but don't block submission
-                console.error('PayPal verification error:', {
-                  error: error.message || 'Unknown error',
-                  errorName: error.name || 'Error',
-                  timestamp: new Date().toISOString(),
-                });
-                
-                // Mark as unverified on error
-                updates.paypalEmailVerified = false;
-                updates.paypalPayerId = null;
-                updates.paypalEmailVerifiedAt = null;
-              }
-            } else {
-              // PayPal API not configured - mark as unverified
-              updates.paypalEmailVerified = false;
-              updates.paypalPayerId = null;
-              updates.paypalEmailVerifiedAt = null;
-            }
+            // Email format is valid - save it for manual verification by admin
+            // Verification will be done manually by admin, so don't set verification status here
+            // Admin will update paypal_email_verified, paypal_payer_id, and paypal_email_verified_at manually
           }
         }
       }
@@ -1744,7 +1689,7 @@ export default function CreatorSettings() {
                           <svg className="mr-1 h-3 w-3" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
                             <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                           </svg>
-                          Unverified
+                          Pending
                         </span>
                       )}
                     </div>
@@ -1760,12 +1705,16 @@ export default function CreatorSettings() {
                         </p>
                         {profile.paypalEmail && !currentPaypalEmailVerified && (
                           <p className="text-xs text-yellow-600 dark:text-yellow-400">
-                            ⚠️ This email hasn't been verified yet. Email verification requires PayPal API credentials (API Signature). Your email will be saved and can be verified manually before processing payouts.
+                            Your PayPal email will be verified once you receive your first payout.
                           </p>
                         )}
-                        {profile.paypalEmail && currentPaypalEmailVerified && currentPaypalEmailVerifiedAt && (
+                        {profile.paypalEmail && currentPaypalEmailVerified && (
                           <p className="text-xs text-green-600 dark:text-green-400">
-                            ✓ Verified on {new Date(currentPaypalEmailVerifiedAt).toLocaleDateString()}
+                            {currentPaypalEmailVerifiedAt ? (
+                              <>✓ Verified on {new Date(currentPaypalEmailVerifiedAt).toLocaleDateString()}</>
+                            ) : (
+                              <>✓ Your PayPal email has been verified and is ready to receive payouts.</>
+                            )}
                           </p>
                         )}
                       </div>

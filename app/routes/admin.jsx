@@ -89,6 +89,18 @@ export default function AdminLayout() {
             >
               Logistics
             </NavLink>
+            <NavLink
+              to="/admin/payouts"
+              className={({isActive}) =>
+                `flex-shrink-0 border-b-2 py-4 px-1 text-sm font-medium whitespace-nowrap ${
+                  isActive
+                    ? 'border-indigo-500 dark:border-indigo-400 text-indigo-600 dark:text-white'
+                    : 'border-transparent text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-white hover:border-gray-300 dark:hover:border-white/20'
+                }`
+              }
+            >
+              Payouts
+            </NavLink>
           </div>
         </div>
       </nav>

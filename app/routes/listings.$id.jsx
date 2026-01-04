@@ -358,7 +358,7 @@ export default function ListingDetail() {
   
   return (
     <div className="bg-white dark:bg-gray-900">
-      <div className="mx-auto px-4 py-16 sm:px-6 sm:py-24 lg:max-w-7xl lg:px-8">
+      <div className="mx-auto px-4 py-4 sm:px-6 lg:max-w-7xl lg:px-8">
         {/* Breadcrumbs */}
         <div className="mb-6">
           <Breadcrumbs data={{listing}} />

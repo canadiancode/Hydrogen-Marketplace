@@ -41,6 +41,7 @@ export async function loader({request, context}) {
   const dateToParam = url.searchParams.get('dateTo');
   const searchParam = url.searchParams.get('search');
   const verificationStatusParam = url.searchParams.get('verificationStatus');
+  const paypalVerificationStatusParam = url.searchParams.get('paypalVerificationStatus');
   const sortParam = url.searchParams.get('sort');
   
   // Validate date parameters (ISO date format: YYYY-MM-DD)
@@ -71,6 +72,16 @@ export async function loader({request, context}) {
     const trimmed = String(verificationStatusParam).trim();
     if (validVerificationStatuses.includes(trimmed)) {
       sanitizedVerificationStatus = trimmed;
+    }
+  }
+  
+  // Validate PayPal verification status parameter
+  const validPaypalVerificationStatuses = ['pending', 'verified'];
+  let sanitizedPaypalVerificationStatus = null;
+  if (paypalVerificationStatusParam) {
+    const trimmed = String(paypalVerificationStatusParam).trim();
+    if (validPaypalVerificationStatuses.includes(trimmed)) {
+      sanitizedPaypalVerificationStatus = trimmed;
     }
   }
   
@@ -228,7 +239,7 @@ export async function action({request, context}) {
       const currentParams = new URLSearchParams();
       
       // Only preserve safe filter parameters
-      const safeParams = ['verificationStatus', 'dateFrom', 'dateTo', 'search', 'sort'];
+      const safeParams = ['verificationStatus', 'paypalVerificationStatus', 'dateFrom', 'dateTo', 'search', 'sort'];
       safeParams.forEach(param => {
         const value = url.searchParams.get(param);
         if (value) {
@@ -292,6 +303,11 @@ export default function AdminCreators() {
     return statusParam ? [statusParam] : [];
   });
   
+  const [paypalVerificationStatusFilters, setPaypalVerificationStatusFilters] = useState(() => {
+    const statusParam = searchParams.get('paypalVerificationStatus');
+    return statusParam ? [statusParam] : [];
+  });
+  
   // Sort state - initialize from URL params
   const [sortBy, setSortBy] = useState(() => searchParams.get('sort') || 'newest');
   
@@ -300,6 +316,12 @@ export default function AdminCreators() {
     {value: 'pending', label: 'Pending'},
     {value: 'approved', label: 'Approved'},
     {value: 'rejected', label: 'Rejected'},
+  ];
+  
+  // PayPal verification status options
+  const paypalVerificationStatusOptions = [
+    {value: 'pending', label: 'Pending'},
+    {value: 'verified', label: 'Verified'},
   ];
   
   // Sort options
@@ -335,6 +357,26 @@ export default function AdminCreators() {
       filtered = filtered.filter(creator => 
         verificationStatusFilters.includes(creator.verification_status)
       );
+    }
+    
+    // PayPal verification status filter
+    if (paypalVerificationStatusFilters.length > 0) {
+      filtered = filtered.filter(creator => {
+        // Only filter if creator has a PayPal email
+        if (!creator.paypal_email) {
+          return false;
+        }
+        
+        // Check if the filter matches the verification status
+        if (paypalVerificationStatusFilters.includes('verified')) {
+          return creator.paypal_email_verified === true;
+        }
+        if (paypalVerificationStatusFilters.includes('pending')) {
+          return creator.paypal_email_verified === false;
+        }
+        
+        return false;
+      });
     }
     
     // Date range filter
@@ -378,7 +420,7 @@ export default function AdminCreators() {
     });
     
     return sorted;
-  }, [allCreators, search, verificationStatusFilters, dateFrom, dateTo, sortBy]);
+  }, [allCreators, search, verificationStatusFilters, paypalVerificationStatusFilters, dateFrom, dateTo, sortBy]);
   
   // Update URL when filters or sort change
   useEffect(() => {
@@ -389,26 +431,31 @@ export default function AdminCreators() {
     if (verificationStatusFilters.length > 0) {
       params.set('verificationStatus', verificationStatusFilters[0]); // For now, use first selected status
     }
+    if (paypalVerificationStatusFilters.length > 0) {
+      params.set('paypalVerificationStatus', paypalVerificationStatusFilters[0]); // For now, use first selected status
+    }
     if (sortBy && sortBy !== 'newest') {
       params.set('sort', sortBy);
     }
     
     setSearchParams(params, {replace: true});
-  }, [search, verificationStatusFilters, dateFrom, dateTo, sortBy, setSearchParams]);
+  }, [search, verificationStatusFilters, paypalVerificationStatusFilters, dateFrom, dateTo, sortBy, setSearchParams]);
   
   // Count active filters
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (verificationStatusFilters.length > 0) count++;
+    if (paypalVerificationStatusFilters.length > 0) count++;
     if (dateFrom) count++;
     if (dateTo) count++;
     if (search) count++;
     return count;
-  }, [verificationStatusFilters, dateFrom, dateTo, search]);
+  }, [verificationStatusFilters, paypalVerificationStatusFilters, dateFrom, dateTo, search]);
   
   // Clear all filters
   const clearFilters = () => {
     setVerificationStatusFilters([]);
+    setPaypalVerificationStatusFilters([]);
     setDateFrom('');
     setDateTo('');
     setSearch('');
@@ -481,7 +528,7 @@ export default function AdminCreators() {
         )}
         
         {/* Stats Summary */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-8">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
           <div className="bg-white dark:bg-white/5 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-white/10">
             <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Creators</p>
             <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{allCreators.length}</p>
@@ -496,6 +543,12 @@ export default function AdminCreators() {
             <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Pending Verification</p>
             <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400 mt-1">
               {allCreators.filter(c => c.verification_status === 'pending').length}
+            </p>
+          </div>
+          <div className="bg-white dark:bg-white/5 rounded-lg shadow-sm p-4 border border-gray-200 dark:border-white/10">
+            <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Pending PayPal Verification</p>
+            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">
+              {allCreators.filter(c => c.paypal_email && !c.paypal_email_verified).length}
             </p>
           </div>
         </div>
@@ -535,7 +588,7 @@ export default function AdminCreators() {
           </div>
           <DisclosurePanel className="border-t border-gray-200 dark:border-white/10 py-10">
             <div className="mx-auto grid max-w-7xl grid-cols-1 gap-x-4 px-4 text-sm sm:px-6 md:gap-x-6 lg:px-8">
-              <div className="grid auto-rows-min grid-cols-1 gap-y-10 md:grid-cols-3 md:gap-x-6">
+              <div className="grid auto-rows-min grid-cols-1 gap-y-10 md:grid-cols-2 lg:grid-cols-4 md:gap-x-6">
                 {/* Search Filter */}
                 <fieldset>
                   <legend className="block font-medium text-gray-900 dark:text-white">Search</legend>
@@ -576,6 +629,37 @@ export default function AdminCreators() {
                         <label
                           id={`verification-label-${optionIdx}`}
                           htmlFor={`verification-${optionIdx}`}
+                          className="text-base text-gray-600 dark:text-gray-400 sm:text-sm cursor-pointer"
+                        >
+                          {option.label}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </fieldset>
+                
+                {/* PayPal Verification Status Filter */}
+                <fieldset>
+                  <legend className="block font-medium text-gray-900 dark:text-white">PayPal Verification Status</legend>
+                  <div className="space-y-6 pt-6 sm:space-y-4 sm:pt-4">
+                    {paypalVerificationStatusOptions.map((option, optionIdx) => (
+                      <div key={option.value} className="flex items-center gap-3">
+                        <Checkbox
+                          id={`paypal-verification-${optionIdx}`}
+                          name="paypalVerificationStatus[]"
+                          checked={paypalVerificationStatusFilters.includes(option.value)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setPaypalVerificationStatusFilters([...paypalVerificationStatusFilters, option.value]);
+                            } else {
+                              setPaypalVerificationStatusFilters(paypalVerificationStatusFilters.filter(s => s !== option.value));
+                            }
+                          }}
+                          aria-labelledby={`paypal-verification-label-${optionIdx}`}
+                        />
+                        <label
+                          id={`paypal-verification-label-${optionIdx}`}
+                          htmlFor={`paypal-verification-${optionIdx}`}
                           className="text-base text-gray-600 dark:text-gray-400 sm:text-sm cursor-pointer"
                         >
                           {option.label}
@@ -921,6 +1005,20 @@ function CreatorItem({creator, isSelected, onSelect}) {
           <p className="whitespace-nowrap">
             Joined <time dateTime={creator.created_at}>{formatDate(creator.created_at)}</time>
           </p>
+          {creator.paypal_email && (
+            <>
+              <svg viewBox="0 0 2 2" className="size-0.5 fill-current">
+                <circle r={1} cx={1} cy={1} />
+              </svg>
+              <p className="whitespace-nowrap">
+                {creator.paypal_email_verified ? (
+                  <span className="text-green-600 dark:text-green-400">PayPal verified</span>
+                ) : (
+                  <span className="text-yellow-600 dark:text-yellow-400">PayPal pending</span>
+                )}
+              </p>
+            </>
+          )}
         </div>
         {creator.bio && (
           <div className="mt-2">
