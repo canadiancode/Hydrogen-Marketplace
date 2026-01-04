@@ -3,6 +3,8 @@ import {requireAuth, generateCSRFToken, getClientIP, constantTimeEquals} from '~
 import {fetchCreatorProfile, createUserSupabaseClient, createServerSupabaseClient} from '~/lib/supabase';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
 import {CheckCircleIcon, XCircleIcon} from '@heroicons/react/24/solid';
+import {EllipsisVerticalIcon} from '@heroicons/react/20/solid';
+import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/react';
 
 export const meta = () => {
   return [{title: 'WornVault | Social Links'}];
@@ -508,6 +510,150 @@ export async function action({request, context}) {
     }
   }
 
+  // Handle disconnecting a social media platform
+  if (actionType === 'disconnect') {
+    const platform = formData.get('platform')?.toString();
+    
+    // Validate platform
+    if (!platform || !VALID_PLATFORMS.has(platform)) {
+      return {
+        success: false,
+        error: 'Invalid platform specified',
+      };
+    }
+
+    // Validate CSRF token
+    const csrfToken = formData.get('csrf_token')?.toString();
+    const storedCSRFToken = context.session.get('csrf_token');
+    
+    if (!csrfToken || !storedCSRFToken || !constantTimeEquals(csrfToken, storedCSRFToken)) {
+      return {
+        success: false,
+        error: 'Invalid security token. Please refresh the page and try again.',
+      };
+    }
+
+    try {
+      // Get creator profile to get creator_id
+      const profile = await fetchCreatorProfile(
+        user.email,
+        context.env.SUPABASE_URL,
+        context.env.SUPABASE_ANON_KEY,
+        session.access_token,
+      );
+
+      if (!profile || !profile.id) {
+        return {
+          success: false,
+          error: 'Unable to disconnect social link. Please try again.',
+        };
+      }
+
+      // Validate that SUPABASE_SERVICE_ROLE_KEY is available
+      if (!context.env.SUPABASE_SERVICE_ROLE_KEY) {
+        console.error('SUPABASE_SERVICE_ROLE_KEY is not configured');
+        return {
+          success: false,
+          error: 'Server configuration error. Please contact support.',
+        };
+      }
+
+      // Use service role client to bypass RLS for update
+      const serverSupabase = createServerSupabaseClient(
+        context.env.SUPABASE_URL,
+        context.env.SUPABASE_SERVICE_ROLE_KEY,
+      );
+
+      // Fetch existing verification record
+      const {data: existingVerification, error: checkError} = await serverSupabase
+        .from('creator_verifications')
+        .select('id, submitted_links')
+        .eq('creator_id', profile.id)
+        .order('created_at', {ascending: false})
+        .limit(1)
+        .maybeSingle();
+
+      if (checkError) {
+        console.error('Error checking existing verification:', checkError);
+        return {
+          success: false,
+          error: 'Failed to disconnect social link. Please try again.',
+        };
+      }
+
+      if (!existingVerification?.submitted_links) {
+        return {
+          success: false,
+          error: 'No social links found to disconnect.',
+        };
+      }
+
+      // Remove the platform URL from submitted_links
+      const updatedLinks = {...existingVerification.submitted_links};
+      delete updatedLinks[`${platform}_url`];
+      delete updatedLinks[platform]; // Also remove alternative field names
+
+      // Update the creator_verifications record
+      const {error: updateError} = await serverSupabase
+        .from('creator_verifications')
+        .update({
+          submitted_links: updatedLinks,
+        })
+        .eq('id', existingVerification.id)
+        .eq('creator_id', profile.id); // Additional security: ensure creator_id matches
+
+      if (updateError) {
+        console.error('Error disconnecting social link from creator_verifications:', updateError);
+        return {
+          success: false,
+          error: 'Failed to disconnect social link. Please try again.',
+        };
+      }
+
+      // Clear the platform fields in the creators table
+      // Set URL and username to null, and verified to false
+      const creatorUpdates = {
+        [`${platform}_url`]: null,
+        [`${platform}_username`]: null,
+        [`${platform}_verified`]: false,
+      };
+
+      const {error: creatorUpdateError} = await serverSupabase
+        .from('creators')
+        .update(creatorUpdates)
+        .eq('id', profile.id); // Security: only update the authenticated user's creator record
+
+      if (creatorUpdateError) {
+        console.error('Error clearing social link from creators table:', creatorUpdateError);
+        return {
+          success: false,
+          error: 'Failed to disconnect social link. Please try again.',
+        };
+      }
+
+      // Regenerate CSRF token for next request
+      const newCsrfToken = await generateCSRFToken(request, context.env.SESSION_SECRET);
+      context.session.set('csrf_token', newCsrfToken);
+
+      return {
+        success: true,
+        message: `${platform.charAt(0).toUpperCase() + platform.slice(1)} disconnected successfully`,
+      };
+    } catch (error) {
+      const isProduction = context.env.NODE_ENV === 'production';
+      console.error('Error disconnecting social link:', {
+        error: error.message || 'Unknown error',
+        timestamp: new Date().toISOString(),
+        ...(isProduction ? {} : {errorStack: error.stack}),
+      });
+      
+      return {
+        success: false,
+        error: 'Failed to disconnect social link. Please try again.',
+      };
+    }
+  }
+
   return {
     success: false,
     error: 'Invalid action',
@@ -618,86 +764,107 @@ export default function CreatorSocialLinks() {
           </p>
         </div>
 
-        <Form method="post" className="space-y-6">
-          <input type="hidden" name="csrf_token" value={csrfToken} />
-          <input type="hidden" name="action_type" value="save" />
+        {/* Success/Error Messages */}
+        {(actionData?.success || callbackMessage) && (
+          <div className="mb-6 rounded-md bg-green-50 p-4 dark:bg-green-900/20">
+            <p className="text-sm font-medium text-green-800 dark:text-green-200">
+              {callbackMessage || actionData?.message || 'Social links saved successfully'}
+            </p>
+          </div>
+        )}
+        
+        {(actionData?.error || callbackError) && (
+          <div className="mb-6 rounded-md bg-red-50 p-4 dark:bg-red-900/20">
+            <p className="text-sm font-medium text-red-800 dark:text-red-200">
+              {String(callbackError || actionData?.error || '')}
+            </p>
+          </div>
+        )}
 
-          {/* Success/Error Messages */}
-          {(actionData?.success || callbackMessage) && (
-            <div className="rounded-md bg-green-50 p-4 dark:bg-green-900/20">
-              <p className="text-sm font-medium text-green-800 dark:text-green-200">
-                {callbackMessage || actionData?.message || 'Social links saved successfully'}
-              </p>
-            </div>
-          )}
-          
-          {(actionData?.error || callbackError) && (
-            <div className="rounded-md bg-red-50 p-4 dark:bg-red-900/20">
-              <p className="text-sm font-medium text-red-800 dark:text-red-200">
-                {String(callbackError || actionData?.error || '')}
-              </p>
-            </div>
-          )}
+        {/* Social Platform Cards */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 space-y-6">
+          {platforms.map((platform) => {
+            const IconComponent = platform.Icon;
+            const isConnected = !!socialLinks?.[platform.key];
+            const connectedUrl = socialLinks?.[platform.key] || '';
 
-          {/* Social Platform Inputs */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 space-y-6">
-            {platforms.map((platform) => {
-              const IconComponent = platform.Icon;
-
-              return (
-                <div key={platform.key} className="border-b border-gray-200 dark:border-gray-700 pb-6 last:border-b-0 last:pb-0">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <IconComponent className="h-6 w-6 text-gray-700 dark:text-gray-300" aria-hidden="true" />
+            return (
+              <div key={platform.key} className="border-b border-gray-200 dark:border-gray-700 pb-6 last:border-b-0 last:pb-0">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <IconComponent className="h-6 w-6 text-gray-700 dark:text-gray-300 flex-shrink-0" aria-hidden="true" />
+                    <div className="min-w-0 flex-1">
                       <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                         {platform.label}
                       </h3>
+                      {isConnected && connectedUrl && (
+                        <a
+                          href={connectedUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 truncate block mt-1"
+                        >
+                          {connectedUrl.replace(/^https?:\/\//, '').replace(/^www\./, '')}
+                        </a>
+                      )}
                     </div>
-                    {socialLinks?.[platform.key] ? (
-                      <p className="!p-1 mt-0.5 rounded-md bg-green-50 px-4 py-2 !text-[11px] font-medium text-green-700 inset-ring inset-ring-green-600/20 dark:bg-green-400/10 dark:text-green-400 dark:inset-ring-green-500/20">
-                        Saved
-                      </p>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    {isConnected ? (
+                      <div className="flex items-center gap-2">
+                        <CheckCircleIcon className="h-6 w-6 text-green-600 dark:text-green-400" aria-hidden="true" />
+                        <span className="sr-only">Connected</span>
+                        <Menu as="div" className="relative flex-none">
+                          <MenuButton className="relative block text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">
+                            <span className="absolute -inset-2.5" />
+                            <span className="sr-only">Open options for {platform.label}</span>
+                            <EllipsisVerticalIcon aria-hidden="true" className="size-5" />
+                          </MenuButton>
+                          <MenuItems
+                            transition
+                            className="absolute right-0 z-10 mt-2 w-32 origin-top-right rounded-md bg-white py-2 shadow-lg outline-1 outline-gray-900/5 transition data-closed:scale-95 data-closed:transform data-closed:opacity-0 data-enter:duration-100 data-enter:ease-out data-leave:duration-75 data-leave:ease-in dark:bg-gray-800 dark:shadow-none dark:-outline-offset-1 dark:outline-white/10"
+                          >
+                            <MenuItem>
+                              {({focus}) => (
+                                <Form method="post" className="m-0">
+                                  <input type="hidden" name="csrf_token" value={csrfToken} />
+                                  <input type="hidden" name="action_type" value="disconnect" />
+                                  <input type="hidden" name="platform" value={platform.key} />
+                                  <button
+                                    type="submit"
+                                    disabled={isSubmitting}
+                                    className={`block w-full text-left px-3 py-1 text-sm/6 text-gray-900 data-focus:bg-gray-50 data-focus:outline-hidden dark:text-white dark:data-focus:bg-white/5 ${
+                                      focus ? 'bg-gray-50 dark:bg-white/5' : ''
+                                    } ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                  >
+                                    Disconnect
+                                  </button>
+                                </Form>
+                              )}
+                            </MenuItem>
+                          </MenuItems>
+                        </Menu>
+                      </div>
                     ) : (
-                      <p className="!p-1 mt-0.5 rounded-md bg-gray-50 px-4 py-2 !text-[11px] font-medium text-gray-600 inset-ring inset-ring-gray-500/10 dark:bg-gray-400/10 dark:text-gray-400 dark:inset-ring-gray-400/20">
-                        Not Set
-                      </p>
+                      <Form method="post" className="m-0">
+                        <input type="hidden" name="csrf_token" value={csrfToken} />
+                        <input type="hidden" name="action_type" value="verify" />
+                        <input type="hidden" name="platform" value={platform.key} />
+                        <button
+                          type="submit"
+                          disabled={isSubmitting}
+                          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
+                        >
+                          Connect
+                        </button>
+                      </Form>
                     )}
                   </div>
-
-                  <div className="mt-4">
-                    <label htmlFor={`${platform.key}_url`} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Profile URL
-                    </label>
-                    <input
-                      key={`${platform.key}_url_${socialLinks?.[platform.key] || 'empty'}`}
-                      type="url"
-                      id={`${platform.key}_url`}
-                      name={`${platform.key}_url`}
-                      defaultValue={socialLinks?.[platform.key] || ''}
-                      placeholder={`https://${platform.key === 'x' ? 'x.com' : platform.key === 'facebook' ? 'facebook.com' : platform.key + '.com'}/your-profile`}
-                      maxLength={500}
-                      className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:focus:border-indigo-400 dark:focus:ring-indigo-400"
-                    />
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      Enter your full {platform.label} profile URL
-                    </p>
-                  </div>
                 </div>
-              );
-            })}
-          </div>
-
-          {/* Save Button */}
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
-            >
-              {isSubmitting ? 'Saving...' : 'Save Changes'}
-            </button>
-          </div>
-        </Form>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
