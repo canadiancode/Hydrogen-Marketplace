@@ -356,6 +356,18 @@ export async function loader({context, request}) {
       }
 
       case 'youtube': {
+        // Use same Google OAuth credentials as Supabase (for login)
+        // Uses CLIENT_ID and CLIENT_SECRET (same as configured in Supabase)
+        const googleClientId = context.env.CLIENT_ID || '';
+        const googleClientSecret = context.env.CLIENT_SECRET || '';
+        
+        if (!googleClientId || !googleClientSecret) {
+          if (!isProduction) {
+            console.error('Missing Google OAuth credentials for YouTube verification');
+          }
+          throw new Error('YouTube OAuth not configured');
+        }
+        
         // Exchange code for access token (Google OAuth)
         const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
           method: 'POST',
@@ -363,8 +375,8 @@ export async function loader({context, request}) {
             'Content-Type': 'application/x-www-form-urlencoded',
           },
           body: new URLSearchParams({
-            client_id: context.env.YOUTUBE_CLIENT_ID || '',
-            client_secret: context.env.YOUTUBE_CLIENT_SECRET || '',
+            client_id: googleClientId,
+            client_secret: googleClientSecret,
             code: code,
             grant_type: 'authorization_code',
             redirect_uri: redirectUri,
@@ -372,13 +384,21 @@ export async function loader({context, request}) {
         });
 
         if (!tokenResponse.ok) {
+          if (!isProduction) {
+            const errorText = await tokenResponse.text();
+            console.error('YouTube token exchange error:', errorText);
+          }
           throw new Error('Failed to exchange YouTube code');
         }
 
         const tokenData = await tokenResponse.json();
         const accessToken = tokenData.access_token;
 
-        // Fetch channel info
+        if (!accessToken) {
+          throw new Error('No access token received from YouTube');
+        }
+
+        // Fetch channel info using YouTube Data API v3
         const channelResponse = await fetch(
           'https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true',
           {
@@ -389,15 +409,37 @@ export async function loader({context, request}) {
         );
 
         if (!channelResponse.ok) {
+          if (!isProduction) {
+            const errorText = await channelResponse.text();
+            console.error('YouTube API error:', errorText);
+          }
           throw new Error('Failed to fetch YouTube channel info');
         }
 
         const channelData = await channelResponse.json();
-        if (channelData.items && channelData.items.length > 0) {
-          const channel = channelData.items[0];
-          username = channel.snippet.customUrl || channel.snippet.title;
-          profileUrl = `https://youtube.com/${channel.snippet.customUrl || `channel/${channel.id}`}`;
+        
+        if (!channelData.items || channelData.items.length === 0) {
+          throw new Error('No YouTube channel found');
         }
+        
+        const channel = channelData.items[0];
+        // Use customUrl if available (e.g., @username), otherwise use channel ID
+        const customUrl = channel.snippet?.customUrl;
+        const channelId = channel.id;
+        const channelTitle = channel.snippet?.title;
+        
+        // Set username to customUrl (without @) or channel title
+        username = customUrl ? customUrl.replace('@', '') : channelTitle;
+        
+        // Build profile URL: use customUrl format if available, otherwise use channel ID
+        if (customUrl) {
+          profileUrl = `https://youtube.com/${customUrl}`;
+        } else if (channelId) {
+          profileUrl = `https://youtube.com/channel/${channelId}`;
+        } else {
+          throw new Error('Unable to determine YouTube channel URL');
+        }
+        
         break;
       }
 

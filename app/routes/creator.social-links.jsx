@@ -425,10 +425,14 @@ export async function action({request, context}) {
         oauthUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${context.env.X_CLIENT_ID || 'YOUR_CLIENT_ID'}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=tweet.read%20users.read&state=${oauthState}&code_challenge=${codeChallengeBase64}&code_challenge_method=S256`;
         break;
       }
-      case 'youtube':
-        // YouTube Data API v3 OAuth
-        oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${context.env.YOUTUBE_CLIENT_ID || 'YOUR_CLIENT_ID'}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=https://www.googleapis.com/auth/youtube.readonly&state=${oauthState}`;
+      case 'youtube': {
+        // YouTube Data API v3 OAuth using same Google credentials as Supabase
+        // Uses CLIENT_ID (same as configured in Supabase for Google OAuth)
+        const googleClientId = context.env.CLIENT_ID || 'YOUR_CLIENT_ID';
+        // Include access_type=offline and prompt=consent to get refresh token if needed
+        oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${googleClientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=https://www.googleapis.com/auth/youtube.readonly&state=${oauthState}&access_type=offline&prompt=consent`;
         break;
+      }
       case 'twitch':
         // Twitch OAuth
         oauthUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${context.env.TWITCH_CLIENT_ID || 'YOUR_CLIENT_ID'}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=user:read:email&state=${oauthState}`;
