@@ -179,7 +179,7 @@ function validateAndEscapeJSONLD(data) {
   } catch (error) {
     console.error('JSON-LD validation failed: JSON stringification error', {
       error: error instanceof Error ? error.message : 'Unknown error',
-      route: 'general-privacy-policy',
+      route: 'privacy-policy',
     });
     return null;
   }
@@ -264,7 +264,7 @@ export async function loader({request}) {
     // Log error for monitoring (sanitized)
     const errorInfo = {
       message: error instanceof Error ? error.message : 'Unknown error',
-      route: 'general-privacy-policy',
+      route: 'privacy-policy',
       timestamp: new Date().toISOString(),
     };
     console.error('Loader error:', errorInfo);
@@ -723,7 +723,7 @@ export function ErrorBoundary() {
     const errorInfo = {
       message: error instanceof Error ? error.message : 'Unknown error',
       status: isRouteErrorResponse(error) ? error.status : undefined,
-      route: 'general-privacy-policy',
+      route: 'privacy-policy',
       timestamp: new Date().toISOString(),
     };
     

@@ -23,7 +23,7 @@ const navigation = {
   about: [
     { name: 'Privacy & Discretion', href: '/privacy' },
     { name: 'Contact & Support', href: '/contact' },
-    { name: 'Privacy Policy', href: '/general-privacy-policy' },
+    { name: 'Privacy Policy', href: '/privacy-policy' },
     { name: 'Terms of Service', href: '/terms-of-service' },
   ],
   social: [
