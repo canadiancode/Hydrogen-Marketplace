@@ -175,8 +175,31 @@ export async function loader({context, request}) {
   }
 
   try {
-    // Exchange authorization code for access token and fetch user info
-    const baseUrl = new URL(request.url).origin;
+    // Security: Build redirect URI with Host header injection protection
+    // Use environment variable for production domain, validate against whitelist
+    const requestOrigin = new URL(request.url).origin;
+    const allowedOrigins = [
+      context.env.PUBLIC_STORE_DOMAIN ? `https://${context.env.PUBLIC_STORE_DOMAIN}` : null,
+      'https://wornvault.com',
+      'https://www.wornvault.com',
+      // Allow localhost for development only
+      ...(context.env.NODE_ENV !== 'production' ? ['http://localhost:3000', 'http://127.0.0.1:3000'] : []),
+    ].filter(Boolean);
+    
+    // Validate origin against whitelist to prevent Host header injection
+    const isValidOrigin = allowedOrigins.some(allowed => {
+      try {
+        const allowedUrl = new URL(allowed);
+        const requestUrl = new URL(requestOrigin);
+        return allowedUrl.hostname === requestUrl.hostname && 
+               allowedUrl.protocol === requestUrl.protocol;
+      } catch {
+        return false;
+      }
+    });
+    
+    // Use whitelisted origin or fallback to first allowed origin
+    const baseUrl = isValidOrigin ? requestOrigin : (allowedOrigins[0] || 'https://wornvault.com');
     const redirectUri = `${baseUrl}/creator/social-links/oauth/callback`;
     
     let userInfo = null;
@@ -460,11 +483,19 @@ export async function loader({context, request}) {
         });
 
         if (!tokenResponse.ok) {
+          if (!isProduction) {
+            const errorText = await tokenResponse.text();
+            console.error('Twitch token exchange error:', errorText);
+          }
           throw new Error('Failed to exchange Twitch code');
         }
 
         const tokenData = await tokenResponse.json();
         const accessToken = tokenData.access_token;
+
+        if (!accessToken) {
+          throw new Error('No access token received from Twitch');
+        }
 
         // Fetch user info
         const userResponse = await fetch('https://api.twitch.tv/helix/users', {
@@ -475,14 +506,50 @@ export async function loader({context, request}) {
         });
 
         if (!userResponse.ok) {
+          if (!isProduction) {
+            const errorText = await userResponse.text();
+            console.error('Twitch API error:', errorText);
+          }
           throw new Error('Failed to fetch Twitch user info');
         }
 
         const userData = await userResponse.json();
-        if (userData.data && userData.data.length > 0) {
-          username = userData.data[0].login;
-          profileUrl = `https://twitch.tv/${username}`;
+        
+        if (!userData.data || userData.data.length === 0) {
+          throw new Error('No Twitch user data found');
         }
+        
+        const twitchUser = userData.data[0];
+        const rawUsername = twitchUser.login || twitchUser.display_name;
+        
+        // Security: Sanitize username to prevent XSS and injection
+        if (!rawUsername || typeof rawUsername !== 'string') {
+          throw new Error('Invalid Twitch username format');
+        }
+        
+        // Sanitize: remove control characters, limit length, trim whitespace
+        // Twitch usernames are 4-25 chars, alphanumeric + underscore
+        const sanitizedUsername = rawUsername
+          .trim()
+          .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
+          .slice(0, 25);
+        
+        // Validate: must be 4-25 chars, alphanumeric + underscore only
+        if (sanitizedUsername.length < 4 || sanitizedUsername.length > 25) {
+          throw new Error('Twitch username length invalid');
+        }
+        if (!/^[a-zA-Z0-9_]+$/.test(sanitizedUsername)) {
+          throw new Error('Invalid Twitch username characters');
+        }
+        
+        username = sanitizedUsername;
+        // Security: Use encodeURIComponent to safely construct URL
+        profileUrl = `https://twitch.tv/${encodeURIComponent(username)}`;
+        
+        if (!username || !profileUrl) {
+          throw new Error('Unable to determine Twitch username or profile URL');
+        }
+        
         break;
       }
 

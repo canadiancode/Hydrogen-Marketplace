@@ -395,8 +395,31 @@ export async function action({request, context}) {
     // Generate OAuth state token for CSRF protection
     const oauthState = await generateCSRFToken(request, context.env.SESSION_SECRET);
 
-    // Build OAuth URL based on platform
-    const baseUrl = new URL(request.url).origin;
+    // Security: Build OAuth redirect URI with Host header injection protection
+    // Use environment variable for production domain, validate against whitelist
+    const requestOrigin = new URL(request.url).origin;
+    const allowedOrigins = [
+      context.env.PUBLIC_STORE_DOMAIN ? `https://${context.env.PUBLIC_STORE_DOMAIN}` : null,
+      'https://wornvault.com',
+      'https://www.wornvault.com',
+      // Allow localhost for development only
+      ...(context.env.NODE_ENV !== 'production' ? ['http://localhost:3000', 'http://127.0.0.1:3000'] : []),
+    ].filter(Boolean);
+    
+    // Validate origin against whitelist to prevent Host header injection
+    const isValidOrigin = allowedOrigins.some(allowed => {
+      try {
+        const allowedUrl = new URL(allowed);
+        const requestUrl = new URL(requestOrigin);
+        return allowedUrl.hostname === requestUrl.hostname && 
+               allowedUrl.protocol === requestUrl.protocol;
+      } catch {
+        return false;
+      }
+    });
+    
+    // Use whitelisted origin or fallback to first allowed origin
+    const baseUrl = isValidOrigin ? requestOrigin : (allowedOrigins[0] || 'https://wornvault.com');
     const redirectUri = `${baseUrl}/creator/social-links/oauth/callback`;
     
     let oauthUrl = '';
