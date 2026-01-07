@@ -27,6 +27,16 @@ export async function loader({context, request}) {
   const error = url.searchParams.get('error');
   const errorDescription = url.searchParams.get('error_description');
 
+  console.log('[OAuth Callback] Callback initiated', {
+    url: request.url,
+    hasCode: !!code,
+    hasState: !!state,
+    hasError: !!error,
+    error,
+    errorDescription,
+    timestamp: new Date().toISOString(),
+  });
+
   // Validate input length to prevent DoS attacks
   if ((code && code.length > MAX_PARAM_LENGTH) || 
       (state && state.length > MAX_PARAM_LENGTH) ||
@@ -71,12 +81,21 @@ export async function loader({context, request}) {
   const codeVerifier = oauthStateData.codeVerifier;
   const creatorId = oauthStateData.creatorId;
 
+  console.log('[OAuth Callback] OAuth state validated', {
+    platform,
+    creatorId,
+    hasCodeVerifier: !!codeVerifier,
+    codeLength: code?.length,
+  });
+
   // Validate platform from OAuth state to prevent platform injection
   if (!platform || !VALID_PLATFORMS.has(platform)) {
+    console.error('[OAuth Callback] Invalid platform:', platform);
     return redirect('/creator/social-links?error=invalid_platform');
   }
 
   if (!code) {
+    console.error('[OAuth Callback] Missing authorization code');
     return redirect('/creator/social-links?error=no_code');
   }
 
@@ -202,6 +221,14 @@ export async function loader({context, request}) {
     const baseUrl = isValidOrigin ? requestOrigin : (allowedOrigins[0] || 'https://wornvault.com');
     const redirectUri = `${baseUrl}/creator/social-links/oauth/callback`;
     
+    console.log('[OAuth Callback] Processing OAuth flow', {
+      platform,
+      redirectUri,
+      baseUrl,
+      isValidOrigin,
+      requestOrigin,
+    });
+    
     let userInfo = null;
     let username = null;
     let profileUrl = null;
@@ -287,6 +314,13 @@ export async function loader({context, request}) {
       }
 
       case 'tiktok': {
+        console.log('[TikTok OAuth] Starting token exchange', {
+          redirectUri,
+          hasClientKey: !!context.env.TIKTOK_CLIENT_KEY,
+          hasClientSecret: !!context.env.TIKTOK_CLIENT_SECRET,
+          codeLength: code?.length,
+        });
+
         // Exchange code for access token
         const tokenResponse = await fetch('https://open.tiktokapis.com/v2/oauth/token/', {
           method: 'POST',
@@ -302,28 +336,204 @@ export async function loader({context, request}) {
           }),
         });
 
+        console.log('[TikTok OAuth] Token exchange response status:', {
+          ok: tokenResponse.ok,
+          status: tokenResponse.status,
+          statusText: tokenResponse.statusText,
+        });
+
         if (!tokenResponse.ok) {
-          throw new Error('Failed to exchange TikTok code');
+          const errorText = await tokenResponse.text();
+          console.error('[TikTok OAuth] Token exchange error:', {
+            status: tokenResponse.status,
+            statusText: tokenResponse.statusText,
+            body: errorText,
+            headers: Object.fromEntries(tokenResponse.headers.entries()),
+          });
+          throw new Error(`Failed to exchange TikTok code: ${tokenResponse.status} - ${errorText}`);
         }
 
         const tokenData = await tokenResponse.json();
-        const accessToken = tokenData.data.access_token;
+        
+        // Debug: Log the actual response structure
+        console.log('[TikTok OAuth] Token response structure:', {
+          hasTokenData: !!tokenData,
+          tokenDataKeys: tokenData ? Object.keys(tokenData) : [],
+          hasData: !!tokenData?.data,
+          dataKeys: tokenData?.data ? Object.keys(tokenData.data) : [],
+          fullResponse: JSON.stringify(tokenData, null, 2),
+        });
+        
+        // Security: Validate token response structure
+        // TikTok API v2 might return different structures depending on success/error
+        let accessToken = null;
+        
+        // Try different possible response structures
+        if (tokenData?.data?.access_token) {
+          // Standard structure: { data: { access_token: "...", ... } }
+          accessToken = tokenData.data.access_token;
+          console.log('[TikTok OAuth] Found access_token in tokenData.data.access_token');
+        } else if (tokenData?.access_token) {
+          // Alternative structure: { access_token: "...", ... }
+          accessToken = tokenData.access_token;
+          console.log('[TikTok OAuth] Found access_token in tokenData.access_token');
+        } else {
+          // Log the actual structure for debugging
+          console.error('[TikTok OAuth] Unexpected token response structure:', {
+            tokenData: JSON.stringify(tokenData, null, 2),
+            tokenDataType: typeof tokenData,
+            tokenDataIsArray: Array.isArray(tokenData),
+          });
+          throw new Error('Invalid TikTok token response: missing access_token');
+        }
 
-        // Fetch user info
-        const userResponse = await fetch('https://open.tiktokapis.com/v2/user/info/', {
+        if (!accessToken) {
+          console.error('[TikTok OAuth] Access token is null or undefined:', {
+            tokenData: JSON.stringify(tokenData, null, 2),
+          });
+          throw new Error('Failed to extract access token from TikTok response');
+        }
+
+        console.log('[TikTok OAuth] Successfully obtained access token', {
+          accessTokenLength: accessToken.length,
+          accessTokenPrefix: accessToken.substring(0, 20) + '...',
+        });
+
+        // Fetch user info - TikTok API v2 requires fields parameter
+        const userInfoUrl = 'https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name,username';
+        console.log('[TikTok OAuth] Fetching user info from:', userInfoUrl);
+        
+        const userResponse = await fetch(userInfoUrl, {
           method: 'GET',
           headers: {
             Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
           },
         });
 
+        console.log('[TikTok OAuth] User info response status:', {
+          ok: userResponse.ok,
+          status: userResponse.status,
+          statusText: userResponse.statusText,
+        });
+
         if (!userResponse.ok) {
-          throw new Error('Failed to fetch TikTok user info');
+          const errorText = await userResponse.text();
+          console.error('[TikTok OAuth] User info API error:', {
+            status: userResponse.status,
+            statusText: userResponse.statusText,
+            body: errorText,
+            headers: Object.fromEntries(userResponse.headers.entries()),
+          });
+          throw new Error(`Failed to fetch TikTok user info: ${userResponse.status} - ${errorText}`);
         }
 
         const userData = await userResponse.json();
-        username = userData.data.user.display_name;
-        profileUrl = `https://tiktok.com/@${username}`;
+        
+        // Debug: Log the actual response structure
+        console.log('[TikTok OAuth] User info response structure:', {
+          hasUserData: !!userData,
+          userDataKeys: userData ? Object.keys(userData) : [],
+          hasData: !!userData?.data,
+          dataKeys: userData?.data ? Object.keys(userData.data) : [],
+          hasUser: !!userData?.data?.user,
+          userKeys: userData?.data?.user ? Object.keys(userData.data.user) : [],
+          fullResponse: JSON.stringify(userData, null, 2),
+        });
+        
+        // Security: Validate user data response structure
+        let tiktokUser = null;
+        
+        // Try different possible response structures
+        if (userData?.data?.user) {
+          // Standard structure: { data: { user: { ... } } }
+          tiktokUser = userData.data.user;
+          console.log('[TikTok OAuth] Found user data in userData.data.user');
+        } else if (userData?.user) {
+          // Alternative structure: { user: { ... } }
+          tiktokUser = userData.user;
+          console.log('[TikTok OAuth] Found user data in userData.user');
+        } else if (userData?.data) {
+          // User data might be directly in data
+          tiktokUser = userData.data;
+          console.log('[TikTok OAuth] Found user data in userData.data');
+        } else {
+          console.error('[TikTok OAuth] Unexpected user data response structure:', {
+            userData: JSON.stringify(userData, null, 2),
+            userDataType: typeof userData,
+            userDataIsArray: Array.isArray(userData),
+          });
+          throw new Error('Invalid TikTok user data response structure');
+        }
+        
+        if (!tiktokUser) {
+          console.error('[TikTok OAuth] User data is null or undefined:', {
+            userData: JSON.stringify(userData, null, 2),
+          });
+          throw new Error('Failed to extract user data from TikTok response');
+        }
+        
+        console.log('[TikTok OAuth] Extracted user data:', {
+          username: tiktokUser.username,
+          displayName: tiktokUser.display_name,
+          openId: tiktokUser.open_id,
+          userKeys: Object.keys(tiktokUser),
+        });
+        
+        // Use username for profile URL (more reliable than display_name)
+        // Fallback to display_name if username not available
+        const rawUsername = tiktokUser.username || tiktokUser.display_name;
+        
+        if (!rawUsername || typeof rawUsername !== 'string') {
+          console.error('[TikTok OAuth] Missing username/display_name:', {
+            tiktokUser: JSON.stringify(tiktokUser, null, 2),
+            hasUsername: !!tiktokUser.username,
+            hasDisplayName: !!tiktokUser.display_name,
+          });
+          throw new Error('Unable to determine TikTok username');
+        }
+        
+        console.log('[TikTok OAuth] Raw username:', rawUsername);
+        
+        // Security: Sanitize username to prevent XSS and injection
+        // TikTok usernames are 2-24 chars, alphanumeric + underscore + period
+        const sanitizedUsername = rawUsername
+          .trim()
+          .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
+          .slice(0, 24);
+        
+        console.log('[TikTok OAuth] Sanitized username:', sanitizedUsername);
+        
+        // Validate: must be 2-24 chars, alphanumeric + underscore + period only
+        if (sanitizedUsername.length < 2 || sanitizedUsername.length > 24) {
+          console.error('[TikTok OAuth] Username length invalid:', {
+            length: sanitizedUsername.length,
+            username: sanitizedUsername,
+          });
+          throw new Error('TikTok username length invalid');
+        }
+        if (!/^[a-zA-Z0-9_.]+$/.test(sanitizedUsername)) {
+          console.error('[TikTok OAuth] Invalid username characters:', {
+            username: sanitizedUsername,
+            matchesPattern: /^[a-zA-Z0-9_.]+$/.test(sanitizedUsername),
+          });
+          throw new Error('Invalid TikTok username characters');
+        }
+        
+        username = sanitizedUsername;
+        // Security: Use encodeURIComponent to safely construct URL
+        profileUrl = `https://tiktok.com/@${encodeURIComponent(username)}`;
+        
+        console.log('[TikTok OAuth] Final values:', {
+          username,
+          profileUrl,
+        });
+        
+        if (!username || !profileUrl) {
+          throw new Error('Unable to determine TikTok username or profile URL');
+        }
+        
+        console.log('[TikTok OAuth] Successfully processed TikTok OAuth flow');
         break;
       }
 
@@ -559,6 +769,16 @@ export async function loader({context, request}) {
 
     // Update creator profile with verified social link
     // Note: profile is already fetched above for verification, reuse it
+    console.log('[OAuth Callback] Preparing to update creator profile', {
+      platform,
+      hasUsername: !!username,
+      hasProfileUrl: !!profileUrl,
+      hasProfile: !!profile,
+      profileId: profile?.id,
+      username,
+      profileUrl,
+    });
+
     if (username && profileUrl && profile && profile.id) {
       // Use service role client if user isn't authenticated (cookie not sent due to SameSite)
       // Otherwise use user client for RLS compliance
@@ -579,6 +799,12 @@ export async function loader({context, request}) {
         [`${platform}_verified`]: true,
       };
 
+      console.log('[OAuth Callback] Updating creator profile', {
+        platform,
+        creatorId: profile.id,
+        updates,
+      });
+
       const {error: updateError, data: updateData} = await supabase
         .from('creators')
         .update(updates)
@@ -586,35 +812,71 @@ export async function loader({context, request}) {
         .select();
 
       if (updateError) {
-        if (!isProduction) {
-          console.error('Error updating social link:', updateError);
-        }
+        console.error('[OAuth Callback] Error updating social link:', {
+          platform,
+          creatorId: profile.id,
+          error: updateError,
+          errorMessage: updateError.message,
+          errorCode: updateError.code,
+        });
         return redirect('/creator/social-links?error=update_failed');
       }
 
       // Verify update was successful
       if (!updateData || updateData.length === 0) {
+        console.error('[OAuth Callback] Update returned no rows', {
+          platform,
+          creatorId: profile.id,
+        });
         return redirect('/creator/social-links?error=update_failed_no_rows');
       }
+
+      console.log('[OAuth Callback] Successfully updated creator profile', {
+        platform,
+        creatorId: profile.id,
+        updatedData: updateData,
+      });
 
       // State was already deleted immediately after validation, so no need to delete again
       return redirect('/creator/social-links?verified=true');
     }
     
+    console.error('[OAuth Callback] Missing required data for profile update', {
+      platform,
+      hasUsername: !!username,
+      hasProfileUrl: !!profileUrl,
+      hasProfile: !!profile,
+      profileId: profile?.id,
+    });
+    
     return redirect('/creator/social-links?error=verification_failed');
   } catch (error) {
     // State was already deleted immediately after validation, so retry requires new OAuth flow
     const isProduction = context.env.NODE_ENV === 'production';
-    if (!isProduction) {
-      console.error('OAuth callback error:', {
-        error: error.message || 'Unknown error',
-        platform,
-        timestamp: new Date().toISOString(),
+    
+    // Always log errors for debugging (even in production, but sanitized)
+    console.error('[OAuth Callback] Error caught:', {
+      error: error.message || 'Unknown error',
+      platform,
+      timestamp: new Date().toISOString(),
+      errorName: error.name,
+      ...(isProduction ? {} : {
         errorStack: error.stack,
-      });
+        errorFull: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+      }),
+    });
+
+    // Provide more specific error message based on error type
+    let errorMessage = 'Verification failed. Please try again.';
+    if (error.message?.includes('token') || error.message?.includes('access_token')) {
+      errorMessage = 'Failed to authenticate with TikTok. Please try again.';
+    } else if (error.message?.includes('user info') || error.message?.includes('username') || error.message?.includes('display_name')) {
+      errorMessage = 'Failed to retrieve TikTok profile information. Please try again.';
+    } else if (error.message?.includes('Invalid') || error.message?.includes('missing')) {
+      errorMessage = `TikTok verification error: ${error.message}`;
     }
 
-    return redirect(`/creator/social-links?error=${encodeURIComponent('Verification failed. Please try again.')}`);
+    return redirect(`/creator/social-links?error=${encodeURIComponent(errorMessage)}`);
   }
 }
 
