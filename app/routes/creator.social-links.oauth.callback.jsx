@@ -486,12 +486,16 @@ export async function loader({context, request}) {
         });
 
         // Fetch user info - TikTok API v2 requires fields parameter
-        const userInfoUrl = 'https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name,username';
+        // Note: user.info.basic scope only provides: open_id, union_id, avatar_url, display_name
+        // username requires user.info.profile scope (requires app review)
+        // For now, we'll use display_name which is available in user.info.basic
+        const userInfoUrl = 'https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name';
         console.error('[TikTok OAuth] Step 8: Fetching user info', {
           url: userInfoUrl,
           method: 'GET',
           hasAccessToken: !!accessToken,
           accessTokenPrefix: accessToken.substring(0, 20) + '...',
+          note: 'Using user.info.basic scope fields only (display_name, not username)',
         });
         
         let userResponse;
@@ -652,18 +656,23 @@ export async function loader({context, request}) {
           allUserValues: JSON.stringify(tiktokUser, null, 2),
         });
         
-        // Use username for profile URL (more reliable than display_name)
-        // Fallback to display_name if username not available
-        console.error('[TikTok OAuth] Step 14: Extracting username', {
+        // Note: With user.info.basic scope, we only have display_name (not username)
+        // username requires user.info.profile scope which needs app review
+        // Use display_name for profile URL construction
+        console.error('[TikTok OAuth] Step 14: Extracting username/display_name', {
           hasUsername: !!tiktokUser.username,
           usernameValue: tiktokUser.username,
           usernameType: typeof tiktokUser.username,
           hasDisplayName: !!tiktokUser.display_name,
           displayNameValue: tiktokUser.display_name,
           displayNameType: typeof tiktokUser.display_name,
+          note: 'Using display_name (user.info.basic scope limitation)',
         });
 
-        const rawUsername = tiktokUser.username || tiktokUser.display_name;
+        // With user.info.basic scope, we only have display_name
+        // For profile URL, we'll use display_name and construct URL differently
+        // TikTok profile URLs can use display_name: https://tiktok.com/@display_name
+        const rawUsername = tiktokUser.display_name || tiktokUser.username;
         
         if (!rawUsername || typeof rawUsername !== 'string') {
           console.error('[TikTok OAuth] CRITICAL: Missing username/display_name', {
