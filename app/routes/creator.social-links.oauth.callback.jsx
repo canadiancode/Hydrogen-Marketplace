@@ -457,8 +457,9 @@ export async function loader({context, request}) {
           });
         } else {
           // Log the actual structure for debugging
+          const tokenDataStr = JSON.stringify(tokenData, null, 2);
           console.error('[TikTok OAuth] CRITICAL: Unexpected token response structure - NO ACCESS TOKEN FOUND', {
-            tokenData: JSON.stringify(tokenData, null, 2),
+            tokenData: tokenDataStr,
             tokenDataType: typeof tokenData,
             tokenDataIsArray: Array.isArray(tokenData),
             hasData: !!tokenData?.data,
@@ -466,7 +467,9 @@ export async function loader({context, request}) {
             dataKeys: tokenData?.data ? Object.keys(tokenData.data) : [],
             topLevelKeys: tokenData ? Object.keys(tokenData) : [],
           });
-          throw new Error('Invalid TikTok token response: missing access_token');
+          // Include response structure in error message for debugging (will show in redirect URL)
+          const errorMsg = `Invalid TikTok token response: missing access_token. Response: ${tokenDataStr.substring(0, 200)}`;
+          throw new Error(errorMsg);
         }
 
         if (!accessToken) {
@@ -617,8 +620,9 @@ export async function loader({context, request}) {
             hasDisplayName: !!tiktokUser.display_name,
           });
         } else {
+          const userDataStr = JSON.stringify(userData, null, 2);
           console.error('[TikTok OAuth] CRITICAL: Unexpected user data response structure - NO USER DATA FOUND', {
-            userData: JSON.stringify(userData, null, 2),
+            userData: userDataStr,
             userDataType: typeof userData,
             userDataIsArray: Array.isArray(userData),
             hasData: !!userData?.data,
@@ -626,7 +630,9 @@ export async function loader({context, request}) {
             dataKeys: userData?.data ? Object.keys(userData.data) : [],
             topLevelKeys: userData ? Object.keys(userData) : [],
           });
-          throw new Error('Invalid TikTok user data response structure');
+          // Include response structure in error message for debugging (will show in redirect URL)
+          const errorMsg = `Invalid TikTok user data response structure. Response: ${userDataStr.substring(0, 200)}`;
+          throw new Error(errorMsg);
         }
         
         if (!tiktokUser) {
@@ -1082,24 +1088,41 @@ export async function loader({context, request}) {
 
     // Provide more specific error message based on error type
     let errorMessage = 'Verification failed. Please try again.';
+    let errorCode = 'unknown';
+    
     if (error.message?.includes('token') || error.message?.includes('access_token')) {
       errorMessage = 'Failed to authenticate with TikTok. Please try again.';
+      errorCode = 'token_error';
     } else if (error.message?.includes('user info') || error.message?.includes('username') || error.message?.includes('display_name')) {
       errorMessage = 'Failed to retrieve TikTok profile information. Please try again.';
+      errorCode = 'user_info_error';
     } else if (error.message?.includes('Invalid') || error.message?.includes('missing')) {
       errorMessage = `TikTok verification error: ${error.message}`;
+      errorCode = 'invalid_response';
     } else if (error.message?.includes('Network error') || error.message?.includes('fetch')) {
       errorMessage = 'Network error connecting to TikTok. Please try again.';
+      errorCode = 'network_error';
     } else if (error.message?.includes('TikTok API error')) {
       errorMessage = `TikTok API error: ${error.message}`;
+      errorCode = 'api_error';
     }
 
+    // Sanitize error message for URL (limit length, remove special chars)
+    const sanitizedError = error.message 
+      ? error.message.substring(0, 100).replace(/[^a-zA-Z0-9\s\-_.,]/g, '')
+      : 'unknown';
+    
     console.error('[OAuth Callback] Redirecting with error message:', {
       errorMessage,
+      errorCode,
+      sanitizedError,
       platform,
     });
 
-    return redirect(`/creator/social-links?error=${encodeURIComponent(errorMessage)}`);
+    // Include error code and sanitized error in URL for debugging (visible in HTTP logs)
+    const errorUrl = `/creator/social-links?error=${encodeURIComponent(errorMessage)}&error_code=${errorCode}&debug=${encodeURIComponent(sanitizedError)}`;
+    
+    return redirect(errorUrl);
   }
 }
 
