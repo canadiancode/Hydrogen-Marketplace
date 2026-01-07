@@ -314,186 +314,369 @@ export async function loader({context, request}) {
       }
 
       case 'tiktok': {
-        console.log('[TikTok OAuth] Starting token exchange', {
+        const startTime = Date.now();
+        console.error('[TikTok OAuth] ===== STARTING TIKTOK OAUTH FLOW =====');
+        console.error('[TikTok OAuth] Step 1: Initializing token exchange', {
+          timestamp: new Date().toISOString(),
           redirectUri,
           hasClientKey: !!context.env.TIKTOK_CLIENT_KEY,
           hasClientSecret: !!context.env.TIKTOK_CLIENT_SECRET,
+          clientKeyLength: context.env.TIKTOK_CLIENT_KEY?.length || 0,
+          clientSecretLength: context.env.TIKTOK_CLIENT_SECRET?.length || 0,
           codeLength: code?.length,
+          codePrefix: code ? code.substring(0, 20) + '...' : 'NO_CODE',
         });
 
         // Exchange code for access token
-        const tokenResponse = await fetch('https://open.tiktokapis.com/v2/oauth/token/', {
+        const tokenUrl = 'https://open.tiktokapis.com/v2/oauth/token/';
+        console.error('[TikTok OAuth] Step 2: Making token exchange request', {
+          url: tokenUrl,
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: new URLSearchParams({
-            client_key: context.env.TIKTOK_CLIENT_KEY || '',
-            client_secret: context.env.TIKTOK_CLIENT_SECRET || '',
-            code: code,
-            grant_type: 'authorization_code',
-            redirect_uri: redirectUri,
-          }),
+          hasCode: !!code,
+          hasRedirectUri: !!redirectUri,
         });
 
-        console.log('[TikTok OAuth] Token exchange response status:', {
+        let tokenResponse;
+        try {
+          tokenResponse = await fetch(tokenUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+              client_key: context.env.TIKTOK_CLIENT_KEY || '',
+              client_secret: context.env.TIKTOK_CLIENT_SECRET || '',
+              code: code,
+              grant_type: 'authorization_code',
+              redirect_uri: redirectUri,
+            }),
+          });
+        } catch (fetchError) {
+          console.error('[TikTok OAuth] CRITICAL: Fetch request failed', {
+            error: fetchError.message,
+            errorStack: fetchError.stack,
+            errorName: fetchError.name,
+          });
+          throw new Error(`Network error during token exchange: ${fetchError.message}`);
+        }
+
+        console.error('[TikTok OAuth] Step 3: Token exchange response received', {
           ok: tokenResponse.ok,
           status: tokenResponse.status,
           statusText: tokenResponse.statusText,
+          headers: Object.fromEntries(tokenResponse.headers.entries()),
+        });
+
+        // Read response as text first to log it
+        const responseText = await tokenResponse.text();
+        console.error('[TikTok OAuth] Step 4: Raw token response text', {
+          responseLength: responseText.length,
+          responsePreview: responseText.substring(0, 500),
+          isJSON: (() => {
+            try {
+              JSON.parse(responseText);
+              return true;
+            } catch {
+              return false;
+            }
+          })(),
         });
 
         if (!tokenResponse.ok) {
-          const errorText = await tokenResponse.text();
-          console.error('[TikTok OAuth] Token exchange error:', {
+          console.error('[TikTok OAuth] CRITICAL: Token exchange HTTP error', {
             status: tokenResponse.status,
             statusText: tokenResponse.statusText,
-            body: errorText,
+            fullResponse: responseText,
             headers: Object.fromEntries(tokenResponse.headers.entries()),
           });
-          throw new Error(`Failed to exchange TikTok code: ${tokenResponse.status} - ${errorText}`);
+          throw new Error(`Failed to exchange TikTok code: ${tokenResponse.status} - ${responseText.substring(0, 500)}`);
         }
 
-        const tokenData = await tokenResponse.json();
+        let tokenData;
+        try {
+          tokenData = JSON.parse(responseText);
+        } catch (parseError) {
+          console.error('[TikTok OAuth] CRITICAL: Failed to parse token response as JSON', {
+            parseError: parseError.message,
+            responseText: responseText,
+          });
+          throw new Error(`Invalid JSON response from TikTok: ${parseError.message}`);
+        }
         
         // Debug: Log the actual response structure
-        console.log('[TikTok OAuth] Token response structure:', {
+        console.error('[TikTok OAuth] Step 5: Token response structure analysis', {
           hasTokenData: !!tokenData,
+          tokenDataType: typeof tokenData,
+          isArray: Array.isArray(tokenData),
           tokenDataKeys: tokenData ? Object.keys(tokenData) : [],
           hasData: !!tokenData?.data,
+          dataType: typeof tokenData?.data,
           dataKeys: tokenData?.data ? Object.keys(tokenData.data) : [],
-          fullResponse: JSON.stringify(tokenData, null, 2),
+          hasError: !!tokenData?.error,
+          errorDetails: tokenData?.error,
+          fullResponseJSON: JSON.stringify(tokenData, null, 2),
         });
+        
+        // Check for TikTok API errors in response body (even with 200 status)
+        if (tokenData?.error) {
+          console.error('[TikTok OAuth] CRITICAL: TikTok API returned error in token response', {
+            error: tokenData.error,
+            errorCode: tokenData.error?.code,
+            errorMessage: tokenData.error?.message,
+            errorLogId: tokenData.error?.log_id,
+            errorDescription: tokenData.error?.description,
+            fullResponse: JSON.stringify(tokenData, null, 2),
+          });
+          throw new Error(`TikTok API error: ${tokenData.error?.message || tokenData.error?.code || 'Unknown error'}`);
+        }
         
         // Security: Validate token response structure
         // TikTok API v2 might return different structures depending on success/error
         let accessToken = null;
         
         // Try different possible response structures
+        console.error('[TikTok OAuth] Step 6: Extracting access token', {
+          checkingDataAccessToken: !!tokenData?.data?.access_token,
+          checkingAccessToken: !!tokenData?.access_token,
+          checkingData: !!tokenData?.data,
+        });
+
         if (tokenData?.data?.access_token) {
           // Standard structure: { data: { access_token: "...", ... } }
           accessToken = tokenData.data.access_token;
-          console.log('[TikTok OAuth] Found access_token in tokenData.data.access_token');
+          console.error('[TikTok OAuth] SUCCESS: Found access_token in tokenData.data.access_token', {
+            tokenLength: accessToken.length,
+            tokenPrefix: accessToken.substring(0, 20) + '...',
+          });
         } else if (tokenData?.access_token) {
           // Alternative structure: { access_token: "...", ... }
           accessToken = tokenData.access_token;
-          console.log('[TikTok OAuth] Found access_token in tokenData.access_token');
+          console.error('[TikTok OAuth] SUCCESS: Found access_token in tokenData.access_token', {
+            tokenLength: accessToken.length,
+            tokenPrefix: accessToken.substring(0, 20) + '...',
+          });
         } else {
           // Log the actual structure for debugging
-          console.error('[TikTok OAuth] Unexpected token response structure:', {
+          console.error('[TikTok OAuth] CRITICAL: Unexpected token response structure - NO ACCESS TOKEN FOUND', {
             tokenData: JSON.stringify(tokenData, null, 2),
             tokenDataType: typeof tokenData,
             tokenDataIsArray: Array.isArray(tokenData),
+            hasData: !!tokenData?.data,
+            dataType: typeof tokenData?.data,
+            dataKeys: tokenData?.data ? Object.keys(tokenData.data) : [],
+            topLevelKeys: tokenData ? Object.keys(tokenData) : [],
           });
           throw new Error('Invalid TikTok token response: missing access_token');
         }
 
         if (!accessToken) {
-          console.error('[TikTok OAuth] Access token is null or undefined:', {
+          console.error('[TikTok OAuth] CRITICAL: Access token is null or undefined after extraction', {
             tokenData: JSON.stringify(tokenData, null, 2),
           });
           throw new Error('Failed to extract access token from TikTok response');
         }
 
-        console.log('[TikTok OAuth] Successfully obtained access token', {
+        console.error('[TikTok OAuth] Step 7: Access token obtained successfully', {
           accessTokenLength: accessToken.length,
           accessTokenPrefix: accessToken.substring(0, 20) + '...',
+          elapsedMs: Date.now() - startTime,
         });
 
         // Fetch user info - TikTok API v2 requires fields parameter
         const userInfoUrl = 'https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name,username';
-        console.log('[TikTok OAuth] Fetching user info from:', userInfoUrl);
-        
-        const userResponse = await fetch(userInfoUrl, {
+        console.error('[TikTok OAuth] Step 8: Fetching user info', {
+          url: userInfoUrl,
           method: 'GET',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
+          hasAccessToken: !!accessToken,
+          accessTokenPrefix: accessToken.substring(0, 20) + '...',
         });
+        
+        let userResponse;
+        try {
+          userResponse = await fetch(userInfoUrl, {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+          });
+        } catch (fetchError) {
+          console.error('[TikTok OAuth] CRITICAL: User info fetch request failed', {
+            error: fetchError.message,
+            errorStack: fetchError.stack,
+            errorName: fetchError.name,
+          });
+          throw new Error(`Network error during user info fetch: ${fetchError.message}`);
+        }
 
-        console.log('[TikTok OAuth] User info response status:', {
+        console.error('[TikTok OAuth] Step 9: User info response received', {
           ok: userResponse.ok,
           status: userResponse.status,
           statusText: userResponse.statusText,
+          headers: Object.fromEntries(userResponse.headers.entries()),
+        });
+
+        // Read response as text first to log it
+        const userResponseText = await userResponse.text();
+        console.error('[TikTok OAuth] Step 10: Raw user info response text', {
+          responseLength: userResponseText.length,
+          responsePreview: userResponseText.substring(0, 500),
+          isJSON: (() => {
+            try {
+              JSON.parse(userResponseText);
+              return true;
+            } catch {
+              return false;
+            }
+          })(),
         });
 
         if (!userResponse.ok) {
-          const errorText = await userResponse.text();
-          console.error('[TikTok OAuth] User info API error:', {
+          console.error('[TikTok OAuth] CRITICAL: User info HTTP error', {
             status: userResponse.status,
             statusText: userResponse.statusText,
-            body: errorText,
+            fullResponse: userResponseText,
             headers: Object.fromEntries(userResponse.headers.entries()),
           });
-          throw new Error(`Failed to fetch TikTok user info: ${userResponse.status} - ${errorText}`);
+          throw new Error(`Failed to fetch TikTok user info: ${userResponse.status} - ${userResponseText.substring(0, 500)}`);
         }
 
-        const userData = await userResponse.json();
+        let userData;
+        try {
+          userData = JSON.parse(userResponseText);
+        } catch (parseError) {
+          console.error('[TikTok OAuth] CRITICAL: Failed to parse user info response as JSON', {
+            parseError: parseError.message,
+            responseText: userResponseText,
+          });
+          throw new Error(`Invalid JSON response from TikTok user info: ${parseError.message}`);
+        }
         
         // Debug: Log the actual response structure
-        console.log('[TikTok OAuth] User info response structure:', {
+        console.error('[TikTok OAuth] Step 11: User info response structure analysis', {
           hasUserData: !!userData,
+          userDataType: typeof userData,
+          isArray: Array.isArray(userData),
           userDataKeys: userData ? Object.keys(userData) : [],
           hasData: !!userData?.data,
+          dataType: typeof userData?.data,
           dataKeys: userData?.data ? Object.keys(userData.data) : [],
           hasUser: !!userData?.data?.user,
+          userType: typeof userData?.data?.user,
           userKeys: userData?.data?.user ? Object.keys(userData.data.user) : [],
-          fullResponse: JSON.stringify(userData, null, 2),
+          hasError: !!userData?.error,
+          errorDetails: userData?.error,
+          fullResponseJSON: JSON.stringify(userData, null, 2),
         });
+        
+        // Check for TikTok API errors in response body (even with 200 status)
+        if (userData?.error) {
+          console.error('[TikTok OAuth] CRITICAL: TikTok API returned error in user info response', {
+            error: userData.error,
+            errorCode: userData.error?.code,
+            errorMessage: userData.error?.message,
+            errorLogId: userData.error?.log_id,
+            errorDescription: userData.error?.description,
+            fullResponse: JSON.stringify(userData, null, 2),
+          });
+          throw new Error(`TikTok API error: ${userData.error?.message || userData.error?.code || 'Unknown error'}`);
+        }
         
         // Security: Validate user data response structure
         let tiktokUser = null;
         
         // Try different possible response structures
+        console.error('[TikTok OAuth] Step 12: Extracting user data', {
+          checkingDataUser: !!userData?.data?.user,
+          checkingUser: !!userData?.user,
+          checkingData: !!userData?.data,
+        });
+
         if (userData?.data?.user) {
           // Standard structure: { data: { user: { ... } } }
           tiktokUser = userData.data.user;
-          console.log('[TikTok OAuth] Found user data in userData.data.user');
+          console.error('[TikTok OAuth] SUCCESS: Found user data in userData.data.user', {
+            userKeys: Object.keys(tiktokUser),
+            hasUsername: !!tiktokUser.username,
+            hasDisplayName: !!tiktokUser.display_name,
+          });
         } else if (userData?.user) {
           // Alternative structure: { user: { ... } }
           tiktokUser = userData.user;
-          console.log('[TikTok OAuth] Found user data in userData.user');
+          console.error('[TikTok OAuth] SUCCESS: Found user data in userData.user', {
+            userKeys: Object.keys(tiktokUser),
+            hasUsername: !!tiktokUser.username,
+            hasDisplayName: !!tiktokUser.display_name,
+          });
         } else if (userData?.data) {
           // User data might be directly in data
           tiktokUser = userData.data;
-          console.log('[TikTok OAuth] Found user data in userData.data');
+          console.error('[TikTok OAuth] SUCCESS: Found user data in userData.data', {
+            userKeys: Object.keys(tiktokUser),
+            hasUsername: !!tiktokUser.username,
+            hasDisplayName: !!tiktokUser.display_name,
+          });
         } else {
-          console.error('[TikTok OAuth] Unexpected user data response structure:', {
+          console.error('[TikTok OAuth] CRITICAL: Unexpected user data response structure - NO USER DATA FOUND', {
             userData: JSON.stringify(userData, null, 2),
             userDataType: typeof userData,
             userDataIsArray: Array.isArray(userData),
+            hasData: !!userData?.data,
+            dataType: typeof userData?.data,
+            dataKeys: userData?.data ? Object.keys(userData.data) : [],
+            topLevelKeys: userData ? Object.keys(userData) : [],
           });
           throw new Error('Invalid TikTok user data response structure');
         }
         
         if (!tiktokUser) {
-          console.error('[TikTok OAuth] User data is null or undefined:', {
+          console.error('[TikTok OAuth] CRITICAL: User data is null or undefined after extraction', {
             userData: JSON.stringify(userData, null, 2),
           });
           throw new Error('Failed to extract user data from TikTok response');
         }
         
-        console.log('[TikTok OAuth] Extracted user data:', {
+        console.error('[TikTok OAuth] Step 13: User data extracted successfully', {
           username: tiktokUser.username,
           displayName: tiktokUser.display_name,
           openId: tiktokUser.open_id,
+          unionId: tiktokUser.union_id,
+          avatarUrl: tiktokUser.avatar_url,
           userKeys: Object.keys(tiktokUser),
+          allUserValues: JSON.stringify(tiktokUser, null, 2),
         });
         
         // Use username for profile URL (more reliable than display_name)
         // Fallback to display_name if username not available
+        console.error('[TikTok OAuth] Step 14: Extracting username', {
+          hasUsername: !!tiktokUser.username,
+          usernameValue: tiktokUser.username,
+          usernameType: typeof tiktokUser.username,
+          hasDisplayName: !!tiktokUser.display_name,
+          displayNameValue: tiktokUser.display_name,
+          displayNameType: typeof tiktokUser.display_name,
+        });
+
         const rawUsername = tiktokUser.username || tiktokUser.display_name;
         
         if (!rawUsername || typeof rawUsername !== 'string') {
-          console.error('[TikTok OAuth] Missing username/display_name:', {
+          console.error('[TikTok OAuth] CRITICAL: Missing username/display_name', {
             tiktokUser: JSON.stringify(tiktokUser, null, 2),
             hasUsername: !!tiktokUser.username,
+            usernameValue: tiktokUser.username,
             hasDisplayName: !!tiktokUser.display_name,
+            displayNameValue: tiktokUser.display_name,
+            rawUsername,
+            rawUsernameType: typeof rawUsername,
           });
           throw new Error('Unable to determine TikTok username');
         }
         
-        console.log('[TikTok OAuth] Raw username:', rawUsername);
+        console.error('[TikTok OAuth] Step 15: Raw username extracted', {
+          rawUsername,
+          rawUsernameLength: rawUsername.length,
+          rawUsernameType: typeof rawUsername,
+        });
         
         // Security: Sanitize username to prevent XSS and injection
         // TikTok usernames are 2-24 chars, alphanumeric + underscore + period
@@ -502,20 +685,26 @@ export async function loader({context, request}) {
           .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
           .slice(0, 24);
         
-        console.log('[TikTok OAuth] Sanitized username:', sanitizedUsername);
+        console.error('[TikTok OAuth] Step 16: Username sanitized', {
+          sanitizedUsername,
+          sanitizedLength: sanitizedUsername.length,
+          originalLength: rawUsername.length,
+        });
         
         // Validate: must be 2-24 chars, alphanumeric + underscore + period only
         if (sanitizedUsername.length < 2 || sanitizedUsername.length > 24) {
-          console.error('[TikTok OAuth] Username length invalid:', {
+          console.error('[TikTok OAuth] CRITICAL: Username length invalid', {
             length: sanitizedUsername.length,
             username: sanitizedUsername,
+            rawUsername,
           });
           throw new Error('TikTok username length invalid');
         }
         if (!/^[a-zA-Z0-9_.]+$/.test(sanitizedUsername)) {
-          console.error('[TikTok OAuth] Invalid username characters:', {
+          console.error('[TikTok OAuth] CRITICAL: Invalid username characters', {
             username: sanitizedUsername,
             matchesPattern: /^[a-zA-Z0-9_.]+$/.test(sanitizedUsername),
+            rawUsername,
           });
           throw new Error('Invalid TikTok username characters');
         }
@@ -524,16 +713,27 @@ export async function loader({context, request}) {
         // Security: Use encodeURIComponent to safely construct URL
         profileUrl = `https://tiktok.com/@${encodeURIComponent(username)}`;
         
-        console.log('[TikTok OAuth] Final values:', {
+        console.error('[TikTok OAuth] Step 17: Final values prepared', {
           username,
           profileUrl,
+          elapsedMs: Date.now() - startTime,
         });
         
         if (!username || !profileUrl) {
+          console.error('[TikTok OAuth] CRITICAL: Final validation failed', {
+            hasUsername: !!username,
+            hasProfileUrl: !!profileUrl,
+            username,
+            profileUrl,
+          });
           throw new Error('Unable to determine TikTok username or profile URL');
         }
         
-        console.log('[TikTok OAuth] Successfully processed TikTok OAuth flow');
+        console.error('[TikTok OAuth] ===== TIKTOK OAUTH FLOW COMPLETED SUCCESSFULLY =====', {
+          username,
+          profileUrl,
+          totalElapsedMs: Date.now() - startTime,
+        });
         break;
       }
 
@@ -855,16 +1055,30 @@ export async function loader({context, request}) {
     const isProduction = context.env.NODE_ENV === 'production';
     
     // Always log errors for debugging (even in production, but sanitized)
-    console.error('[OAuth Callback] Error caught:', {
-      error: error.message || 'Unknown error',
-      platform,
+    // Use console.error to ensure it shows up in Shopify deployment logs
+    console.error('[OAuth Callback] ===== ERROR CAUGHT =====');
+    console.error('[OAuth Callback] Error details:', {
+      errorMessage: error.message || 'Unknown error',
+      platform: platform || 'UNKNOWN',
       timestamp: new Date().toISOString(),
       errorName: error.name,
+      errorType: typeof error,
+      url: request.url,
       ...(isProduction ? {} : {
         errorStack: error.stack,
         errorFull: JSON.stringify(error, Object.getOwnPropertyNames(error)),
       }),
     });
+    
+    // Log additional context for TikTok specifically
+    if (platform === 'tiktok') {
+      console.error('[OAuth Callback] TikTok-specific error context:', {
+        hasClientKey: !!context.env.TIKTOK_CLIENT_KEY,
+        hasClientSecret: !!context.env.TIKTOK_CLIENT_SECRET,
+        errorMessage: error.message,
+        errorName: error.name,
+      });
+    }
 
     // Provide more specific error message based on error type
     let errorMessage = 'Verification failed. Please try again.';
@@ -874,7 +1088,16 @@ export async function loader({context, request}) {
       errorMessage = 'Failed to retrieve TikTok profile information. Please try again.';
     } else if (error.message?.includes('Invalid') || error.message?.includes('missing')) {
       errorMessage = `TikTok verification error: ${error.message}`;
+    } else if (error.message?.includes('Network error') || error.message?.includes('fetch')) {
+      errorMessage = 'Network error connecting to TikTok. Please try again.';
+    } else if (error.message?.includes('TikTok API error')) {
+      errorMessage = `TikTok API error: ${error.message}`;
     }
+
+    console.error('[OAuth Callback] Redirecting with error message:', {
+      errorMessage,
+      platform,
+    });
 
     return redirect(`/creator/social-links?error=${encodeURIComponent(errorMessage)}`);
   }
