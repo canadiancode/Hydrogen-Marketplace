@@ -434,7 +434,23 @@ export async function action({request, context}) {
     
     // Use whitelisted origin or fallback to first allowed origin
     const baseUrl = isValidOrigin ? requestOrigin : (allowedOrigins[0] || 'https://wornvault.com');
+    // CRITICAL: redirect_uri must NOT include query parameters - TikTok will add its own
+    // The redirect_uri must match exactly what's registered in TikTok dashboard
     const redirectUri = `${baseUrl}/creator/social-links/oauth/callback`;
+    
+    // Validate redirectUri doesn't contain query parameters (security check)
+    if (redirectUri.includes('?') || redirectUri.includes('&')) {
+      console.error('[OAuth Verify Action] TIKTOK_OAUTH_DEBUG CRITICAL: redirectUri contains query parameters!', {
+        redirectUri,
+        baseUrl,
+        requestOrigin,
+        timestamp: new Date().toISOString(),
+      });
+      return {
+        success: false,
+        error: 'Invalid redirect URI configuration. Please contact support.',
+      };
+    }
     
     let oauthUrl = '';
     let codeVerifier = null;
@@ -469,19 +485,43 @@ export async function action({request, context}) {
         // User has user.info.basic and user.info.profile configured
         // TikTok OAuth v2 authorization URL format
         const tiktokScopes = 'user.info.basic,user.info.profile';
-        // Note: TikTok authorization URL uses /auth/authorize/ (not /v2/auth/authorize)
-        // Token endpoint uses /v2/oauth/token/ but auth endpoint is different
-        oauthUrl = `https://www.tiktok.com/auth/authorize/?client_key=${context.env.TIKTOK_CLIENT_KEY || 'YOUR_CLIENT_KEY'}&scope=${encodeURIComponent(tiktokScopes)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&state=${oauthState}`;
+        // Note: TikTok OAuth v2 requires /v2/auth/authorize/ endpoint (v1 /auth/authorize/ is deprecated)
+        // Token endpoint uses /v2/oauth/token/ (already correct in callback handler)
+        // CRITICAL: redirect_uri must NOT include query parameters - only the base URL
+        // TikTok will add its own query parameters (code, state) when redirecting back
+        const cleanRedirectUri = redirectUri.split('?')[0].split('&')[0]; // Remove any query params as safety check
+        oauthUrl = `https://www.tiktok.com/v2/auth/authorize/?client_key=${context.env.TIKTOK_CLIENT_KEY || 'YOUR_CLIENT_KEY'}&scope=${encodeURIComponent(tiktokScopes)}&redirect_uri=${encodeURIComponent(cleanRedirectUri)}&response_type=code&state=${encodeURIComponent(oauthState)}`;
         
+        // CRITICAL: Verify redirectUri doesn't contain query parameters before encoding
+        const redirectUriEncoded = encodeURIComponent(cleanRedirectUri);
         console.error('[TikTok OAuth Init] TIKTOK_OAUTH_DEBUG Step 2: OAuth URL constructed', {
           oauthUrl,
           scopes: tiktokScopes,
           redirectUri,
+          cleanRedirectUri,
+          redirectUriEncoded,
+          redirectUriHasQueryParams: redirectUri.includes('?') || redirectUri.includes('&'),
+          cleanRedirectUriHasQueryParams: cleanRedirectUri.includes('?') || cleanRedirectUri.includes('&'),
           hasClientKey: !!context.env.TIKTOK_CLIENT_KEY,
           clientKeyPrefix: context.env.TIKTOK_CLIENT_KEY?.substring(0, 10) || 'MISSING',
           oauthStateLength: oauthState?.length || 0,
+          oauthStatePrefix: oauthState?.substring(0, 20) || 'MISSING',
           timestamp: new Date().toISOString(),
         });
+        
+        // Double-check: cleanRedirectUri should NOT contain query parameters
+        if (cleanRedirectUri.includes('?') || cleanRedirectUri.includes('&')) {
+          console.error('[TikTok OAuth Init] TIKTOK_OAUTH_DEBUG CRITICAL ERROR: cleanRedirectUri still contains query parameters!', {
+            redirectUri,
+            cleanRedirectUri,
+            redirectUriEncoded,
+            timestamp: new Date().toISOString(),
+          });
+          return {
+            success: false,
+            error: 'Invalid redirect URI configuration. Please contact support.',
+          };
+        }
         break;
       }
       case 'x': {
