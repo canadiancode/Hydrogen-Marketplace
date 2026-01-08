@@ -358,8 +358,22 @@ export async function action({request, context}) {
   if (actionType === 'verify') {
     const platform = formData.get('platform')?.toString();
     
+    // Production logging: These logs will appear in Shopify Oxygen runtime logs
+    // Search for "TIKTOK_OAUTH_DEBUG" in Shopify Oxygen logs to find these entries
+    console.error('[OAuth Verify Action] TIKTOK_OAUTH_DEBUG Action received', {
+      platform,
+      actionType,
+      hasPlatform: !!platform,
+      timestamp: new Date().toISOString(),
+    });
+    
     // Performance: Use Set.has() instead of array.includes() for O(1) lookup
     if (!platform || !VALID_PLATFORMS.has(platform)) {
+      console.error('[OAuth Verify Action] Invalid platform detected', {
+        platform,
+        validPlatforms: Array.from(VALID_PLATFORMS),
+        timestamp: new Date().toISOString(),
+      });
       return {
         success: false,
         error: 'Invalid platform specified',
@@ -434,10 +448,42 @@ export async function action({request, context}) {
         // Facebook Login API
         oauthUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${context.env.FACEBOOK_APP_ID || 'YOUR_APP_ID'}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=public_profile,email&state=${oauthState}`;
         break;
-      case 'tiktok':
-        // TikTok OAuth
-        oauthUrl = `https://www.tiktok.com/v2/auth/authorize?client_key=${context.env.TIKTOK_CLIENT_KEY || 'YOUR_CLIENT_KEY'}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=user.info.basic&state=${oauthState}`;
+      case 'tiktok': {
+        // Production logging: These logs will appear in Shopify Oxygen runtime logs
+        // Search for "TIKTOK_OAUTH_DEBUG" in Shopify Oxygen logs to find these entries
+        console.error('[TikTok OAuth Init] TIKTOK_OAUTH_DEBUG ===== STARTING TIKTOK OAUTH INITIATION =====');
+        console.error('[TikTok OAuth Init] TIKTOK_OAUTH_DEBUG Step 1: Environment check', {
+          hasClientKey: !!context.env.TIKTOK_CLIENT_KEY,
+          hasClientSecret: !!context.env.TIKTOK_CLIENT_SECRET,
+          clientKeyLength: context.env.TIKTOK_CLIENT_KEY?.length || 0,
+          clientSecretLength: context.env.TIKTOK_CLIENT_SECRET?.length || 0,
+          clientKeyPrefix: context.env.TIKTOK_CLIENT_KEY?.substring(0, 10) || 'MISSING',
+          redirectUri,
+          baseUrl,
+          requestOrigin,
+          isValidOrigin,
+          timestamp: new Date().toISOString(),
+        });
+        
+        // TikTok OAuth - Include both scopes if configured
+        // User has user.info.basic and user.info.profile configured
+        // TikTok OAuth v2 authorization URL format
+        const tiktokScopes = 'user.info.basic,user.info.profile';
+        // Note: TikTok authorization URL uses /auth/authorize/ (not /v2/auth/authorize)
+        // Token endpoint uses /v2/oauth/token/ but auth endpoint is different
+        oauthUrl = `https://www.tiktok.com/auth/authorize/?client_key=${context.env.TIKTOK_CLIENT_KEY || 'YOUR_CLIENT_KEY'}&scope=${encodeURIComponent(tiktokScopes)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&state=${oauthState}`;
+        
+        console.error('[TikTok OAuth Init] TIKTOK_OAUTH_DEBUG Step 2: OAuth URL constructed', {
+          oauthUrl,
+          scopes: tiktokScopes,
+          redirectUri,
+          hasClientKey: !!context.env.TIKTOK_CLIENT_KEY,
+          clientKeyPrefix: context.env.TIKTOK_CLIENT_KEY?.substring(0, 10) || 'MISSING',
+          oauthStateLength: oauthState?.length || 0,
+          timestamp: new Date().toISOString(),
+        });
         break;
+      }
       case 'x': {
         // Generate PKCE code verifier and challenge
         codeVerifier = generateRandomString(128);
@@ -485,6 +531,17 @@ export async function action({request, context}) {
       };
     }
 
+    // Production logging: These logs will appear in Shopify Oxygen runtime logs
+    // Search for "TIKTOK_OAUTH_DEBUG" in Shopify Oxygen logs to find these entries
+    console.error('[OAuth Redirect] TIKTOK_OAUTH_DEBUG Redirecting to OAuth provider', {
+      platform,
+      oauthUrl,
+      oauthUrlLength: oauthUrl?.length,
+      hasOAuthState: !!oauthState,
+      redirectUri,
+      timestamp: new Date().toISOString(),
+    });
+    
     // Redirect to OAuth provider
     return new Response(null, {
       status: 302,
