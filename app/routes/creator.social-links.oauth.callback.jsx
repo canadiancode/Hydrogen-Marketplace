@@ -322,9 +322,9 @@ export async function loader({context, request}) {
           hasClientKey: !!context.env.TIKTOK_CLIENT_KEY,
           hasClientSecret: !!context.env.TIKTOK_CLIENT_SECRET,
           clientKeyLength: context.env.TIKTOK_CLIENT_KEY?.length || 0,
-          clientSecretLength: context.env.TIKTOK_CLIENT_SECRET?.length || 0,
+          // SECURITY: Removed clientSecretLength to prevent information disclosure
           codeLength: code?.length,
-          codePrefix: code ? code.substring(0, 20) + '...' : 'NO_CODE',
+          // SECURITY: Removed codePrefix to prevent authorization code exposure
         });
 
         // Exchange code for access token
@@ -371,7 +371,7 @@ export async function loader({context, request}) {
         const responseText = await tokenResponse.text();
         console.error('[TikTok OAuth] Step 4: Raw token response text', {
           responseLength: responseText.length,
-          responsePreview: responseText.substring(0, 500),
+          // SECURITY: Removed responsePreview to prevent token exposure in logs
           isJSON: (() => {
             try {
               JSON.parse(responseText);
@@ -389,7 +389,9 @@ export async function loader({context, request}) {
             fullResponse: responseText,
             headers: Object.fromEntries(tokenResponse.headers.entries()),
           });
-          throw new Error(`Failed to exchange TikTok code: ${tokenResponse.status} - ${responseText.substring(0, 500)}`);
+          // SECURITY: Sanitize error message to prevent token exposure
+          const sanitizedError = responseText.replace(/"access_token":"[^"]+"/g, '"access_token":"[REDACTED]"').substring(0, 200);
+          throw new Error(`Failed to exchange TikTok code: ${tokenResponse.status} - ${sanitizedError}`);
         }
 
         let tokenData;
@@ -447,14 +449,14 @@ export async function loader({context, request}) {
           accessToken = tokenData.data.access_token;
           console.error('[TikTok OAuth] SUCCESS: Found access_token in tokenData.data.access_token', {
             tokenLength: accessToken.length,
-            tokenPrefix: accessToken.substring(0, 20) + '...',
+            // SECURITY: Removed tokenPrefix to prevent token exposure in logs
           });
         } else if (tokenData?.access_token) {
           // Alternative structure: { access_token: "...", ... }
           accessToken = tokenData.access_token;
           console.error('[TikTok OAuth] SUCCESS: Found access_token in tokenData.access_token', {
             tokenLength: accessToken.length,
-            tokenPrefix: accessToken.substring(0, 20) + '...',
+            // SECURITY: Removed tokenPrefix to prevent token exposure in logs
           });
         } else {
           // Log the actual structure for debugging
@@ -469,7 +471,9 @@ export async function loader({context, request}) {
             topLevelKeys: tokenData ? Object.keys(tokenData) : [],
           });
           // Include response structure in error message for debugging (will show in redirect URL)
-          const errorMsg = `Invalid TikTok token response: missing access_token. Response: ${tokenDataStr.substring(0, 200)}`;
+          // SECURITY: Sanitize error message to prevent token exposure
+          const sanitizedResponse = tokenDataStr.replace(/"access_token":"[^"]+"/g, '"access_token":"[REDACTED]"').substring(0, 200);
+          const errorMsg = `Invalid TikTok token response: missing access_token. Response: ${sanitizedResponse}`;
           throw new Error(errorMsg);
         }
 
@@ -482,7 +486,7 @@ export async function loader({context, request}) {
 
         console.error('[TikTok OAuth] Step 7: Access token obtained successfully', {
           accessTokenLength: accessToken.length,
-          accessTokenPrefix: accessToken.substring(0, 20) + '...',
+          // SECURITY: Removed accessTokenPrefix to prevent token exposure in logs
           elapsedMs: Date.now() - startTime,
         });
 
@@ -495,7 +499,7 @@ export async function loader({context, request}) {
           url: userInfoUrl,
           method: 'GET',
           hasAccessToken: !!accessToken,
-          accessTokenPrefix: accessToken.substring(0, 20) + '...',
+          // SECURITY: Removed accessTokenPrefix to prevent token exposure in logs
           note: 'Using user.info.basic scope fields only (display_name, not username)',
         });
         
@@ -528,7 +532,7 @@ export async function loader({context, request}) {
         const userResponseText = await userResponse.text();
         console.error('[TikTok OAuth] Step 10: Raw user info response text', {
           responseLength: userResponseText.length,
-          responsePreview: userResponseText.substring(0, 500),
+          // SECURITY: Removed responsePreview to prevent sensitive user data exposure in logs
           isJSON: (() => {
             try {
               JSON.parse(userResponseText);

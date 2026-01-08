@@ -472,8 +472,8 @@ export async function action({request, context}) {
           hasClientKey: !!context.env.TIKTOK_CLIENT_KEY,
           hasClientSecret: !!context.env.TIKTOK_CLIENT_SECRET,
           clientKeyLength: context.env.TIKTOK_CLIENT_KEY?.length || 0,
-          clientSecretLength: context.env.TIKTOK_CLIENT_SECRET?.length || 0,
-          clientKeyPrefix: context.env.TIKTOK_CLIENT_KEY?.substring(0, 10) || 'MISSING',
+          // SECURITY: Removed clientSecretLength to prevent information disclosure
+          // SECURITY: Removed clientKeyPrefix to prevent partial key exposure
           redirectUri,
           baseUrl,
           requestOrigin,
