@@ -418,7 +418,8 @@ export async function loader({context, request}) {
         });
         
         // Check for TikTok API errors in response body (even with 200 status)
-        if (tokenData?.error) {
+        // TikTok returns error: { code: "ok" } for successful responses
+        if (tokenData?.error && tokenData.error?.code !== "ok") {
           console.error('[TikTok OAuth] CRITICAL: TikTok API returned error in token response', {
             error: tokenData.error,
             errorCode: tokenData.error?.code,
@@ -577,7 +578,8 @@ export async function loader({context, request}) {
         });
         
         // Check for TikTok API errors in response body (even with 200 status)
-        if (userData?.error) {
+        // TikTok returns error: { code: "ok" } for successful responses
+        if (userData?.error && userData.error?.code !== "ok") {
           console.error('[TikTok OAuth] CRITICAL: TikTok API returned error in user info response', {
             error: userData.error,
             errorCode: userData.error?.code,
