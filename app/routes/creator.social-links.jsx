@@ -13,11 +13,10 @@ export const meta = () => {
 };
 
 // Performance: Module-level constants to avoid object recreation
-const VALID_PLATFORMS = new Set(['instagram', 'facebook', 'tiktok', 'x', 'youtube', 'twitch']);
+const VALID_PLATFORMS = new Set(['instagram', 'tiktok', 'x', 'youtube', 'twitch']);
 
 const ALLOWED_DOMAINS = {
   instagram: ['instagram.com', 'www.instagram.com'],
-  facebook: ['facebook.com', 'www.facebook.com', 'fb.com', 'www.fb.com'],
   tiktok: ['tiktok.com', 'www.tiktok.com'],
   x: ['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com'],
   youtube: ['youtube.com', 'www.youtube.com', 'youtu.be'],
@@ -30,11 +29,6 @@ const PLATFORM_FIELD_MAP = {
     url: 'instagram_url',
     username: 'instagram_username',
     verified: 'instagram_verified',
-  },
-  facebook: {
-    url: 'facebook_url',
-    username: 'facebook_username',
-    verified: 'facebook_verified',
   },
   tiktok: {
     url: 'tiktok_url',
@@ -61,7 +55,6 @@ const PLATFORM_FIELD_MAP = {
 // Platform display names for user-facing messages
 const PLATFORM_DISPLAY_NAMES = {
   instagram: 'Instagram',
-  facebook: 'Facebook',
   tiktok: 'TikTok',
   x: 'X',
   youtube: 'YouTube',
@@ -71,8 +64,6 @@ const PLATFORM_DISPLAY_NAMES = {
 const DEFAULT_SOCIAL_LINKS = {
   instagram: '',
   instagramVerified: false,
-  facebook: '',
-  facebookVerified: false,
   tiktok: '',
   tiktokVerified: false,
   x: '',
@@ -88,8 +79,6 @@ function mapSubmittedLinksToSocialLinks(submittedLinks) {
   return {
     instagram: submittedLinks.instagram_url || submittedLinks.instagram || '',
     instagramVerified: false,
-    facebook: submittedLinks.facebook_url || submittedLinks.facebook || '',
-    facebookVerified: false,
     tiktok: submittedLinks.tiktok_url || submittedLinks.tiktok || '',
     tiktokVerified: false,
     x: submittedLinks.x_url || submittedLinks.x || '',
@@ -107,7 +96,7 @@ function mergeSocialLinksFromBothSources(submittedLinksData, creatorsData) {
   
   // Override with OAuth-verified data from creators table (takes precedence)
   if (creatorsData) {
-    const platforms = ['instagram', 'facebook', 'tiktok', 'x', 'youtube', 'twitch'];
+    const platforms = ['instagram', 'tiktok', 'x', 'youtube', 'twitch'];
     platforms.forEach((platform) => {
       const urlField = `${platform}_url`;
       const usernameField = `${platform}_username`;
@@ -223,7 +212,7 @@ export async function loader({context, request}) {
         // Check creators table for OAuth-verified platforms (FIX: Merge both data sources)
         const {data: creatorData, error: creatorError} = await serverSupabase
           .from('creators')
-          .select('x_url,x_username,x_verified,instagram_url,instagram_username,instagram_verified,facebook_url,facebook_username,facebook_verified,tiktok_url,tiktok_username,tiktok_verified,youtube_url,youtube_username,youtube_verified,twitch_url,twitch_username,twitch_verified')
+          .select('x_url,x_username,x_verified,instagram_url,instagram_username,instagram_verified,tiktok_url,tiktok_username,tiktok_verified,youtube_url,youtube_username,youtube_verified,twitch_url,twitch_username,twitch_verified')
           .eq('id', creatorId)
           .maybeSingle();
         
@@ -260,7 +249,7 @@ export async function loader({context, request}) {
         // Also fetch creators table data
         const {data: creatorData} = await supabase
           .from('creators')
-          .select('x_url,x_username,x_verified,instagram_url,instagram_username,instagram_verified,facebook_url,facebook_username,facebook_verified,tiktok_url,tiktok_username,tiktok_verified,youtube_url,youtube_username,youtube_verified,twitch_url,twitch_username,twitch_verified')
+          .select('x_url,x_username,x_verified,instagram_url,instagram_username,instagram_verified,tiktok_url,tiktok_username,tiktok_verified,youtube_url,youtube_username,youtube_verified,twitch_url,twitch_username,twitch_verified')
           .eq('id', creatorId)
           .maybeSingle();
         
@@ -452,10 +441,6 @@ export async function action({request, context}) {
       case 'instagram':
         // Instagram Basic Display API
         oauthUrl = `https://api.instagram.com/oauth/authorize?client_id=${context.env.INSTAGRAM_CLIENT_ID || 'YOUR_CLIENT_ID'}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=user_profile,user_media&response_type=code&state=${oauthState}`;
-        break;
-      case 'facebook':
-        // Facebook Login API
-        oauthUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${context.env.FACEBOOK_APP_ID || 'YOUR_APP_ID'}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=public_profile,email&state=${oauthState}`;
         break;
       case 'tiktok': {
         // Production logging: These logs will appear in Shopify Oxygen runtime logs
@@ -659,7 +644,7 @@ export async function action({request, context}) {
     // Extract and sanitize social links into JSONB structure
     const submittedLinks = {};
     
-    const platforms = ['instagram', 'facebook', 'tiktok', 'x', 'youtube', 'twitch'];
+    const platforms = ['instagram', 'tiktok', 'x', 'youtube', 'twitch'];
     
     platforms.forEach((platform) => {
       const url = sanitizeUrl(formData.get(`${platform}_url`)?.toString(), platform);
@@ -1089,16 +1074,6 @@ export default function CreatorSocialLinks() {
     </svg>
   );
 
-  const FacebookIcon = (props) => (
-    <svg fill="currentColor" viewBox="0 0 24 24" {...props}>
-      <path
-        fillRule="evenodd"
-        d="M22 12c0-5.523-4.477-10-10-10S2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.878v-6.987h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v6.988C18.343 21.128 22 16.991 22 12z"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
-
   const TikTokIcon = (props) => (
     <svg fill="currentColor" viewBox="0 0 24 24" {...props}>
       <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z" />
@@ -1132,11 +1107,6 @@ export default function CreatorSocialLinks() {
       key: 'instagram',
       label: 'Instagram',
       Icon: InstagramIcon,
-    },
-    {
-      key: 'facebook',
-      label: 'Facebook',
-      Icon: FacebookIcon,
     },
     {
       key: 'tiktok',
