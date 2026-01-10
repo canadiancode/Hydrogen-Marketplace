@@ -1,6 +1,6 @@
 import {useLoaderData, Link, redirect, Form, useActionData, useNavigation, useSearchParams} from 'react-router';
 import {useState, useEffect, useMemo, useRef} from 'react';
-import {checkAdminAuth, fetchAllListings, createServerSupabaseClient} from '~/lib/supabase';
+import {checkAdminAuth, fetchAllListings, createServerSupabaseClient, logActivityAdmin} from '~/lib/supabase';
 import {PhotoIcon} from '@heroicons/react/24/outline';
 import {ChevronDownIcon, FunnelIcon} from '@heroicons/react/20/solid';
 import {Disclosure, DisclosureButton, DisclosurePanel, Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/react';
@@ -229,6 +229,21 @@ export async function action({request, context}) {
     try {
       const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
       
+      // Fetch listings before updating to get creator_id, title, and old status for each
+      const {data: listingsData, error: fetchError} = await supabase
+        .from('listings')
+        .select('id, creator_id, title, status')
+        .in('id', sanitizedListingIds);
+      
+      if (fetchError) {
+        console.error('Error fetching listings for bulk update:', fetchError);
+        return new Response(`Failed to fetch listings: ${fetchError.message}`, {status: 500});
+      }
+      
+      if (!listingsData || listingsData.length === 0) {
+        return new Response('No listings found', {status: 404});
+      }
+      
       // Bulk update listings using parameterized query (Supabase handles SQL injection prevention)
       const {error} = await supabase
         .from('listings')
@@ -239,6 +254,32 @@ export async function action({request, context}) {
         console.error('Error bulk updating listings:', error);
         return new Response(`Failed to update listings: ${error.message}`, {status: 500});
       }
+      
+      // Log activities for each listing that was updated
+      const activityPromises = listingsData.map(listing => {
+        const oldStatus = listing.status;
+        const activityDescription = `"${listing.title}" status changed to ${sanitizedStatus}`;
+        
+        return logActivityAdmin({
+          creatorId: listing.creator_id,
+          activityType: 'listing_status_changed',
+          entityType: 'listing',
+          entityId: listing.id,
+          description: activityDescription,
+          metadata: {
+            listingId: listing.id,
+            listingTitle: listing.title,
+            oldStatus,
+            newStatus: sanitizedStatus,
+            action: 'bulk_update',
+          },
+          supabaseUrl,
+          serviceRoleKey,
+        });
+      });
+      
+      // Log all activities (don't fail the request if logging fails)
+      await Promise.allSettled(activityPromises);
       
       // Redirect back to listings page with success message
       // Preserve current filter parameters (sanitized)

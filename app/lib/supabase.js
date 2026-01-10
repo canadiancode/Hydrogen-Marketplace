@@ -130,10 +130,6 @@ export async function getSupabaseSession(request, supabaseUrl, anonKey, isProduc
     return {session: null, user: null, needsRefresh: false};
   }
 
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase.js:getSupabaseSession',message:'Cookie parsing debug',data:{cookieHeader,cookieName,hasCookie:!!cookies[cookieName],cookieKeys:Object.keys(cookies),cookieNameInHeader:cookieHeader.includes(cookieName)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-  // #endregion
-
   const authToken = cookies[cookieName];
 
   if (!authToken) {
@@ -1863,5 +1859,742 @@ export async function fetchListingsByCreatorId(creatorId, supabaseUrl, serviceRo
   }
 
   return listingsWithPhotos;
+}
+
+/**
+ * Fetches recent activity for a creator
+ * Aggregates activity from multiple tables: listings, payouts, verifications, logistics_events
+ * Returns a unified activity feed sorted by most recent first
+ * 
+ * @param {string} creatorId - Creator's UUID
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} anonKey - Supabase anon/public key
+ * @param {string} accessToken - User's access token
+ * @param {object} options - Optional parameters
+ * @param {number} options.limit - Maximum number of activities to return (default: 20)
+ * @returns {Promise<Array>} Array of activity objects with type, description, timestamp, and metadata
+ */
+export async function fetchCreatorRecentActivity(creatorId, supabaseUrl, anonKey, accessToken, options = {}) {
+  if (!creatorId || !supabaseUrl || !anonKey || !accessToken) {
+    return [];
+  }
+
+  // SECURITY: Validate and limit the limit parameter to prevent DoS
+  let limit = options.limit || 20;
+  if (typeof limit !== 'number' || limit < 1 || limit > 100) {
+    limit = 20; // Default to safe value if invalid
+  }
+  limit = Math.floor(limit); // Ensure it's an integer
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  
+  // First, try to fetch from activity_log table (preferred method)
+  const {data: activityLogs, error: activityLogError} = await supabase
+    .from('activity_log')
+    .select('*')
+    .eq('creator_id', creatorId)
+    .order('created_at', {ascending: false})
+    .limit(limit);
+
+  // If we have activity logs, use them (preferred method)
+  if (!activityLogError && activityLogs && activityLogs.length > 0) {
+    return activityLogs.map(log => ({
+      id: log.id,
+      type: log.activity_type,
+      description: log.description,
+      timestamp: log.created_at,
+      metadata: log.metadata || {},
+    }));
+  }
+
+  // Fallback: If activity_log is empty, aggregate from other tables
+  // This allows for a migration period where old data still shows up
+  const activities = [];
+
+  // 1. Fetch recent listings
+  const {data: listings, error: listingsError} = await supabase
+    .from('listings')
+    .select('id, title, status, created_at')
+    .eq('creator_id', creatorId)
+    .order('created_at', {ascending: false})
+    .limit(limit);
+
+  if (!listingsError && listings) {
+    listings.forEach(listing => {
+      let description = '';
+      let activityType = 'listing_created';
+      
+      switch (listing.status) {
+        case 'live':
+          description = `Listed "${listing.title}"`;
+          activityType = 'listing_published';
+          break;
+        case 'pending_approval':
+          description = `Submitted "${listing.title}" for approval`;
+          activityType = 'listing_submitted';
+          break;
+        case 'draft':
+          description = `Created draft "${listing.title}"`;
+          activityType = 'listing_created';
+          break;
+        default:
+          description = `Updated "${listing.title}"`;
+          activityType = 'listing_updated';
+      }
+      
+      activities.push({
+        id: `listing_${listing.id}`,
+        type: activityType,
+        description,
+        timestamp: listing.created_at,
+        metadata: {
+          listingId: listing.id,
+          listingTitle: listing.title,
+          status: listing.status,
+        },
+      });
+    });
+  }
+
+  // 2. Fetch recent payouts
+  const {data: payouts, error: payoutsError} = await supabase
+    .from('payouts')
+    .select('id, net_amount_cents, payout_status, created_at, listing_id')
+    .eq('creator_id', creatorId)
+    .order('created_at', {ascending: false})
+    .limit(limit);
+
+  if (!payoutsError && payouts) {
+    // Fetch listing titles for payouts
+    const payoutListingIds = payouts.map(p => p.listing_id).filter(Boolean);
+    let listingTitlesMap = {};
+    
+    if (payoutListingIds.length > 0) {
+      const {data: payoutListings} = await supabase
+        .from('listings')
+        .select('id, title')
+        .in('id', payoutListingIds);
+      
+      if (payoutListings) {
+        payoutListings.forEach(listing => {
+          listingTitlesMap[listing.id] = listing.title;
+        });
+      }
+    }
+
+    payouts.forEach(payout => {
+      const amount = (payout.net_amount_cents / 100).toFixed(2);
+      const listingTitle = listingTitlesMap[payout.listing_id] || 'a listing';
+      
+      let description = '';
+      let activityType = 'payout_created';
+      
+      switch (payout.payout_status) {
+        case 'completed':
+          description = `Received payout of $${amount} for "${listingTitle}"`;
+          activityType = 'payout_completed';
+          break;
+        case 'pending':
+          description = `Payout of $${amount} pending for "${listingTitle}"`;
+          activityType = 'payout_pending';
+          break;
+        case 'failed':
+          description = `Payout of $${amount} failed for "${listingTitle}"`;
+          activityType = 'payout_failed';
+          break;
+        default:
+          description = `Payout of $${amount} for "${listingTitle}"`;
+      }
+      
+      activities.push({
+        id: `payout_${payout.id}`,
+        type: activityType,
+        description,
+        timestamp: payout.created_at,
+        metadata: {
+          payoutId: payout.id,
+          amount: payout.net_amount_cents,
+          status: payout.payout_status,
+          listingId: payout.listing_id,
+          listingTitle,
+        },
+      });
+    });
+  }
+
+  // 3. Fetch recent verification submissions
+  const {data: verifications, error: verificationsError} = await supabase
+    .from('creator_verifications')
+    .select('id, status, created_at')
+    .eq('creator_id', creatorId)
+    .order('created_at', {ascending: false})
+    .limit(limit);
+
+  if (!verificationsError && verifications) {
+    verifications.forEach(verification => {
+      let description = '';
+      let activityType = 'verification_submitted';
+      
+      switch (verification.status) {
+        case 'approved':
+          description = 'Verification approved';
+          activityType = 'verification_approved';
+          break;
+        case 'rejected':
+          description = 'Verification rejected';
+          activityType = 'verification_rejected';
+          break;
+        case 'pending':
+        default:
+          description = 'Submitted verification request';
+          activityType = 'verification_submitted';
+      }
+      
+      activities.push({
+        id: `verification_${verification.id}`,
+        type: activityType,
+        description,
+        timestamp: verification.created_at,
+        metadata: {
+          verificationId: verification.id,
+          status: verification.status,
+        },
+      });
+    });
+  }
+
+  // 4. Fetch recent logistics events
+  // First get listing IDs for this creator, then fetch logistics events for those listings
+  const {data: creatorListings, error: creatorListingsError} = await supabase
+    .from('listings')
+    .select('id')
+    .eq('creator_id', creatorId);
+  
+  let logisticsEvents = [];
+  if (!creatorListingsError && creatorListings && creatorListings.length > 0) {
+    const listingIds = creatorListings.map(l => l.id);
+    const {data: events, error: logisticsError} = await supabase
+      .from('logistics_events')
+      .select('id, event_type, created_at, listing_id, metadata')
+      .in('listing_id', listingIds)
+      .order('created_at', {ascending: false})
+      .limit(limit);
+    
+    if (!logisticsError && events) {
+      logisticsEvents = events;
+    }
+  }
+
+  if (logisticsEvents && logisticsEvents.length > 0) {
+    // Fetch listing titles for logistics events
+    const logisticsListingIds = logisticsEvents.map(e => e.listing_id).filter(Boolean);
+    let logisticsListingTitlesMap = {};
+    
+    if (logisticsListingIds.length > 0) {
+      const {data: logisticsListings} = await supabase
+        .from('listings')
+        .select('id, title')
+        .in('id', logisticsListingIds);
+      
+      if (logisticsListings) {
+        logisticsListings.forEach(listing => {
+          logisticsListingTitlesMap[listing.id] = listing.title;
+        });
+      }
+    }
+
+    logisticsEvents.forEach(event => {
+      const listingTitle = logisticsListingTitlesMap[event.listing_id] || 'a listing';
+      let description = '';
+      let activityType = 'logistics_event';
+      
+      // Map event types to human-readable descriptions
+      switch (event.event_type) {
+        case 'shipped':
+          description = `"${listingTitle}" has been shipped`;
+          activityType = 'listing_shipped';
+          break;
+        case 'delivered':
+          description = `"${listingTitle}" has been delivered`;
+          activityType = 'listing_delivered';
+          break;
+        case 'received':
+          description = `"${listingTitle}" has been received`;
+          activityType = 'listing_received';
+          break;
+        default:
+          description = `Logistics update for "${listingTitle}"`;
+      }
+      
+      activities.push({
+        id: `logistics_${event.id}`,
+        type: activityType,
+        description,
+        timestamp: event.created_at,
+        metadata: {
+          eventId: event.id,
+          eventType: event.event_type,
+          listingId: event.listing_id,
+          listingTitle,
+          eventMetadata: event.metadata,
+        },
+      });
+    });
+  }
+
+  // Sort all activities by timestamp (most recent first) and limit
+  activities.sort((a, b) => {
+    const dateA = new Date(a.timestamp);
+    const dateB = new Date(b.timestamp);
+    return dateB - dateA; // Descending order
+  });
+
+  return activities.slice(0, limit);
+}
+
+/**
+ * SECURITY: Validates UUID format to prevent injection attacks
+ * @param {string} uuid - UUID string to validate
+ * @returns {boolean} True if valid UUID format
+ */
+function isValidUUID(uuid) {
+  if (!uuid || typeof uuid !== 'string') return false;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(uuid);
+}
+
+/**
+ * SECURITY: Sanitizes activity description to prevent XSS and enforce length limits
+ * Removes control characters, HTML tags, and limits length
+ * @param {string} description - Description to sanitize
+ * @param {number} maxLength - Maximum length (default: 500)
+ * @returns {string} Sanitized description
+ */
+function sanitizeActivityDescription(description, maxLength = 500) {
+  if (!description || typeof description !== 'string') {
+    return '';
+  }
+  
+  // Remove control characters and HTML tags
+  let sanitized = description
+    .trim()
+    .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
+    .replace(/<[^>]*>/g, ''); // Remove HTML tags
+  
+  // Enforce length limit
+  if (sanitized.length > maxLength) {
+    sanitized = sanitized.substring(0, maxLength);
+  }
+  
+  return sanitized;
+}
+
+/**
+ * SECURITY: Validates and sanitizes metadata object to prevent DoS attacks
+ * Limits size and ensures it's a valid JSON object
+ * @param {object} metadata - Metadata object to validate
+ * @param {number} maxSizeKB - Maximum size in KB (default: 10KB)
+ * @returns {object | null} Sanitized metadata or null if invalid
+ */
+function validateMetadata(metadata, maxSizeKB = 10) {
+  if (!metadata || typeof metadata !== 'object') {
+    return null;
+  }
+  
+  // Prevent prototype pollution
+  if (Object.prototype.hasOwnProperty.call(metadata, '__proto__') ||
+      Object.prototype.hasOwnProperty.call(metadata, 'constructor') ||
+      Object.prototype.hasOwnProperty.call(metadata, 'prototype')) {
+    console.warn('Metadata contains forbidden keys, rejecting');
+    return null;
+  }
+  
+  try {
+    // Check size limit (rough estimate)
+    const jsonString = JSON.stringify(metadata);
+    const sizeKB = new Blob([jsonString]).size / 1024;
+    
+    if (sizeKB > maxSizeKB) {
+      console.warn(`Metadata size (${sizeKB.toFixed(2)}KB) exceeds limit (${maxSizeKB}KB)`);
+      return null;
+    }
+    
+    // Deep clone to prevent mutation and ensure valid JSON
+    return JSON.parse(jsonString);
+  } catch (error) {
+    console.warn('Invalid metadata format, rejecting:', error);
+    return null;
+  }
+}
+
+/**
+ * SECURITY: Validates activity type and entity type against whitelist
+ * Prevents arbitrary activity types from being logged
+ * @param {string} activityType - Activity type to validate
+ * @param {string} entityType - Entity type to validate
+ * @returns {boolean} True if both are valid
+ */
+function validateActivityTypes(activityType, entityType) {
+  const allowedEntityTypes = ['listing', 'payout', 'verification', 'logistics_event', 'creator'];
+  const allowedActivityTypes = [
+    'listing_created', 'listing_updated', 'listing_status_changed', 'listing_published', 
+    'listing_submitted', 'listing_approved', 'listing_rejected', 'listing_deleted',
+    'payout_created', 'payout_completed', 'payout_pending', 'payout_failed',
+    'verification_submitted', 'verification_approved', 'verification_rejected',
+    'listing_shipped', 'listing_delivered', 'listing_received',
+    'creator_joined', 'creator_created', 'creator_status_changed', 'creator_verification_status_changed',
+  ];
+  
+  return allowedEntityTypes.includes(entityType) && allowedActivityTypes.includes(activityType);
+}
+
+/**
+ * Logs an activity to the activity_log table
+ * This is the primary way to track user activities for the activity feed
+ * 
+ * SECURITY NOTES:
+ * - Validates UUIDs to prevent injection attacks
+ * - Sanitizes description to prevent XSS
+ * - Validates activity and entity types against whitelist
+ * - Limits metadata size to prevent DoS
+ * - RLS policies ensure users can only log activities for themselves
+ * 
+ * @param {object} params - Activity parameters
+ * @param {string} params.creatorId - Creator's UUID
+ * @param {string} params.activityType - Type of activity (e.g., 'listing_created', 'listing_updated')
+ * @param {string} params.entityType - Type of entity ('listing', 'payout', 'verification', 'logistics_event', 'creator')
+ * @param {string} params.entityId - UUID of the related entity (optional)
+ * @param {string} params.description - Human-readable description of the activity
+ * @param {object} params.metadata - Additional context (optional, max 10KB)
+ * @param {string} params.supabaseUrl - Supabase project URL
+ * @param {string} params.anonKey - Supabase anon/public key
+ * @param {string} params.accessToken - User's access token
+ * @returns {Promise<{success: boolean, error: Error | null}>}
+ */
+export async function logActivity({
+  creatorId,
+  activityType,
+  entityType,
+  entityId = null,
+  description,
+  metadata = null,
+  supabaseUrl,
+  anonKey,
+  accessToken,
+}) {
+  // Validate required parameters
+  if (!creatorId || !activityType || !entityType || !description || !supabaseUrl || !anonKey || !accessToken) {
+    return {
+      success: false,
+      error: new Error('Missing required parameters for activity logging'),
+    };
+  }
+
+  // SECURITY: Validate UUIDs to prevent injection
+  if (!isValidUUID(creatorId)) {
+    return {
+      success: false,
+      error: new Error('Invalid creator ID format'),
+    };
+  }
+
+  if (entityId && !isValidUUID(entityId)) {
+    return {
+      success: false,
+      error: new Error('Invalid entity ID format'),
+    };
+  }
+
+  // SECURITY: Validate activity and entity types against whitelist
+  if (!validateActivityTypes(activityType, entityType)) {
+    return {
+      success: false,
+      error: new Error('Invalid activity type or entity type'),
+    };
+  }
+
+  // SECURITY: Sanitize description to prevent XSS
+  const sanitizedDescription = sanitizeActivityDescription(description);
+  if (!sanitizedDescription) {
+    return {
+      success: false,
+      error: new Error('Description is required and cannot be empty after sanitization'),
+    };
+  }
+
+  // SECURITY: Validate and sanitize metadata
+  let sanitizedMetadata = null;
+  if (metadata) {
+    sanitizedMetadata = validateMetadata(metadata);
+    // Note: We don't fail if metadata is invalid, we just skip it to avoid breaking existing flows
+  }
+
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+
+  const activityData = {
+    creator_id: creatorId,
+    activity_type: activityType,
+    entity_type: entityType,
+    description: sanitizedDescription,
+  };
+
+  if (entityId) {
+    activityData.entity_id = entityId;
+  }
+
+  if (sanitizedMetadata) {
+    activityData.metadata = sanitizedMetadata;
+  }
+
+  const {error} = await supabase
+    .from('activity_log')
+    .insert(activityData);
+
+  if (error) {
+    console.error('Error logging activity:', error);
+    return {
+      success: false,
+      error,
+    };
+  }
+
+  return {
+    success: true,
+    error: null,
+  };
+}
+
+/**
+ * Logs an activity to the activity_log table using service role key (for admin operations)
+ * This bypasses RLS and allows admins to log activities on behalf of creators
+ * 
+ * SECURITY NOTES:
+ * - Validates UUIDs to prevent injection attacks
+ * - Sanitizes description to prevent XSS
+ * - Validates activity and entity types against whitelist
+ * - Limits metadata size to prevent DoS
+ * - Should only be called from authenticated admin routes (verified by checkAdminAuth)
+ * 
+ * @param {object} params - Activity parameters
+ * @param {string} params.creatorId - Creator's UUID
+ * @param {string} params.activityType - Type of activity (e.g., 'listing_status_changed')
+ * @param {string} params.entityType - Type of entity ('listing', 'payout', 'verification', 'logistics_event', 'creator')
+ * @param {string} params.entityId - UUID of the related entity (optional)
+ * @param {string} params.description - Human-readable description of the activity
+ * @param {object} params.metadata - Additional context (optional, max 10KB)
+ * @param {string} params.supabaseUrl - Supabase project URL
+ * @param {string} params.serviceRoleKey - Supabase service role key (for admin operations)
+ * @returns {Promise<{success: boolean, error: Error | null}>}
+ */
+export async function logActivityAdmin({
+  creatorId,
+  activityType,
+  entityType,
+  entityId = null,
+  description,
+  metadata = null,
+  supabaseUrl,
+  serviceRoleKey,
+}) {
+  // Validate required parameters
+  if (!creatorId || !activityType || !entityType || !description || !supabaseUrl || !serviceRoleKey) {
+    return {
+      success: false,
+      error: new Error('Missing required parameters for activity logging'),
+    };
+  }
+
+  // SECURITY: Validate UUIDs to prevent injection
+  if (!isValidUUID(creatorId)) {
+    return {
+      success: false,
+      error: new Error('Invalid creator ID format'),
+    };
+  }
+
+  if (entityId && !isValidUUID(entityId)) {
+    return {
+      success: false,
+      error: new Error('Invalid entity ID format'),
+    };
+  }
+
+  // SECURITY: Validate activity and entity types against whitelist
+  if (!validateActivityTypes(activityType, entityType)) {
+    return {
+      success: false,
+      error: new Error('Invalid activity type or entity type'),
+    };
+  }
+
+  // SECURITY: Sanitize description to prevent XSS
+  const sanitizedDescription = sanitizeActivityDescription(description);
+  if (!sanitizedDescription) {
+    return {
+      success: false,
+      error: new Error('Description is required and cannot be empty after sanitization'),
+    };
+  }
+
+  // SECURITY: Validate and sanitize metadata
+  let sanitizedMetadata = null;
+  if (metadata) {
+    sanitizedMetadata = validateMetadata(metadata);
+    // Note: We don't fail if metadata is invalid, we just skip it to avoid breaking existing flows
+  }
+
+  const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
+
+  const activityData = {
+    creator_id: creatorId,
+    activity_type: activityType,
+    entity_type: entityType,
+    description: sanitizedDescription,
+  };
+
+  if (entityId) {
+    activityData.entity_id = entityId;
+  }
+
+  if (sanitizedMetadata) {
+    activityData.metadata = sanitizedMetadata;
+  }
+
+  const {error} = await supabase
+    .from('activity_log')
+    .insert(activityData);
+
+  if (error) {
+    console.error('Error logging activity (admin):', error);
+    return {
+      success: false,
+      error,
+    };
+  }
+
+  return {
+    success: true,
+    error: null,
+  };
+}
+
+/**
+ * Fetches recent activity for admin dashboard
+ * Aggregates activity from activity_log table for admin-relevant events:
+ * - New creators that joined
+ * - New items to verify (listings pending approval)
+ * - State changes of listings
+ * - State changes of creators
+ * 
+ * SECURITY NOTES:
+ * - Validates limit parameter to prevent DoS attacks
+ * - Uses service role key (should only be called from authenticated admin routes)
+ * - Descriptions are already sanitized at insert time
+ * - Display layer (React) automatically escapes text content for XSS protection
+ * 
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} serviceRoleKey - Supabase service role key (for admin operations)
+ * @param {object} options - Optional parameters
+ * @param {number} options.limit - Maximum number of activities to return (default: 50, max: 200)
+ * @returns {Promise<Array>} Array of activity objects with type, description, timestamp, creator info, and metadata
+ */
+export async function fetchAdminRecentActivity(supabaseUrl, serviceRoleKey, options = {}) {
+  if (!supabaseUrl || !serviceRoleKey) {
+    return [];
+  }
+
+  // SECURITY: Validate and limit the limit parameter to prevent DoS
+  let limit = options.limit || 50;
+  if (typeof limit !== 'number' || limit < 1 || limit > 200) {
+    limit = 50; // Default to safe value if invalid
+  }
+  limit = Math.floor(limit); // Ensure it's an integer
+  const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
+  
+  // Fetch activity logs for admin-relevant events
+  // Filter for activities related to creators and listings
+  const {data: activityLogs, error: activityLogError} = await supabase
+    .from('activity_log')
+    .select('*')
+    .in('entity_type', ['creator', 'listing'])
+    .order('created_at', {ascending: false})
+    .limit(limit);
+
+  if (activityLogError) {
+    console.error('Error fetching admin recent activity:', activityLogError);
+    return [];
+  }
+
+  if (!activityLogs || activityLogs.length === 0) {
+    return [];
+  }
+
+  // Fetch creator information for all activities
+  const creatorIds = [...new Set(activityLogs.map(log => log.creator_id).filter(Boolean))];
+  let creatorsMap = {};
+  
+  if (creatorIds.length > 0) {
+    const {data: creators, error: creatorsError} = await supabase
+      .from('creators')
+      .select('id, email, display_name, handle')
+      .in('id', creatorIds);
+    
+    if (!creatorsError && creators) {
+      creators.forEach(creator => {
+        creatorsMap[creator.id] = creator;
+      });
+    }
+  }
+
+  // Fetch listing information for listing-related activities
+  const listingIds = [...new Set(
+    activityLogs
+      .filter(log => log.entity_type === 'listing' && log.entity_id)
+      .map(log => log.entity_id)
+  )];
+  let listingsMap = {};
+  
+  if (listingIds.length > 0) {
+    const {data: listings, error: listingsError} = await supabase
+      .from('listings')
+      .select('id, title, status')
+      .in('id', listingIds);
+    
+    if (!listingsError && listings) {
+      listings.forEach(listing => {
+        listingsMap[listing.id] = listing;
+      });
+    }
+  }
+
+  // Format activities with creator and listing information
+  const formattedActivities = activityLogs.map(log => {
+    const creator = creatorsMap[log.creator_id] || null;
+    const listing = log.entity_type === 'listing' && log.entity_id 
+      ? listingsMap[log.entity_id] || null
+      : null;
+
+    return {
+      id: log.id,
+      type: log.activity_type,
+      description: log.description,
+      timestamp: log.created_at,
+      entityType: log.entity_type,
+      entityId: log.entity_id,
+      metadata: log.metadata || {},
+      creator: creator ? {
+        id: creator.id,
+        displayName: creator.display_name,
+        handle: creator.handle,
+        email: creator.email,
+      } : null,
+      listing: listing ? {
+        id: listing.id,
+        title: listing.title,
+        status: listing.status,
+      } : null,
+    };
+  });
+
+  return formattedActivities;
 }
 

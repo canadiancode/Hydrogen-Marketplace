@@ -1,5 +1,5 @@
 import {useLoaderData, redirect, Link} from 'react-router';
-import {checkAdminAuth, fetchAllListings} from '~/lib/supabase';
+import {checkAdminAuth, fetchAllListings, fetchAdminRecentActivity} from '~/lib/supabase';
 
 export const meta = () => {
   return [{title: 'WornVault | Admin Dashboard'}];
@@ -22,17 +22,23 @@ export async function loader({request, context}) {
   let liveListings = 0;
   let soldListings = 0;
   let completedListings = 0;
+  let recentActivity = [];
   
   if (supabaseUrl && serviceRoleKey) {
     try {
-      // Fetch all listings using service role key (bypasses RLS)
-      const allListings = await fetchAllListings(supabaseUrl, serviceRoleKey);
+      // Fetch all listings and recent activity in parallel
+      const [allListings, activity] = await Promise.all([
+        fetchAllListings(supabaseUrl, serviceRoleKey),
+        fetchAdminRecentActivity(supabaseUrl, serviceRoleKey, {limit: 50}),
+      ]);
       
       // Count listings by status
       pendingApprovals = allListings.filter(l => l.status === 'pending_approval').length;
       liveListings = allListings.filter(l => l.status === 'live').length;
       soldListings = allListings.filter(l => l.status === 'sold').length;
       completedListings = allListings.filter(l => l.status === 'completed').length;
+      
+      recentActivity = activity || [];
     } catch (error) {
       console.error('Error fetching admin dashboard data:', error);
       // Continue with zero counts if there's an error
@@ -44,7 +50,181 @@ export async function loader({request, context}) {
     liveListings,
     soldListings,
     completedListings,
+    recentActivity,
   };
+}
+
+/**
+ * Formats a timestamp to a human-readable relative time
+ * @param {string} timestamp - ISO timestamp string
+ * @returns {string} Formatted time string
+ */
+function formatRelativeTime(timestamp) {
+  if (!timestamp) return 'Just now';
+  
+  const now = new Date();
+  const time = new Date(timestamp);
+  const diffInSeconds = Math.floor((now - time) / 1000);
+  
+  if (diffInSeconds < 60) {
+    return 'Just now';
+  }
+  
+  const diffInMinutes = Math.floor(diffInSeconds / 60);
+  if (diffInMinutes < 60) {
+    return `${diffInMinutes} minute${diffInMinutes > 1 ? 's' : ''} ago`;
+  }
+  
+  const diffInHours = Math.floor(diffInMinutes / 60);
+  if (diffInHours < 24) {
+    return `${diffInHours} hour${diffInHours > 1 ? 's' : ''} ago`;
+  }
+  
+  const diffInDays = Math.floor(diffInHours / 24);
+  if (diffInDays < 7) {
+    return `${diffInDays} day${diffInDays > 1 ? 's' : ''} ago`;
+  }
+  
+  const diffInWeeks = Math.floor(diffInDays / 7);
+  if (diffInWeeks < 4) {
+    return `${diffInWeeks} week${diffInWeeks > 1 ? 's' : ''} ago`;
+  }
+  
+  // For older dates, show formatted date
+  return time.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: time.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
+}
+
+/**
+ * Gets the icon and color for an admin activity type
+ * @param {string} activityType - Type of activity
+ * @returns {{icon: JSX.Element, bgColor: string, iconColor: string}}
+ */
+function getAdminActivityIcon(activityType) {
+  const baseClasses = "h-5 w-5";
+  
+  // Creator activities
+  if (activityType === 'creator_joined' || activityType === 'creator_created') {
+    return {
+      icon: (
+        <svg className={baseClasses} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+        </svg>
+      ),
+      bgColor: 'bg-green-100 dark:bg-green-900/30',
+      iconColor: 'text-green-600 dark:text-green-400',
+    };
+  }
+  
+  if (activityType === 'creator_status_changed' || activityType === 'creator_verification_status_changed') {
+    return {
+      icon: (
+        <svg className={baseClasses} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+        </svg>
+      ),
+      bgColor: 'bg-blue-100 dark:bg-blue-900/30',
+      iconColor: 'text-blue-600 dark:text-blue-400',
+    };
+  }
+  
+  // Listing activities
+  if (activityType === 'listing_created' || activityType === 'listing_submitted') {
+    return {
+      icon: (
+        <svg className={baseClasses} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ),
+      bgColor: 'bg-yellow-100 dark:bg-yellow-900/30',
+      iconColor: 'text-yellow-600 dark:text-yellow-400',
+    };
+  }
+  
+  if (activityType === 'listing_status_changed' || activityType === 'listing_approved' || activityType === 'listing_rejected') {
+    return {
+      icon: (
+        <svg className={baseClasses} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+        </svg>
+      ),
+      bgColor: 'bg-indigo-100 dark:bg-indigo-900/30',
+      iconColor: 'text-indigo-600 dark:text-indigo-400',
+    };
+  }
+  
+  if (activityType === 'listing_published' || activityType === 'listing_goes_live') {
+    return {
+      icon: (
+        <svg className={baseClasses} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ),
+      bgColor: 'bg-green-100 dark:bg-green-900/30',
+      iconColor: 'text-green-600 dark:text-green-400',
+    };
+  }
+  
+  // Default icon
+  return {
+    icon: (
+      <svg className={baseClasses} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ),
+    bgColor: 'bg-gray-100 dark:bg-gray-700',
+    iconColor: 'text-gray-600 dark:text-gray-400',
+  };
+}
+
+/**
+ * Admin Activity Item Component
+ * Displays a single activity in the feed with creator/listing context
+ * 
+ * SECURITY: React automatically escapes text content in JSX, providing XSS protection.
+ * Descriptions are also sanitized at insert time (see logActivity/logActivityAdmin).
+ */
+function AdminActivityItem({activity, isLast}) {
+  const {icon, bgColor, iconColor} = getAdminActivityIcon(activity.type);
+  
+  return (
+    <li>
+      <div className="relative pb-8">
+        {!isLast && (
+          <span className="absolute top-5 left-5 -ml-px h-full w-0.5 bg-gray-200 dark:bg-gray-700" aria-hidden="true" />
+        )}
+        <div className="relative flex items-start space-x-3">
+          <div className={`relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full ${bgColor}`}>
+            <div className={iconColor}>
+              {icon}
+            </div>
+          </div>
+          <div className="min-w-0 flex-1">
+            <div>
+              <div className="text-sm">
+                {/* SECURITY: React automatically escapes text content - safe from XSS */}
+                <p className="text-gray-900 dark:text-white font-medium">{activity.description}</p>
+                {activity.creator && (
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Creator: {activity.creator.displayName || activity.creator.handle || activity.creator.email}
+                  </p>
+                )}
+                {activity.listing && (
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Listing: <Link to={`/admin/listings/${activity.listing.id}`} className="text-indigo-600 dark:text-indigo-400 hover:underline">
+                      {activity.listing.title}
+                    </Link>
+                  </p>
+                )}
+              </div>
+              <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
+                {formatRelativeTime(activity.timestamp)}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </li>
+  );
 }
 
 export default function AdminDashboard() {
@@ -53,6 +233,7 @@ export default function AdminDashboard() {
     liveListings,
     soldListings,
     completedListings,
+    recentActivity,
   } = useLoaderData();
   
   return (
@@ -206,13 +387,23 @@ export default function AdminDashboard() {
         {/* Recent Activity */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Recent Activity</h2>
-          <div className="text-center py-12">
-            <svg className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
-            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No recent activity</h3>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Activity will appear here as operations are performed.</p>
-          </div>
+          {recentActivity && recentActivity.length > 0 ? (
+            <div className="flow-root">
+              <ul className="-mb-8">
+                {recentActivity.map((activity, index) => (
+                  <AdminActivityItem key={activity.id || index} activity={activity} isLast={index === recentActivity.length - 1} />
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <svg className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No recent activity</h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Activity will appear here as operations are performed.</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

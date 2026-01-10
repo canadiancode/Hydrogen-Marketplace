@@ -2,7 +2,7 @@ import {useLoaderData} from 'react-router';
 import CreatorDashboard from '~/components/creator/CreatorDashboard';
 import {WelcomeModal} from '~/components/creator/WelcomeModal';
 import {requireAuth} from '~/lib/auth-helpers';
-import {fetchCreatorProfile, fetchCreatorDashboardStats} from '~/lib/supabase';
+import {fetchCreatorProfile, fetchCreatorDashboardStats, fetchCreatorRecentActivity} from '~/lib/supabase';
 
 export const meta = () => {
   return [{title: 'WornVault | Creator Dashboard'}];
@@ -21,6 +21,7 @@ export async function loader({context, request}) {
         pendingApproval: 0,
         totalEarnings: '0.00',
       },
+      recentActivity: [],
     };
   }
 
@@ -38,6 +39,7 @@ export async function loader({context, request}) {
         pendingApproval: 0,
         totalEarnings: '0.00',
       },
+      recentActivity: [],
     };
   }
 
@@ -54,15 +56,20 @@ export async function loader({context, request}) {
         pendingApproval: 0,
         totalEarnings: '0.00',
       },
+      recentActivity: [],
     };
   }
 
-  // Fetch dashboard statistics
-  const stats = await fetchCreatorDashboardStats(creatorProfile.id, supabaseUrl, anonKey, accessToken);
+  // Fetch dashboard statistics and recent activity
+  const [stats, recentActivity] = await Promise.all([
+    fetchCreatorDashboardStats(creatorProfile.id, supabaseUrl, anonKey, accessToken),
+    fetchCreatorRecentActivity(creatorProfile.id, supabaseUrl, anonKey, accessToken, {limit: 20}),
+  ]);
   
   return {
     user,
     stats,
+    recentActivity: recentActivity || [],
   };
 }
 
@@ -72,7 +79,7 @@ export default function CreatorDashboardPage() {
   return (
     <>
       <WelcomeModal />
-      <CreatorDashboard user={data.user} stats={data.stats} />
+      <CreatorDashboard user={data.user} stats={data.stats} recentActivity={data.recentActivity || []} />
     </>
   );
 }

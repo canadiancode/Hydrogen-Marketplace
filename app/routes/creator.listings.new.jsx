@@ -219,8 +219,7 @@ export async function action({request, context}) {
       return data({error: errorMessage}, {status: 400});
     }
 
-    const {createUserSupabaseClient} = await import('~/lib/supabase');
-    const {fetchCreatorProfile} = await import('~/lib/supabase');
+    const {createUserSupabaseClient, fetchCreatorProfile, logActivity} = await import('~/lib/supabase');
     
     supabaseUrl = context.env.SUPABASE_URL;
     anonKey = context.env.SUPABASE_ANON_KEY;
@@ -319,6 +318,23 @@ export async function action({request, context}) {
 
     listing = listingData;
     listingId = listing.id;
+
+    // Log activity: listing created
+    await logActivity({
+      creatorId,
+      activityType: 'listing_created',
+      entityType: 'listing',
+      entityId: listing.id,
+      description: `Created draft "${sanitizedTitle}"`,
+      metadata: {
+        listingId: listing.id,
+        listingTitle: sanitizedTitle,
+        status: 'pending_approval',
+      },
+      supabaseUrl,
+      anonKey,
+      accessToken,
+    });
 
     // Upload photos FIRST so we can include image URLs in Shopify product creation
     // This ensures images are available when creating the product

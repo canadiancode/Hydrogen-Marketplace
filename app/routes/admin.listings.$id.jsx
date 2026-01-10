@@ -1,4 +1,5 @@
-import {Form, useLoaderData, redirect, Link} from 'react-router';
+import {Form, useLoaderData, redirect, Link, useActionData, useNavigation, useSearchParams} from 'react-router';
+import {useState, useEffect} from 'react';
 import {checkAdminAuth, fetchAdminListingById} from '~/lib/supabase';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
 import {generateCSRFToken, getClientIP} from '~/lib/auth-helpers';
@@ -106,11 +107,43 @@ export async function action({request, params, context}) {
   
   // Validate and sanitize action parameter
   const actionValue = formData.get('action');
-  const validActions = ['approve', 'reject'];
-  const sanitizedAction = String(actionValue || '').trim().toLowerCase();
+  const newStatusValue = formData.get('newStatus');
   
-  if (!validActions.includes(sanitizedAction)) {
-    return new Response('Invalid action. Must be "approve" or "reject".', {status: 400});
+  // Support both legacy actions (approve/reject) and direct status updates
+  let sanitizedAction = null;
+  let sanitizedStatus = null;
+  
+  if (actionValue) {
+    // Legacy action format (approve/reject)
+    const validActions = ['approve', 'reject'];
+    const action = String(actionValue).trim().toLowerCase();
+    if (validActions.includes(action)) {
+      sanitizedAction = action;
+      sanitizedStatus = action === 'approve' ? 'live' : 'rejected';
+    } else {
+      return new Response('Invalid action. Must be "approve" or "reject".', {status: 400});
+    }
+  } else if (newStatusValue) {
+    // Direct status update format
+    const validStatuses = [
+      'draft',
+      'pending_approval',
+      'live',
+      'sold',
+      'in_validation',
+      'shipped',
+      'completed',
+      'rejected',
+    ];
+    const status = String(newStatusValue).trim();
+    if (validStatuses.includes(status)) {
+      sanitizedStatus = status;
+      sanitizedAction = 'update_status';
+    } else {
+      return new Response('Invalid status', {status: 400});
+    }
+  } else {
+    return new Response('Missing action or status parameter', {status: 400});
   }
   
   // Validate listing ID parameter - prevent injection
@@ -136,11 +169,34 @@ export async function action({request, params, context}) {
   }
   
   try {
-    const {createServerSupabaseClient} = await import('~/lib/supabase');
+    const {createServerSupabaseClient, logActivityAdmin} = await import('~/lib/supabase');
     const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
     
-    // Determine new status based on action
-    const newStatus = sanitizedAction === 'approve' ? 'live' : 'rejected';
+    // Fetch listing data before updating to get creator_id, title, and old status
+    const {data: listingData, error: fetchError} = await supabase
+      .from('listings')
+      .select('id, creator_id, title, status')
+      .eq('id', sanitizedId)
+      .single();
+    
+    if (fetchError || !listingData) {
+      console.error('Error fetching listing:', fetchError);
+      return new Response('Listing not found', {status: 404});
+    }
+    
+    const oldStatus = listingData.status;
+    const creatorId = listingData.creator_id;
+    const listingTitle = listingData.title;
+    
+    // Use the sanitized status (determined above)
+    const newStatus = sanitizedStatus;
+    
+    // Prevent no-op updates
+    if (oldStatus === newStatus) {
+      // Use encodeURIComponent to safely encode status in URL to prevent injection
+      const encodedStatus = encodeURIComponent(newStatus);
+      return redirect(`/admin/listings/${sanitizedId}?updated=true&status=${encodedStatus}`);
+    }
     
     // Update listing status
     const {error: updateError} = await supabase
@@ -150,10 +206,40 @@ export async function action({request, params, context}) {
     
     if (updateError) {
       console.error('Error updating listing status:', updateError);
-      return new Response(`Failed to update listing: ${updateError.message}`, {status: 500});
+      // Don't expose internal error details to prevent information disclosure
+      return new Response('Failed to update listing status. Please try again.', {status: 500});
     }
     
-    return redirect(`/admin/listings/${sanitizedId}?updated=true`);
+    // Log activity: listing status changed
+    let activityDescription;
+    if (sanitizedAction === 'approve') {
+      activityDescription = `"${listingTitle}" was approved and is now live`;
+    } else if (sanitizedAction === 'reject') {
+      activityDescription = `"${listingTitle}" was rejected`;
+    } else {
+      activityDescription = `"${listingTitle}" status changed from ${oldStatus} to ${newStatus}`;
+    }
+    
+    await logActivityAdmin({
+      creatorId,
+      activityType: 'listing_status_changed',
+      entityType: 'listing',
+      entityId: sanitizedId,
+      description: activityDescription,
+      metadata: {
+        listingId: sanitizedId,
+        listingTitle,
+        oldStatus,
+        newStatus,
+        action: sanitizedAction,
+      },
+      supabaseUrl,
+      serviceRoleKey,
+    });
+    
+    // Use encodeURIComponent to safely encode status in URL to prevent injection
+    const encodedStatus = encodeURIComponent(newStatus);
+    return redirect(`/admin/listings/${sanitizedId}?updated=true&status=${encodedStatus}`);
   } catch (error) {
     console.error('Error in action:', error);
     return new Response('An unexpected error occurred', {status: 500});
@@ -162,6 +248,42 @@ export async function action({request, params, context}) {
 
 export default function AdminListingReview() {
   const {listing, csrfToken, error} = useLoaderData();
+  const actionData = useActionData();
+  const navigation = useNavigation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  
+  // Check for success message from URL params
+  const updated = searchParams.get('updated') === 'true';
+  const rawStatus = searchParams.get('status');
+  
+  // Validate and sanitize status parameter to prevent XSS
+  // Only allow whitelisted status values from URL parameters
+  const validStatuses = [
+    'draft',
+    'pending_approval',
+    'live',
+    'sold',
+    'in_validation',
+    'shipped',
+    'completed',
+    'rejected',
+  ];
+  const updatedStatus = rawStatus && validStatuses.includes(String(rawStatus).trim())
+    ? String(rawStatus).trim()
+    : null;
+  
+  // Clear success message after showing
+  useEffect(() => {
+    if (updated) {
+      const timer = setTimeout(() => {
+        const newParams = new URLSearchParams(searchParams);
+        newParams.delete('updated');
+        newParams.delete('status');
+        setSearchParams(newParams, {replace: true});
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [updated, searchParams, setSearchParams]);
   
   if (error) {
     return (
@@ -276,6 +398,102 @@ export default function AdminListingReview() {
             Review listing details, photos, creator information, logistics events, and payouts.
           </p>
         </div>
+        
+        {/* Success Message */}
+        {updated && updatedStatus && (
+          <div className="mb-6 rounded-md bg-green-50 dark:bg-green-900/20 p-4 border border-green-200 dark:border-green-800">
+            <p className="text-sm font-medium text-green-800 dark:text-green-200">
+              Listing status successfully updated to <strong>{updatedStatus.replace(/_/g, ' ')}</strong>
+            </p>
+          </div>
+        )}
+        
+        {/* Error Message */}
+        {actionData?.error && (
+          <div className="mb-6 rounded-md bg-red-50 dark:bg-red-900/20 p-4 border border-red-200 dark:border-red-800">
+            <p className="text-sm font-medium text-red-800 dark:text-red-200">
+              {actionData.error}
+            </p>
+          </div>
+        )}
+        
+        {/* Status Management Section */}
+        <section className="bg-white dark:bg-white/5 rounded-lg shadow-sm p-6 border border-gray-200 dark:border-white/10 mb-6">
+          <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Status Management</h2>
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="min-w-[180px] max-w-[240px]">
+              <label htmlFor="status-select" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Change Status
+              </label>
+              <Form method="post" className="flex gap-3">
+                <input type="hidden" name="csrf_token" value={csrfToken || ''} />
+                <select
+                  id="status-select"
+                  name="newStatus"
+                  defaultValue={listing.status}
+                  className="w-full max-w-[200px] rounded-md border border-gray-300 dark:border-white/20 bg-white dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-2 focus:outline-offset-2 focus:outline-indigo-600 dark:focus:outline-indigo-400"
+                >
+                  <option value="draft">Draft</option>
+                  <option value="pending_approval">Pending Approval</option>
+                  <option value="live">Live</option>
+                  <option value="sold">Sold</option>
+                  <option value="in_validation">In Validation</option>
+                  <option value="shipped">Shipped</option>
+                  <option value="completed">Completed</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+                <button
+                  type="submit"
+                  disabled={navigation.state === 'submitting'}
+                  className="rounded-md bg-indigo-600 dark:bg-indigo-500 px-6 py-2 text-sm font-medium text-white hover:bg-indigo-700 dark:hover:bg-indigo-600 focus:outline-2 focus:outline-offset-2 focus:outline-indigo-600 dark:focus:outline-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                >
+                  {navigation.state === 'submitting' ? 'Updating...' : 'Update Status'}
+                </button>
+              </Form>
+            </div>
+            <div className="flex gap-2">
+              {listing.status !== 'live' && (
+                <Form method="post">
+                  <input type="hidden" name="csrf_token" value={csrfToken || ''} />
+                  <input type="hidden" name="newStatus" value="live" />
+                  <button
+                    type="submit"
+                    disabled={navigation.state === 'submitting'}
+                    className="rounded-md bg-green-600 dark:bg-green-500 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 dark:hover:bg-green-600 focus:outline-2 focus:outline-offset-2 focus:outline-green-600 dark:focus:outline-green-400 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                  >
+                    {navigation.state === 'submitting' ? 'Updating...' : 'Set to Live'}
+                  </button>
+                </Form>
+              )}
+              {listing.status === 'pending_approval' && (
+                <>
+                  <Form method="post">
+                    <input type="hidden" name="csrf_token" value={csrfToken || ''} />
+                    <input type="hidden" name="action" value="approve" />
+                    <button
+                      type="submit"
+                      disabled={navigation.state === 'submitting'}
+                      className="rounded-md bg-green-600 dark:bg-green-500 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 dark:hover:bg-green-600 focus:outline-2 focus:outline-offset-2 focus:outline-green-600 dark:focus:outline-green-400 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                      {navigation.state === 'submitting' ? 'Approving...' : 'Approve'}
+                    </button>
+                  </Form>
+                  <Form method="post">
+                    <input type="hidden" name="csrf_token" value={csrfToken || ''} />
+                    <input type="hidden" name="action" value="reject" />
+                    <button
+                      type="submit"
+                      disabled={navigation.state === 'submitting'}
+                      className="rounded-md bg-red-600 dark:bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 dark:hover:bg-red-600 focus:outline-2 focus:outline-offset-2 focus:outline-red-600 dark:focus:outline-red-400 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                      {navigation.state === 'submitting' ? 'Rejecting...' : 'Reject'}
+                    </button>
+                  </Form>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
         
         <div className="space-y-6">
           {/* Listing Details */}

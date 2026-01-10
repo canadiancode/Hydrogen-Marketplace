@@ -105,10 +105,6 @@ function mapSubmittedLinksToSocialLinks(submittedLinks) {
 function mergeSocialLinksFromBothSources(submittedLinksData, creatorsData) {
   const socialLinks = mapSubmittedLinksToSocialLinks(submittedLinksData || {});
   
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'creator.social-links.jsx:mergeSocialLinksFromBothSources',message:'Merge function called',data:{hasCreatorsData:!!creatorsData,creatorsDataXUrl:creatorsData?.x_url,creatorsDataXVerified:creatorsData?.x_verified,initialSocialLinksX:socialLinks.x},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-  // #endregion
-  
   // Override with OAuth-verified data from creators table (takes precedence)
   if (creatorsData) {
     const platforms = ['instagram', 'facebook', 'tiktok', 'x', 'youtube', 'twitch'];
@@ -117,29 +113,13 @@ function mergeSocialLinksFromBothSources(submittedLinksData, creatorsData) {
       const usernameField = `${platform}_username`;
       const verifiedField = `${platform}_verified`;
       
-      // #region agent log
-      if (platform === 'x') {
-        fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'creator.social-links.jsx:mergeSocialLinksFromBothSources:forEach',message:'Processing X platform in merge',data:{platform,urlField,urlValue:creatorsData[urlField],verifiedValue:creatorsData[verifiedField],willUpdate:!!creatorsData[urlField]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-      }
-      // #endregion
-      
       // If OAuth-verified URL exists in creators table, use it (OAuth takes precedence)
       if (creatorsData[urlField]) {
         socialLinks[platform] = creatorsData[urlField];
         socialLinks[`${platform}Verified`] = creatorsData[verifiedField] || false;
-        
-        // #region agent log
-        if (platform === 'x') {
-          fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'creator.social-links.jsx:mergeSocialLinksFromBothSources:update',message:'Updated X in socialLinks',data:{platform,newXValue:socialLinks[platform],newXVerified:socialLinks[`${platform}Verified`]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-        }
-        // #endregion
       }
     });
   }
-  
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'creator.social-links.jsx:mergeSocialLinksFromBothSources:return',message:'Merge function returning',data:{finalSocialLinksX:socialLinks.x,finalSocialLinksXVerified:socialLinks.xVerified},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-  // #endregion
   
   return socialLinks;
 }
@@ -186,11 +166,28 @@ export async function loader({context, request}) {
   }
   if (error) {
     // Sanitize error message to prevent XSS
-    const decoded = decodeURIComponent(error);
-    callbackError = decoded
-      .replace(/<[^>]*>/g, '') // Remove HTML tags
-      .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
-      .substring(0, 200); // Limit length
+    try {
+      const decoded = decodeURIComponent(error);
+      // Remove HTML tags and encode HTML entities
+      let sanitized = decoded
+        .replace(/<[^>]*>/g, '') // Remove HTML tags
+        .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
+        .substring(0, 200); // Limit length
+      
+      // Escape HTML entities to prevent XSS
+      sanitized = sanitized
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#x27;')
+        .replace(/\//g, '&#x2F;');
+      
+      callbackError = sanitized;
+    } catch {
+      // If decoding fails, use a safe default message
+      callbackError = 'An error occurred during verification';
+    }
   }
 
   // Fetch creator profile to get creator_id
@@ -206,9 +203,6 @@ export async function loader({context, request}) {
     
     if (profile?.id) {
       creatorId = profile.id;
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'creator.social-links.jsx:154',message:'Loader: Fetching social links',data:{creatorId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       
       // Use service role client to read creator_verifications (bypasses RLS)
       // Security: We validate creator_id matches authenticated user's profile
@@ -226,19 +220,12 @@ export async function loader({context, request}) {
           .limit(1)
           .maybeSingle();
         
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'creator.social-links.jsx:172',message:'Loader: creator_verifications query result',data:{hasVerification:!!verification,hasSubmittedLinks:!!verification?.submitted_links,submittedLinks:verification?.submitted_links,error:verificationError?.message||null,creatorId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
-        
         // Check creators table for OAuth-verified platforms (FIX: Merge both data sources)
         const {data: creatorData, error: creatorError} = await serverSupabase
           .from('creators')
           .select('x_url,x_username,x_verified,instagram_url,instagram_username,instagram_verified,facebook_url,facebook_username,facebook_verified,tiktok_url,tiktok_username,tiktok_verified,youtube_url,youtube_username,youtube_verified,twitch_url,twitch_username,twitch_verified')
           .eq('id', creatorId)
           .maybeSingle();
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'creator.social-links.jsx:180',message:'Loader: creators table query result',data:{hasCreatorData:!!creatorData,creatorData,error:creatorError?.message||null,creatorId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
         
         // Merge data from both sources: creator_verifications.submitted_links and creators table
         const submittedLinks = verification?.submitted_links || {};
@@ -250,9 +237,6 @@ export async function loader({context, request}) {
           console.log('Loaded creators data:', creatorData);
           console.log('Merged socialLinks:', socialLinks);
         }
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'creator.social-links.jsx:233',message:'Loader: Merged socialLinks from both sources',data:{socialLinks,creatorId,xUrl:creatorData?.x_url,xUsername:creatorData?.x_username,xVerified:creatorData?.x_verified,mergedX:socialLinks?.x,mergedXVerified:socialLinks?.xVerified},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-        // #endregion
         
         if (verificationError) {
           console.error('Error fetching verification record:', verificationError);
@@ -291,10 +275,6 @@ export async function loader({context, request}) {
   // Generate CSRF token for form protection
   const csrfToken = await generateCSRFToken(request, context.env.SESSION_SECRET);
   context.session.set('csrf_token', csrfToken);
-
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/40458742-6beb-4ac1-a5c9-c5271b558de0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'creator.social-links.jsx:276',message:'Loader: Returning socialLinks',data:{socialLinks,hasX:!!socialLinks?.x,xUrl:socialLinks?.x,xVerified:socialLinks?.xVerified,hasVerified:url.searchParams.has('verified'),hasError:url.searchParams.has('error'),verifiedParam:url.searchParams.get('verified'),errorParam:url.searchParams.get('error')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-  // #endregion
   
   // Prevent caching to ensure fresh data after OAuth redirects
   return data(
@@ -390,6 +370,19 @@ export async function action({request, context}) {
         error: 'Invalid security token. Please refresh the page and try again.',
       };
     }
+
+    // Check if CSRF token was already used (prevent replay attacks)
+    const csrfUsed = context.session.get('csrf_token_used');
+    if (csrfUsed === csrfToken) {
+      return {
+        success: false,
+        error: 'Security token has already been used. Please refresh the page and try again.',
+      };
+    }
+
+    // Mark CSRF token as used and clear it (one-time use)
+    context.session.set('csrf_token_used', csrfToken);
+    context.session.unset('csrf_token');
 
     // Get creator profile to get creator_id
     const profile = await fetchCreatorProfile(
@@ -503,9 +496,9 @@ export async function action({request, context}) {
           redirectUriHasQueryParams: redirectUri.includes('?') || redirectUri.includes('&'),
           cleanRedirectUriHasQueryParams: cleanRedirectUri.includes('?') || cleanRedirectUri.includes('&'),
           hasClientKey: !!context.env.TIKTOK_CLIENT_KEY,
-          clientKeyPrefix: context.env.TIKTOK_CLIENT_KEY?.substring(0, 10) || 'MISSING',
+          // SECURITY: Removed clientKeyPrefix to prevent partial key exposure
           oauthStateLength: oauthState?.length || 0,
-          oauthStatePrefix: oauthState?.substring(0, 20) || 'MISSING',
+          // SECURITY: Removed oauthStatePrefix to prevent token exposure
           timestamp: new Date().toISOString(),
         });
         
@@ -603,6 +596,19 @@ export async function action({request, context}) {
         error: 'Invalid security token. Please refresh the page and try again.',
       };
     }
+
+    // Check if CSRF token was already used (prevent replay attacks)
+    const csrfUsed = context.session.get('csrf_token_used');
+    if (csrfUsed === csrfToken) {
+      return {
+        success: false,
+        error: 'Security token has already been used. Please refresh the page and try again.',
+      };
+    }
+
+    // Mark CSRF token as used and clear it (one-time use)
+    context.session.set('csrf_token_used', csrfToken);
+    context.session.unset('csrf_token');
 
     // Performance: Sanitize and validate URLs with platform-specific domain validation
     // Using module-level ALLOWED_DOMAINS constant to avoid object recreation
@@ -822,6 +828,19 @@ export async function action({request, context}) {
         error: 'Invalid security token. Please refresh the page and try again.',
       };
     }
+
+    // Check if CSRF token was already used (prevent replay attacks)
+    const csrfUsed = context.session.get('csrf_token_used');
+    if (csrfUsed === csrfToken) {
+      return {
+        success: false,
+        error: 'Security token has already been used. Please refresh the page and try again.',
+      };
+    }
+
+    // Mark CSRF token as used and clear it (one-time use)
+    context.session.set('csrf_token_used', csrfToken);
+    context.session.unset('csrf_token');
 
     try {
       // Get creator profile to get creator_id

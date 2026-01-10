@@ -5,7 +5,7 @@ import {rateLimitMiddleware} from '~/lib/rate-limit';
 import {ALL_CATEGORIES} from '~/lib/categories';
 import {ChevronDownIcon, ChevronUpIcon, XMarkIcon} from '@heroicons/react/16/solid';
 import {PhotoIcon} from '@heroicons/react/24/solid';
-import {fetchCreatorProfile, fetchCreatorListingById, createUserSupabaseClient} from '~/lib/supabase';
+import {fetchCreatorProfile, fetchCreatorListingById, createUserSupabaseClient, logActivity} from '~/lib/supabase';
 import {sanitizeHTML} from '~/lib/sanitize';
 import {updateShopifyProduct} from '~/lib/shopify-admin';
 
@@ -212,8 +212,7 @@ export async function action({request, context, params}) {
       return data({error: 'At least one photo is required'}, {status: 400});
     }
 
-    const {createUserSupabaseClient} = await import('~/lib/supabase');
-    const {fetchCreatorProfile} = await import('~/lib/supabase');
+    const {createUserSupabaseClient, fetchCreatorProfile, logActivity} = await import('~/lib/supabase');
     
     const supabaseUrl = context.env.SUPABASE_URL;
     const anonKey = context.env.SUPABASE_ANON_KEY;
@@ -290,6 +289,53 @@ export async function action({request, context, params}) {
     if (updateError) {
       console.error('Action: Error updating listing:', updateError);
       return data({error: `Failed to update listing: ${updateError.message}`}, {status: 500});
+    }
+
+    // Log activity: listing updated
+    const activityDescription = existingListing.status === 'live' 
+      ? `Updated "${sanitizedTitle}" (requires re-approval)`
+      : `Updated "${sanitizedTitle}"`;
+    
+    await logActivity({
+      creatorId,
+      activityType: 'listing_updated',
+      entityType: 'listing',
+      entityId: id,
+      description: activityDescription,
+      metadata: {
+        listingId: id,
+        listingTitle: sanitizedTitle,
+        oldStatus: existingListing.status,
+        newStatus: newStatus,
+      },
+      supabaseUrl,
+      anonKey,
+      accessToken,
+    });
+    
+    // Also log status change if status actually changed
+    if (existingListing.status !== newStatus) {
+      const statusChangeDescription = existingListing.status === 'live'
+        ? `"${sanitizedTitle}" status changed from live to pending approval`
+        : `"${sanitizedTitle}" status changed from ${existingListing.status} to ${newStatus}`;
+      
+      await logActivity({
+        creatorId,
+        activityType: 'listing_status_changed',
+        entityType: 'listing',
+        entityId: id,
+        description: statusChangeDescription,
+        metadata: {
+          listingId: id,
+          listingTitle: sanitizedTitle,
+          oldStatus: existingListing.status,
+          newStatus: newStatus,
+          action: 'creator_edit',
+        },
+        supabaseUrl,
+        anonKey,
+        accessToken,
+      });
     }
     
     console.log('Action: Listing updated successfully:', updatedListing);
