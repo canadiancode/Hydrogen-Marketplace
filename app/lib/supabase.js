@@ -523,6 +523,211 @@ export async function checkCreatorProfileExists(email, supabaseUrl, anonKey, acc
 }
 
 /**
+ * Generates a unique handle from email address
+ * Handles uniqueness by appending numbers if needed
+ * 
+ * @param {string} email - User's email address
+ * @param {object} supabase - Supabase client instance
+ * @returns {Promise<string>} Unique handle
+ */
+async function generateUniqueHandle(email, supabase) {
+  // Extract base handle from email (part before @)
+  let baseHandle = email.split('@')[0].toLowerCase();
+  
+  // Remove invalid characters (only allow alphanumeric and underscores)
+  baseHandle = baseHandle.replace(/[^a-z0-9_]/g, '');
+  
+  // Ensure handle is not empty and has minimum length
+  if (!baseHandle || baseHandle.length < 3) {
+    // Fallback: use first 8 chars of email hash if handle is too short
+    const emailHash = email.split('').reduce((acc, char) => {
+      return ((acc << 5) - acc) + char.charCodeAt(0);
+    }, 0);
+    baseHandle = `user${Math.abs(emailHash).toString(36).substring(0, 5)}`;
+  }
+  
+  // Limit handle length to 30 characters (common database limit)
+  baseHandle = baseHandle.substring(0, 30);
+  
+  // Check if handle exists, append number if needed
+  let handle = baseHandle;
+  let counter = 1;
+  const maxAttempts = 100; // Prevent infinite loops
+  
+  while (counter < maxAttempts) {
+    const {data, error} = await supabase
+      .from('creators')
+      .select('handle')
+      .eq('handle', handle)
+      .maybeSingle();
+    
+    // If no error and no data, handle is available
+    if (!error && !data) {
+      return handle;
+    }
+    
+    // Handle exists, try with number suffix
+    const suffix = counter.toString();
+    const maxHandleLength = 30;
+    const availableLength = maxHandleLength - suffix.length - 1; // -1 for underscore
+    
+    if (baseHandle.length > availableLength) {
+      handle = baseHandle.substring(0, availableLength) + '_' + suffix;
+    } else {
+      handle = baseHandle + '_' + suffix;
+    }
+    
+    counter++;
+  }
+  
+  // Fallback: use timestamp if all attempts failed
+  return `user${Date.now().toString(36)}`;
+}
+
+/**
+ * Creates a creator profile automatically if it doesn't exist
+ * Used during first-time authentication to ensure creator record exists
+ * 
+ * @param {object} user - Supabase user object from auth
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} anonKey - Supabase anon/public key
+ * @param {string} accessToken - User's access token
+ * @returns {Promise<{created: boolean, creator: object | null, error: Error | null}>}
+ */
+export async function createCreatorProfileIfNotExists(user, supabaseUrl, anonKey, accessToken) {
+  if (!user?.email || !supabaseUrl || !anonKey || !accessToken) {
+    return {
+      created: false,
+      creator: null,
+      error: new Error('Missing required parameters'),
+    };
+  }
+
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  
+  // First, check if profile already exists
+  const {exists, creator: existingCreator} = await checkCreatorProfileExists(
+    user.email,
+    supabaseUrl,
+    anonKey,
+    accessToken
+  );
+  
+  if (exists && existingCreator) {
+    return {
+      created: false,
+      creator: existingCreator,
+      error: null,
+    };
+  }
+  
+  // Generate display name from user metadata or email
+  let displayName = user.user_metadata?.full_name || 
+                    user.user_metadata?.name ||
+                    user.user_metadata?.display_name;
+  
+  if (!displayName) {
+    // Fallback: use email username or email itself
+    const emailUsername = user.email.split('@')[0];
+    displayName = emailUsername.charAt(0).toUpperCase() + emailUsername.slice(1);
+  }
+  
+  // Sanitize display name (remove control characters, limit length)
+  displayName = displayName
+    .trim()
+    .replace(/[\x00-\x1F\x7F]/g, '')
+    .substring(0, 100);
+  
+  if (!displayName || displayName.length < 1) {
+    displayName = 'Creator'; // Final fallback
+  }
+  
+  // Generate unique handle
+  let handle = await generateUniqueHandle(user.email, supabase);
+  
+  // Create new creator profile with required fields
+  let newCreator = {
+    email: user.email.toLowerCase().trim(),
+    display_name: displayName,
+    handle: handle,
+    // Optional fields from user metadata
+    first_name: user.user_metadata?.given_name || null,
+    last_name: user.user_metadata?.family_name || null,
+    profile_image_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
+    // Defaults are handled by database
+    verification_status: 'pending',
+    is_verified: false,
+  };
+  
+  let {data, error} = await supabase
+    .from('creators')
+    .insert(newCreator)
+    .select()
+    .single();
+  
+  // If handle uniqueness check failed (RLS might prevent checking other handles),
+  // catch unique constraint error and retry with a new handle
+  if (error && error.code === '23505' && error.message?.includes('handle')) {
+    // Handle collision - generate a new unique handle using timestamp
+    const timestampSuffix = Date.now().toString(36);
+    const baseHandle = user.email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '').substring(0, 20);
+    handle = `${baseHandle}_${timestampSuffix}`.substring(0, 30);
+    
+    newCreator = {
+      ...newCreator,
+      handle: handle,
+    };
+    
+    // Retry insert with new handle
+    const retryResult = await supabase
+      .from('creators')
+      .insert(newCreator)
+      .select()
+      .single();
+    
+    if (retryResult.error) {
+      console.error('Error creating creator profile (retry failed):', {
+        message: retryResult.error.message || 'Unknown error',
+        code: retryResult.error.code,
+        email: user.email,
+        timestamp: new Date().toISOString(),
+      });
+      
+      return {
+        created: false,
+        creator: null,
+        error: retryResult.error,
+      };
+    }
+    
+    data = retryResult.data;
+    error = null;
+  }
+  
+  if (error) {
+    // Log error without exposing sensitive details
+    console.error('Error creating creator profile:', {
+      message: error.message || 'Unknown error',
+      code: error.code,
+      email: user.email,
+      timestamp: new Date().toISOString(),
+    });
+    
+    return {
+      created: false,
+      creator: null,
+      error: error,
+    };
+  }
+  
+  return {
+    created: true,
+    creator: data,
+    error: null,
+  };
+}
+
+/**
  * Fetches creator profile by email
  * Returns full profile data for use in settings page
  * 

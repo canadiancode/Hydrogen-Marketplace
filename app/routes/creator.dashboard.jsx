@@ -1,5 +1,6 @@
 import {useLoaderData} from 'react-router';
 import CreatorDashboard from '~/components/creator/CreatorDashboard';
+import {WelcomeModal} from '~/components/creator/WelcomeModal';
 import {requireAuth} from '~/lib/auth-helpers';
 import {fetchCreatorProfile, fetchCreatorDashboardStats} from '~/lib/supabase';
 
@@ -68,5 +69,10 @@ export async function loader({context, request}) {
 export default function CreatorDashboardPage() {
   const data = useLoaderData();
   
-  return <CreatorDashboard user={data.user} stats={data.stats} />;
+  return (
+    <>
+      <WelcomeModal />
+      <CreatorDashboard user={data.user} stats={data.stats} />
+    </>
+  );
 }

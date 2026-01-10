@@ -39,31 +39,26 @@ export async function loader({context, request}) {
     // Log error but don't crash - treat as profile not found
     const isProduction = context.env.NODE_ENV === 'production';
     console.error('Loader: Error fetching creator profile:', isProduction ? error.message : error);
-    const message = encodeURIComponent('Please complete your profile before creating a listing');
-    throw redirect(`/creator/settings?message=${message}`);
   }
   
-  if (!creatorProfile || !creatorProfile.id) {
-    // Profile doesn't exist - redirect to settings
-    const message = encodeURIComponent('Please complete your profile before creating a listing');
-    throw redirect(`/creator/settings?message=${message}`);
-  }
-
   // Check if required fields are filled out
-  const hasUsername = creatorProfile.handle && creatorProfile.handle.trim().length > 0;
-  const hasDisplayName = creatorProfile.display_name && creatorProfile.display_name.trim().length > 0;
-
-  if (!hasUsername || !hasDisplayName) {
-    // Required fields missing - redirect to settings
-    const message = encodeURIComponent('Please complete your username and display name before creating a listing');
-    throw redirect(`/creator/settings?message=${message}`);
-  }
+  const hasUsername = creatorProfile?.handle && creatorProfile.handle.trim().length > 0;
+  const hasDisplayName = creatorProfile?.display_name && creatorProfile.display_name.trim().length > 0;
+  const canCreateListing = creatorProfile?.id && hasUsername && hasDisplayName;
   
   // Generate CSRF token for form protection
   const csrfToken = await generateCSRFToken(request, context.env.SESSION_SECRET);
   context.session.set('csrf_token', csrfToken);
   
-  return {user, csrfToken};
+  return {
+    user,
+    csrfToken,
+    canCreateListing,
+    missingFields: {
+      username: !hasUsername,
+      displayName: !hasDisplayName,
+    },
+  };
 }
 
 export async function action({request, context}) {
@@ -249,7 +244,21 @@ export async function action({request, context}) {
       // Log without exposing email in production
       const isProduction = context.env.NODE_ENV === 'production';
       console.error('Action: Creator profile not found', isProduction ? {} : {email: user.email});
-      return new Response('Creator profile not found. Please complete your profile first.', {status: 404});
+      return data({error: 'Creator profile not found. Please complete your profile first.'}, {status: 404});
+    }
+
+    // Verify required fields are filled out (prevent bypassing via direct POST)
+    const hasUsername = creatorProfile.handle && creatorProfile.handle.trim().length > 0;
+    const hasDisplayName = creatorProfile.display_name && creatorProfile.display_name.trim().length > 0;
+    
+    if (!hasUsername || !hasDisplayName) {
+      const missingFields = [];
+      if (!hasUsername) missingFields.push('username');
+      if (!hasDisplayName) missingFields.push('display name');
+      return data(
+        {error: `Please complete your ${missingFields.join(' and ')} in Account Settings before creating a listing.`},
+        {status: 400}
+      );
     }
 
     // Explicit authorization check: verify creator profile belongs to authenticated user
@@ -765,7 +774,7 @@ export async function action({request, context}) {
 
 export default function CreateListing() {
   const loaderData = useLoaderData();
-  const {csrfToken} = loaderData || {};
+  const {csrfToken, canCreateListing = false, missingFields = {username: false, displayName: false}} = loaderData || {};
   const navigation = useNavigation();
   const actionData = useActionData();
   const [selectedCategory, setSelectedCategory] = useState('');
@@ -965,6 +974,12 @@ export default function CreateListing() {
   const handleSubmit = (e) => {
     e.preventDefault();
     
+    // Prevent submission if account settings are incomplete
+    if (!canCreateListing) {
+      alert('Please complete your account settings before creating a listing.');
+      return;
+    }
+    
     // Validate required fields
     if (!selectedCategory) {
       alert('Please select a category');
@@ -1042,12 +1057,60 @@ export default function CreateListing() {
     }
   }, [actionData]);
 
+  // Determine which fields are missing for the banner message
+  const missingFieldsList = [];
+  if (missingFields.username) missingFieldsList.push('Username');
+  if (missingFields.displayName) missingFieldsList.push('Display Name');
+
   return (
     <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
       <div className="pb-32 max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Banner for incomplete account settings */}
+        {!canCreateListing && (
+          <div className="mb-6 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4">
+            <div className="flex items-start">
+              <div className="flex-shrink-0">
+                <svg
+                  className="h-5 w-5 text-amber-600 dark:text-amber-400"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </div>
+              <div className="ml-3 flex-1">
+                <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                  Complete Your Account Settings
+                </h3>
+                <div className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+                  <p>
+                    Before you can create a listing, please complete your account settings. 
+                    {missingFieldsList.length > 0 && (
+                      <> The following {missingFieldsList.length === 1 ? 'field is' : 'fields are'} required: <strong>{missingFieldsList.join(' and ')}</strong>.</>
+                    )}
+                  </p>
+                </div>
+                <div className="mt-4">
+                  <a
+                    href="/creator/settings"
+                    className="inline-flex items-center rounded-md bg-amber-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 dark:bg-amber-500 dark:hover:bg-amber-400 dark:focus-visible:outline-amber-500 transition-colors"
+                  >
+                    Go to Account Settings
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <Form method="post" encType="multipart/form-data" onSubmit={handleSubmit}>
           <input type="hidden" name="csrf_token" value={csrfToken || ''} />
-          <div className="space-y-12">
+          <div className={`space-y-12 ${!canCreateListing ? 'opacity-50 pointer-events-none' : ''}`}>
             <div className="border-b border-gray-900/10 pb-12 dark:border-white/10">
               <h2 className="text-base/7 font-semibold text-gray-900 dark:text-white">Listing Details</h2>
               <p className="mt-1 text-sm/6 text-gray-600 dark:text-gray-400">

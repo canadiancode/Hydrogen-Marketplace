@@ -1,6 +1,6 @@
 import {redirect, useLoaderData} from 'react-router';
 import {useEffect, useState} from 'react';
-import {exchangeOAuthCode, createSessionCookie, createUserSupabaseClient} from '~/lib/supabase';
+import {exchangeOAuthCode, createSessionCookie, createUserSupabaseClient, createCreatorProfileIfNotExists} from '~/lib/supabase';
 import {getClientIP} from '~/lib/auth-helpers';
 import {rateLimit} from '~/lib/rate-limit';
 
@@ -50,36 +50,98 @@ export async function loader({request, context}) {
       return redirect('/creator/login?error=oauth_failed');
     }
     
-    // Determine if we're in a secure context
-    const isSecure = request.url.startsWith('https://') || 
-                     request.headers.get('x-forwarded-proto') === 'https' ||
-                     env.NODE_ENV === 'production';
-    
-    // Create session cookie using helper function
-    const sessionWithUser = {
-      ...session,
-      user,
-    };
-    const cookieHeader = createSessionCookie(sessionWithUser, env.SUPABASE_URL, isSecure);
-    
-    if (!cookieHeader) {
-      return redirect('/creator/login?error=config_error');
+    // Automatically create creator profile if it doesn't exist
+    // This ensures every authenticated user has a creator record
+    try {
+      const {created, creator, error: profileError} = await createCreatorProfileIfNotExists(
+        user,
+        env.SUPABASE_URL,
+        env.SUPABASE_ANON_KEY,
+        session.access_token,
+      );
+      
+      if (profileError && profileError.code !== '23505') {
+        // Log error but don't fail auth - user can create profile later
+        // 23505 is unique constraint violation (profile already exists from race condition)
+        console.warn('Failed to auto-create creator profile:', profileError.message);
+      }
+      
+      // Log successful creation for monitoring
+      if (created && creator) {
+        console.log('Auto-created creator profile for:', user.email);
+      }
+      
+      // Store whether this was a first-time signup for welcome modal
+      const isFirstTime = created && creator;
+      
+      // Determine if we're in a secure context
+      const isSecure = request.url.startsWith('https://') || 
+                       request.headers.get('x-forwarded-proto') === 'https' ||
+                       env.NODE_ENV === 'production';
+      
+      // Create session cookie using helper function
+      const sessionWithUser = {
+        ...session,
+        user,
+      };
+      const cookieHeader = createSessionCookie(sessionWithUser, env.SUPABASE_URL, isSecure);
+      
+      if (!cookieHeader) {
+        return redirect('/creator/login?error=config_error');
+      }
+      
+      // Check for returnTo in URL or session
+      const returnTo = url.searchParams.get('returnTo');
+      let redirectPath = '/creator/dashboard';
+      
+      // Validate returnTo is a safe internal URL
+      if (returnTo && returnTo.startsWith('/') && !returnTo.includes('//') && !returnTo.startsWith('http')) {
+        redirectPath = returnTo;
+      }
+      
+      // Add firstTime query parameter if this was a new signup
+      if (isFirstTime) {
+        const redirectUrl = new URL(redirectPath, request.url);
+        redirectUrl.searchParams.set('firstTime', 'true');
+        redirectPath = redirectUrl.pathname + redirectUrl.search;
+      }
+      
+      // Redirect to returnTo or dashboard
+      const response = redirect(redirectPath);
+      response.headers.set('Set-Cookie', cookieHeader);
+      
+      return response;
+    } catch (profileErr) {
+      // Log but don't fail authentication - profile creation is non-critical
+      console.warn('Unexpected error creating creator profile:', profileErr.message);
+      
+      // Continue with normal redirect even if profile creation failed
+      const isSecure = request.url.startsWith('https://') || 
+                       request.headers.get('x-forwarded-proto') === 'https' ||
+                       env.NODE_ENV === 'production';
+      
+      const sessionWithUser = {
+        ...session,
+        user,
+      };
+      const cookieHeader = createSessionCookie(sessionWithUser, env.SUPABASE_URL, isSecure);
+      
+      if (!cookieHeader) {
+        return redirect('/creator/login?error=config_error');
+      }
+      
+      const returnTo = url.searchParams.get('returnTo');
+      let redirectPath = '/creator/dashboard';
+      
+      if (returnTo && returnTo.startsWith('/') && !returnTo.includes('//') && !returnTo.startsWith('http')) {
+        redirectPath = returnTo;
+      }
+      
+      const response = redirect(redirectPath);
+      response.headers.set('Set-Cookie', cookieHeader);
+      
+      return response;
     }
-    
-    // Check for returnTo in URL or session
-    const returnTo = url.searchParams.get('returnTo');
-    let redirectPath = '/creator/dashboard';
-    
-    // Validate returnTo is a safe internal URL
-    if (returnTo && returnTo.startsWith('/') && !returnTo.includes('//') && !returnTo.startsWith('http')) {
-      redirectPath = returnTo;
-    }
-    
-    // Redirect to returnTo or dashboard
-    const response = redirect(redirectPath);
-    response.headers.set('Set-Cookie', cookieHeader);
-    
-    return response;
   }
   
   // Default: client-side hash fragment handling
@@ -132,45 +194,115 @@ export async function action({request, context}) {
     return redirect('/creator/login?error=invalid_token');
   }
   
-  // Determine if we're in a secure context
-  const isSecure = request.url.startsWith('https://') || 
-                   request.headers.get('x-forwarded-proto') === 'https' ||
-                   env.NODE_ENV === 'production';
-  
-  // Create session object with validated user data
-  const session = {
-    access_token: accessToken,
-    refresh_token: refreshToken || '',
-    expires_at: expiresAt || '',
-    expires_in: parseInt(expiresIn, 10) || 3600,
-    token_type: tokenType || 'bearer',
-    user: {
-      id: user.id,
-      email: user.email,
-    },
-  };
-  
-  // Create session cookie using helper function
-  const cookieHeader = createSessionCookie(session, env.SUPABASE_URL, isSecure);
-  
-  if (!cookieHeader) {
-    return redirect('/creator/login?error=config_error');
-  }
-  
-  // Check for returnTo parameter - validate it's a safe internal URL
-  let redirectUrl = '/creator/dashboard';
-  if (returnTo && typeof returnTo === 'string') {
-    // Validate returnTo is a safe internal URL
-    if (returnTo.startsWith('/') && !returnTo.includes('//') && !returnTo.startsWith('http')) {
-      redirectUrl = returnTo;
+  // Automatically create creator profile if it doesn't exist
+  // This ensures every authenticated user has a creator record
+  try {
+    const {created, creator, error: profileError} = await createCreatorProfileIfNotExists(
+      user,
+      env.SUPABASE_URL,
+      env.SUPABASE_ANON_KEY,
+      accessToken,
+    );
+    
+    if (profileError && profileError.code !== '23505') {
+      // Log error but don't fail auth - user can create profile later
+      // 23505 is unique constraint violation (profile already exists from race condition)
+      console.warn('Failed to auto-create creator profile:', profileError.message);
     }
-  }
-  
-  // Create response with cookie
-  const response = redirect(redirectUrl);
-  response.headers.set('Set-Cookie', cookieHeader);
-  
-  return response;
+    
+      // Log successful creation for monitoring
+      if (created && creator) {
+        console.log('Auto-created creator profile for:', user.email);
+      }
+      
+      // Store whether this was a first-time signup for welcome modal
+      const isFirstTime = created && creator;
+      
+      // Determine if we're in a secure context
+      const isSecure = request.url.startsWith('https://') || 
+                       request.headers.get('x-forwarded-proto') === 'https' ||
+                       env.NODE_ENV === 'production';
+      
+      // Create session object with validated user data
+      const session = {
+        access_token: accessToken,
+        refresh_token: refreshToken || '',
+        expires_at: expiresAt || '',
+        expires_in: parseInt(expiresIn, 10) || 3600,
+        token_type: tokenType || 'bearer',
+        user: {
+          id: user.id,
+          email: user.email,
+        },
+      };
+      
+      // Create session cookie using helper function
+      const cookieHeader = createSessionCookie(session, env.SUPABASE_URL, isSecure);
+      
+      if (!cookieHeader) {
+        return redirect('/creator/login?error=config_error');
+      }
+      
+      // Check for returnTo parameter - validate it's a safe internal URL
+      let redirectUrl = '/creator/dashboard';
+      if (returnTo && typeof returnTo === 'string') {
+        // Validate returnTo is a safe internal URL
+        if (returnTo.startsWith('/') && !returnTo.includes('//') && !returnTo.startsWith('http')) {
+          redirectUrl = returnTo;
+        }
+      }
+      
+      // Add firstTime query parameter if this was a new signup
+      if (isFirstTime) {
+        const redirectUrlObj = new URL(redirectUrl, request.url);
+        redirectUrlObj.searchParams.set('firstTime', 'true');
+        redirectUrl = redirectUrlObj.pathname + redirectUrlObj.search;
+      }
+      
+      // Create response with cookie
+      const response = redirect(redirectUrl);
+      response.headers.set('Set-Cookie', cookieHeader);
+      
+      return response;
+    } catch (profileErr) {
+      // Log but don't fail authentication - profile creation is non-critical
+      console.warn('Unexpected error creating creator profile:', profileErr.message);
+      
+      // Continue with normal redirect even if profile creation failed
+      const isSecure = request.url.startsWith('https://') || 
+                       request.headers.get('x-forwarded-proto') === 'https' ||
+                       env.NODE_ENV === 'production';
+      
+      const session = {
+        access_token: accessToken,
+        refresh_token: refreshToken || '',
+        expires_at: expiresAt || '',
+        expires_in: parseInt(expiresIn, 10) || 3600,
+        token_type: tokenType || 'bearer',
+        user: {
+          id: user.id,
+          email: user.email,
+        },
+      };
+      
+      const cookieHeader = createSessionCookie(session, env.SUPABASE_URL, isSecure);
+      
+      if (!cookieHeader) {
+        return redirect('/creator/login?error=config_error');
+      }
+      
+      let redirectUrl = '/creator/dashboard';
+      if (returnTo && typeof returnTo === 'string') {
+        if (returnTo.startsWith('/') && !returnTo.includes('//') && !returnTo.startsWith('http')) {
+          redirectUrl = returnTo;
+        }
+      }
+      
+      const response = redirect(redirectUrl);
+      response.headers.set('Set-Cookie', cookieHeader);
+      
+      return response;
+    }
 }
 
 export default function AuthCallback() {
