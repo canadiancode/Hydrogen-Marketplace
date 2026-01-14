@@ -491,6 +491,15 @@ ${sanitizedBody}
     let emailResult;
     let emailError;
 
+    // Log email service configuration for debugging (without exposing sensitive data)
+    console.log('[Contact Form] Email service configuration:', {
+      service: emailService,
+      hasApiKey: !!emailApiKey,
+      senderEmail,
+      recipientEmail,
+      apiKeyLength: emailApiKey?.length || 0,
+    });
+
     try {
       if (emailService === 'resend') {
         // Resend API (recommended - works great with Cloudflare Workers)
@@ -510,14 +519,31 @@ ${sanitizedBody}
           }),
         });
 
-        const resendData = await resendResponse.json();
-        
-        if (!resendResponse.ok) {
+        // Safely parse JSON response - handle both success and error cases
+        let resendData;
+        try {
+          const responseText = await resendResponse.text();
+          resendData = responseText ? JSON.parse(responseText) : {};
+        } catch (parseError) {
+          // If JSON parsing fails, capture the raw response
           emailError = {
-            message: resendData.message || 'Failed to send email',
+            service: 'resend',
+            message: 'Failed to parse API response',
             status: resendResponse.status,
+            statusText: resendResponse.statusText,
+            parseError: parseError instanceof Error ? parseError.message : 'Unknown parse error',
           };
-        } else {
+        }
+        
+        if (!emailError && !resendResponse.ok) {
+          emailError = {
+            service: 'resend',
+            message: resendData.message || resendData.error?.message || 'Failed to send email',
+            status: resendResponse.status,
+            statusText: resendResponse.statusText,
+            details: resendData,
+          };
+        } else if (!emailError) {
           emailResult = {success: true, id: resendData.id};
         }
       } else if (emailService === 'sendgrid') {
@@ -544,10 +570,19 @@ ${sanitizedBody}
 
         if (!sendgridResponse.ok) {
           const errorText = await sendgridResponse.text();
+          let errorDetails;
+          try {
+            errorDetails = JSON.parse(errorText);
+          } catch {
+            errorDetails = errorText.substring(0, 500);
+          }
+          
           emailError = {
+            service: 'sendgrid',
             message: 'Failed to send email via SendGrid',
             status: sendgridResponse.status,
-            details: errorText,
+            statusText: sendgridResponse.statusText,
+            details: errorDetails,
           };
         } else {
           emailResult = {success: true};
@@ -573,14 +608,30 @@ ${sanitizedBody}
           body: formData,
         });
 
-        const mailgunData = await mailgunResponse.json();
-        
-        if (!mailgunResponse.ok) {
+        // Safely parse JSON response
+        let mailgunData;
+        try {
+          const responseText = await mailgunResponse.text();
+          mailgunData = responseText ? JSON.parse(responseText) : {};
+        } catch (parseError) {
           emailError = {
+            service: 'mailgun',
+            message: 'Failed to parse API response',
+            status: mailgunResponse.status,
+            statusText: mailgunResponse.statusText,
+            parseError: parseError instanceof Error ? parseError.message : 'Unknown parse error',
+          };
+        }
+        
+        if (!emailError && !mailgunResponse.ok) {
+          emailError = {
+            service: 'mailgun',
             message: mailgunData.message || 'Failed to send email',
             status: mailgunResponse.status,
+            statusText: mailgunResponse.statusText,
+            details: mailgunData,
           };
-        } else {
+        } else if (!emailError) {
           emailResult = {success: true, id: mailgunData.id};
         }
       } else {
@@ -589,21 +640,35 @@ ${sanitizedBody}
     } catch (fetchError) {
       console.error('Email API fetch error:', {
         error: fetchError instanceof Error ? fetchError.message : 'Unknown error',
+        errorName: fetchError instanceof Error ? fetchError.name : 'Error',
+        service: emailService,
         route: 'contact',
         timestamp: new Date().toISOString(),
+        ...(fetchError instanceof Error && fetchError.stack ? {stack: fetchError.stack} : {}),
       });
       emailError = {
+        service: emailService,
         message: 'Network error while sending email',
         details: fetchError instanceof Error ? fetchError.message : 'Unknown error',
+        errorType: fetchError instanceof Error ? fetchError.name : 'Unknown',
       };
     }
 
     if (emailError) {
-      console.error('Email API error:', {
-        error: emailError,
+      // Serialize error properly for logging - this ensures we see the full error details
+      const errorLog = {
+        service: emailError.service || emailService,
+        message: emailError.message,
+        status: emailError.status,
+        statusText: emailError.statusText,
+        details: emailError.details,
+        parseError: emailError.parseError,
         route: 'contact',
         timestamp: new Date().toISOString(),
-      });
+      };
+      
+      // Log full error details with proper serialization
+      console.error('Email API error:', JSON.stringify(errorLog, null, 2));
 
       return data(
         {

@@ -1,12 +1,262 @@
-import {Form, useLoaderData, useActionData, useNavigation, useRevalidator, data} from 'react-router';
-import {useEffect} from 'react';
+import {Form, useLoaderData, useActionData, useNavigation, useRevalidator, useSubmit, data} from 'react-router';
+import {useEffect, useState} from 'react';
 import {requireAuth, generateCSRFToken, getClientIP, constantTimeEquals} from '~/lib/auth-helpers';
 import {fetchCreatorProfile, createUserSupabaseClient, createServerSupabaseClient} from '~/lib/supabase';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
 import {storeOAuthState} from '~/lib/oauth-state';
 import {CheckCircleIcon, XCircleIcon} from '@heroicons/react/24/solid';
-import {EllipsisVerticalIcon} from '@heroicons/react/20/solid';
+import {EllipsisVerticalIcon, ClipboardDocumentIcon} from '@heroicons/react/20/solid';
 import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/react';
+
+/**
+ * Extract Instagram username from URL
+ * @param {string} url - Instagram profile URL
+ * @returns {string|null} - Username or null if not found
+ */
+function extractInstagramUsername(url) {
+  if (!url || typeof url !== 'string') return null;
+  
+  try {
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname;
+    
+    // Remove leading/trailing slashes and extract username
+    // Instagram URLs: instagram.com/username or instagram.com/username/
+    const match = pathname.match(/^\/([^\/]+)\/?$/);
+    if (match && match[1]) {
+      return match[1];
+    }
+    
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Send email notification for Instagram verification
+ * Uses the same email service as contact form and newsletter
+ * @param {object} params
+ * @param {string} params.verificationCode - The verification code
+ * @param {string} params.instagramUrl - Instagram profile URL
+ * @param {string} params.instagramUsername - Instagram username
+ * @param {string} params.creatorEmail - Creator's email address
+ * @param {object} params.env - Environment variables
+ * @param {string} params.clientIP - Client IP address
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+async function sendInstagramVerificationEmail({verificationCode, instagramUrl, instagramUsername, creatorEmail, env, clientIP}) {
+  console.log('[sendInstagramVerificationEmail] Function called', {
+    verificationCode,
+    instagramUrl,
+    instagramUsername,
+    creatorEmail,
+    hasEnv: !!env,
+    timestamp: new Date().toISOString(),
+  });
+  
+  // Check email API key (supports Resend, SendGrid, or Mailgun)
+  const emailApiKey = env?.RESEND_API_KEY || env?.SENDGRID_API_KEY || env?.MAILGUN_API_KEY;
+  const emailService = env?.EMAIL_SERVICE || 'resend';
+  
+  console.log('[sendInstagramVerificationEmail] Email service check', {
+    hasApiKey: !!emailApiKey,
+    emailService,
+    hasResendKey: !!env?.RESEND_API_KEY,
+    hasSendGridKey: !!env?.SENDGRID_API_KEY,
+    hasMailgunKey: !!env?.MAILGUN_API_KEY,
+  });
+  
+  if (!emailApiKey) {
+    console.error('[sendInstagramVerificationEmail] Email API key is not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, or MAILGUN_API_KEY');
+    return {success: false, error: 'Email service is not configured'};
+  }
+
+  // Get recipient email from environment (same as contact form)
+  const recipientEmail = env?.CONTACT_EMAIL || 'contact@wornvault.com';
+  
+  // Get sender email from environment
+  const senderEmail = env?.CONTACT_FROM_EMAIL || 'contact@wornvault.com';
+  const senderName = env?.CONTACT_FROM_NAME || 'WornVault';
+  
+  console.log('[sendInstagramVerificationEmail] Email configuration', {
+    recipientEmail,
+    senderEmail,
+    senderName,
+  });
+
+  // Prepare email content
+  const emailSubject = 'Instagram Verification Request';
+  const timestamp = new Date().toISOString();
+  const emailBody = `
+New Instagram verification request:
+
+Verification Code: ${verificationCode}
+Instagram Username: ${instagramUsername || 'N/A'}
+Instagram URL: ${instagramUrl || 'N/A'}
+Creator Email: ${creatorEmail}
+IP Address: ${clientIP}
+Timestamp: ${timestamp}
+  `.trim();
+
+  // Escape HTML for safe rendering in email
+  const escapeHtml = (text) => {
+    if (!text) return '';
+    const map = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;',
+    };
+    return String(text).replace(/[&<>"']/g, (m) => map[m]);
+  };
+
+  const htmlContent = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #333;">New Instagram Verification Request</h2>
+      <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+        <p><strong>Verification Code:</strong> <code style="background: #fff; padding: 4px 8px; border-radius: 4px; font-size: 18px; font-weight: bold;">${escapeHtml(verificationCode)}</code></p>
+        <p><strong>Instagram Username:</strong> ${escapeHtml(instagramUsername || 'N/A')}</p>
+        <p><strong>Instagram URL:</strong> <a href="${escapeHtml(instagramUrl || '#')}">${escapeHtml(instagramUrl || 'N/A')}</a></p>
+        <p><strong>Creator Email:</strong> <a href="mailto:${escapeHtml(creatorEmail)}">${escapeHtml(creatorEmail)}</a></p>
+        <p><strong>IP Address:</strong> ${escapeHtml(clientIP)}</p>
+        <p><strong>Timestamp:</strong> ${escapeHtml(timestamp)}</p>
+      </div>
+      <div style="margin: 20px 0; padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px;">
+        <p style="margin: 0; color: #856404;"><strong>Action Required:</strong> Please verify the Instagram account by checking the DM sent to @w0rnvault with the verification code above.</p>
+      </div>
+    </div>
+  `;
+
+  // Send email via API
+  let emailError;
+
+  try {
+    console.log('[sendInstagramVerificationEmail] Attempting to send email via', emailService);
+    
+    if (emailService === 'resend') {
+      // Resend API
+      console.log('[sendInstagramVerificationEmail] Sending via Resend API...');
+      const resendResponse = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${emailApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: `${senderName} <${senderEmail}>`,
+          to: [recipientEmail],
+          reply_to: creatorEmail,
+          subject: emailSubject,
+          text: emailBody,
+          html: htmlContent,
+        }),
+      });
+
+      const resendData = await resendResponse.json();
+      
+      console.log('[sendInstagramVerificationEmail] Resend API response', {
+        ok: resendResponse.ok,
+        status: resendResponse.status,
+        data: resendData,
+      });
+      
+      if (!resendResponse.ok) {
+        emailError = {
+          message: resendData.message || 'Failed to send email',
+          status: resendResponse.status,
+        };
+      } else {
+        console.log('[sendInstagramVerificationEmail] Resend email sent successfully', {
+          emailId: resendData.id,
+        });
+      }
+    } else if (emailService === 'sendgrid') {
+      // SendGrid API
+      const sendgridResponse = await fetch('https://api.sendgrid.com/v3/mail/send', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${emailApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          personalizations: [{
+            to: [{email: recipientEmail}],
+            subject: emailSubject,
+          }],
+          from: {email: senderEmail, name: senderName},
+          reply_to: {email: creatorEmail},
+          content: [
+            {type: 'text/plain', value: emailBody},
+            {type: 'text/html', value: htmlContent},
+          ],
+        }),
+      });
+
+      if (!sendgridResponse.ok) {
+        const errorText = await sendgridResponse.text();
+        emailError = {
+          message: 'Failed to send email via SendGrid',
+          status: sendgridResponse.status,
+          details: errorText,
+        };
+      }
+    } else if (emailService === 'mailgun') {
+      // Mailgun API
+      const mailgunDomain = env?.MAILGUN_DOMAIN || 'wornvault.com';
+      const mailgunUrl = `https://api.mailgun.net/v3/${mailgunDomain}/messages`;
+      
+      const formData = new FormData();
+      formData.append('from', `${senderName} <${senderEmail}>`);
+      formData.append('to', recipientEmail);
+      formData.append('h:Reply-To', creatorEmail);
+      formData.append('subject', emailSubject);
+      formData.append('text', emailBody);
+      formData.append('html', htmlContent);
+
+      const mailgunResponse = await fetch(mailgunUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${btoa(`api:${emailApiKey}`)}`,
+        },
+        body: formData,
+      });
+
+      const mailgunData = await mailgunResponse.json();
+      
+      if (!mailgunResponse.ok) {
+        emailError = {
+          message: mailgunData.message || 'Failed to send email',
+          status: mailgunResponse.status,
+        };
+      }
+    } else {
+      throw new Error(`Unsupported email service: ${emailService}`);
+    }
+  } catch (fetchError) {
+    console.error('Instagram verification email API fetch error:', {
+      error: fetchError instanceof Error ? fetchError.message : 'Unknown error',
+      route: 'creator.social-links',
+      timestamp: new Date().toISOString(),
+    });
+    emailError = {
+      message: 'Network error while sending email',
+      details: fetchError instanceof Error ? fetchError.message : 'Unknown error',
+    };
+  }
+
+  if (emailError) {
+    console.error('Instagram verification email API error:', {
+      error: emailError,
+      route: 'creator.social-links',
+      timestamp: new Date().toISOString(),
+    });
+    return {success: false, error: emailError.message};
+  }
+
+  return {success: true};
+}
 
 export const meta = () => {
   return [{title: 'WornVault | Social Links'}];
@@ -139,6 +389,7 @@ export async function loader({context, request}) {
       csrfToken: null,
       callbackMessage: null,
       callbackError: null,
+      instagramCode: null,
     };
   }
 
@@ -182,6 +433,7 @@ export async function loader({context, request}) {
   // Fetch creator profile to get creator_id
   let creatorId = null;
   let socialLinks = null;
+  let instagramCode = null;
   try {
     const profile = await fetchCreatorProfile(
       user.email,
@@ -192,6 +444,14 @@ export async function loader({context, request}) {
     
     if (profile?.id) {
       creatorId = profile.id;
+      
+      // Extract last 3 characters of UUID for Instagram verification code
+      // Security: UUIDs are validated format, safe to extract substring
+      if (creatorId && typeof creatorId === 'string' && creatorId.length >= 3) {
+        // Remove hyphens and get last 3 characters, convert to uppercase
+        const uuidWithoutHyphens = creatorId.replace(/-/g, '');
+        instagramCode = uuidWithoutHyphens.slice(-3).toUpperCase();
+      }
       
       // Use service role client to read creator_verifications (bypasses RLS)
       // Security: We validate creator_id matches authenticated user's profile
@@ -273,6 +533,7 @@ export async function loader({context, request}) {
       csrfToken,
       callbackMessage,
       callbackError,
+      instagramCode,
     },
     {
       headers: {
@@ -438,10 +699,6 @@ export async function action({request, context}) {
     let codeVerifier = null;
     
     switch (platform) {
-      case 'instagram':
-        // Instagram Basic Display API
-        oauthUrl = `https://api.instagram.com/oauth/authorize?client_id=${context.env.INSTAGRAM_CLIENT_ID || 'YOUR_CLIENT_ID'}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=user_profile,user_media&response_type=code&state=${oauthState}`;
-        break;
       case 'tiktok': {
         // Production logging: These logs will appear in Shopify Oxygen runtime logs
         // Search for "TIKTOK_OAUTH_DEBUG" in Shopify Oxygen logs to find these entries
@@ -759,9 +1016,101 @@ export async function action({request, context}) {
         }
       }
 
+      // Also save Instagram URL to creators table if provided
+      if (submittedLinks.instagram_url) {
+        const {error: creatorUpdateError} = await serverSupabase
+          .from('creators')
+          .update({
+            instagram_url: submittedLinks.instagram_url,
+          })
+          .eq('id', profile.id); // Security: only update the authenticated user's creator record
+
+        if (creatorUpdateError) {
+          console.error('Error updating creator Instagram URL:', creatorUpdateError);
+          // Don't fail the entire request if creator update fails, but log it
+          // The URL is already saved in creator_verifications
+        } else if (context.env.NODE_ENV === 'development') {
+          console.log('Successfully updated creator Instagram URL');
+        }
+      }
+
       // Regenerate CSRF token for next request
       const newCsrfToken = await generateCSRFToken(request, context.env.SESSION_SECRET);
       context.session.set('csrf_token', newCsrfToken);
+
+      // Check if this is an Instagram verification submission
+      const isInstagramVerification = formData.get('is_instagram_verification') === 'true';
+      
+      if (isInstagramVerification) {
+        // Extract Instagram verification code from creator ID (same as loader)
+        let instagramCode = null;
+        if (profile.id && typeof profile.id === 'string' && profile.id.length >= 3) {
+          const uuidWithoutHyphens = profile.id.replace(/-/g, '');
+          instagramCode = uuidWithoutHyphens.slice(-3).toUpperCase();
+        }
+        
+        // Extract Instagram username from URL
+        const instagramUrl = submittedLinks.instagram_url || '';
+        const instagramUsername = instagramUrl ? extractInstagramUsername(instagramUrl) : null;
+        
+        // Log Instagram verification attempt
+        console.log('[Instagram Verification] Starting email send process', {
+          creatorId: profile.id,
+          creatorEmail: user.email,
+          instagramUrl,
+          instagramUsername,
+          verificationCode: instagramCode,
+          timestamp: new Date().toISOString(),
+        });
+        
+        // Send email notification (non-blocking - don't fail request if email fails)
+        const clientIP = getClientIP(request);
+        try {
+          console.log('[Instagram Verification] Calling sendInstagramVerificationEmail...');
+          const emailResult = await sendInstagramVerificationEmail({
+            verificationCode: instagramCode || 'N/A',
+            instagramUrl,
+            instagramUsername,
+            creatorEmail: user.email,
+            env: context.env,
+            clientIP,
+          });
+          
+          if (!emailResult.success) {
+            // Log error but don't fail the request
+            console.error('[Instagram Verification] Failed to send email:', {
+              error: emailResult.error,
+              creatorId: profile.id,
+              creatorEmail: user.email,
+              timestamp: new Date().toISOString(),
+            });
+          } else {
+            console.log('[Instagram Verification] Email sent successfully', {
+              creatorId: profile.id,
+              instagramUsername,
+              creatorEmail: user.email,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        } catch (emailError) {
+          // Log error but don't fail the request
+          console.error('[Instagram Verification] Exception sending email:', {
+            error: emailError instanceof Error ? emailError.message : 'Unknown error',
+            errorStack: emailError instanceof Error ? emailError.stack : undefined,
+            creatorId: profile.id,
+            creatorEmail: user.email,
+            timestamp: new Date().toISOString(),
+          });
+        }
+        
+        // For Instagram verification, return success but suppress the message
+        // The UI will show the pending state instead
+        return {
+          success: true,
+          message: null, // Suppress success message for Instagram verification
+          isInstagramVerification: true,
+        };
+      }
 
       return {
         success: true,
@@ -1035,11 +1384,86 @@ export async function action({request, context}) {
 }
 
 export default function CreatorSocialLinks() {
-  const {user, socialLinks, csrfToken, callbackMessage, callbackError} = useLoaderData();
+  const {user, socialLinks, csrfToken, callbackMessage, callbackError, instagramCode} = useLoaderData();
   const actionData = useActionData();
   const navigation = useNavigation();
   const revalidator = useRevalidator();
+  const submit = useSubmit();
   const isSubmitting = navigation.state === 'submitting';
+  const [copied, setCopied] = useState(false);
+  const [showInstagramCode, setShowInstagramCode] = useState(false);
+  // Persist dmSent state in sessionStorage to survive revalidations
+  const [dmSent, setDmSent] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('instagram_dm_sent') === 'true';
+    }
+    return false;
+  });
+  const [instagramUrl, setInstagramUrl] = useState(socialLinks?.instagram || '');
+  const [instagramUrlError, setInstagramUrlError] = useState('');
+  const [isChecking, setIsChecking] = useState(false);
+  
+  // Sync instagramUrl state with loader data when it changes
+  useEffect(() => {
+    // Only update if socialLinks.instagram exists and is different from current state
+    if (socialLinks?.instagram && socialLinks.instagram !== instagramUrl) {
+      setInstagramUrl(socialLinks.instagram);
+    } else if (!socialLinks?.instagram && instagramUrl) {
+      // Clear instagramUrl state if loader data doesn't have it
+      setInstagramUrl('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socialLinks?.instagram]);
+  
+  // Clear any localStorage/sessionStorage related to Instagram URL on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      // Check and clear any Instagram-related localStorage/sessionStorage
+      // (only keeping instagram_dm_sent which is intentional)
+      const keysToCheck = ['instagram_url', 'instagramUrl', 'instagram_connected'];
+      keysToCheck.forEach(key => {
+        if (localStorage.getItem(key)) {
+          localStorage.removeItem(key);
+        }
+        if (sessionStorage.getItem(key)) {
+          sessionStorage.removeItem(key);
+        }
+      });
+    }
+  }, []);
+  
+  // Update sessionStorage when dmSent changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (dmSent) {
+        sessionStorage.setItem('instagram_dm_sent', 'true');
+      } else {
+        sessionStorage.removeItem('instagram_dm_sent');
+      }
+    }
+  }, [dmSent]);
+  
+  // Clear dmSent state when Instagram is actually verified
+  useEffect(() => {
+    if (socialLinks?.instagramVerified && dmSent) {
+      setDmSent(false);
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('instagram_dm_sent');
+      }
+    }
+  }, [socialLinks?.instagramVerified, dmSent]);
+  
+  // Reset dmSent if Instagram verification submission failed
+  // Only reset if URL wasn't saved (not connected) and there's an error
+  useEffect(() => {
+    if (actionData?.error && dmSent && !socialLinks?.instagram) {
+      // If submission failed and Instagram URL wasn't saved, allow retry
+      setDmSent(false);
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('instagram_dm_sent');
+      }
+    }
+  }, [actionData?.error, dmSent, socialLinks?.instagram]);
   
   // Force revalidation when returning from OAuth callback to ensure fresh data
   useEffect(() => {
@@ -1062,6 +1486,123 @@ export default function CreatorSocialLinks() {
   if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     console.log('CreatorSocialLinks - socialLinks:', socialLinks);
   }
+
+  // Copy to clipboard handler for Instagram verification code
+  const handleCopyCode = async () => {
+    if (instagramCode && navigator.clipboard) {
+      try {
+        await navigator.clipboard.writeText(instagramCode);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (error) {
+        console.error('Failed to copy code:', error);
+      }
+    }
+  };
+
+  // Validate Instagram URL format
+  const validateInstagramUrl = (url) => {
+    if (!url || typeof url !== 'string') {
+      return { isValid: false, error: 'Please enter your Instagram profile URL' };
+    }
+    
+    const trimmed = url.trim();
+    if (!trimmed) {
+      return { isValid: false, error: 'Please enter your Instagram profile URL' };
+    }
+    
+    // Remove control characters
+    let sanitized = trimmed.replace(/[\x00-\x1F\x7F]/g, '');
+    
+    // Validate URL format
+    try {
+      // If it doesn't start with http:// or https://, add https://
+      if (!sanitized.match(/^https?:\/\//i)) {
+        sanitized = `https://${sanitized}`;
+      }
+      
+      const urlObj = new URL(sanitized);
+      
+      // Ensure HTTPS
+      if (urlObj.protocol !== 'https:') {
+        return { isValid: false, error: 'URL must use HTTPS' };
+      }
+      
+      // Validate hostname matches Instagram domain
+      const hostname = urlObj.hostname.toLowerCase();
+      const isValidDomain = ALLOWED_DOMAINS.instagram.some(domain => 
+        hostname === domain || hostname.endsWith('.' + domain)
+      );
+      
+      if (!isValidDomain) {
+        return { isValid: false, error: 'Please enter a valid Instagram URL (instagram.com)' };
+      }
+      
+      // Limit length
+      if (sanitized.length > 500) {
+        return { isValid: false, error: 'URL is too long' };
+      }
+      
+      return { isValid: true, sanitizedUrl: sanitized };
+    } catch {
+      return { isValid: false, error: 'Please enter a valid Instagram URL' };
+    }
+  };
+
+  // Handle Instagram URL input change
+  const handleInstagramUrlChange = (e) => {
+    const value = e.target.value;
+    setInstagramUrl(value);
+    // Clear error when user starts typing
+    if (instagramUrlError) {
+      setInstagramUrlError('');
+    }
+  };
+
+  // Handle DM sent button click - save Instagram URL and set pending state
+  const handleDmSent = () => {
+    // Validate Instagram URL before submitting
+    const validation = validateInstagramUrl(instagramUrl);
+    
+    if (!validation.isValid) {
+      setInstagramUrlError(validation.error);
+      return;
+    }
+    
+    // Clear any previous errors
+    setInstagramUrlError('');
+    
+    // Set pending state immediately for better UX
+    setDmSent(true);
+    
+    // Submit form with Instagram URL and verification flag
+    const formData = new FormData();
+    formData.append('action_type', 'save');
+    formData.append('csrf_token', csrfToken || '');
+    formData.append('instagram_url', validation.sanitizedUrl);
+    formData.append('is_instagram_verification', 'true');
+    
+    submit(formData, {
+      method: 'post',
+      replace: false,
+    });
+  };
+
+  // Get Instagram username from URL for display
+  const getInstagramUsername = (url) => {
+    if (!url) return null;
+    return extractInstagramUsername(url);
+  };
+
+  // Handle checking for DM
+  const handleCheckDm = async () => {
+    setIsChecking(true);
+    try {
+      await revalidator.revalidate();
+    } finally {
+      setIsChecking(false);
+    }
+  };
 
   // Social media icon components matching footer style
   const InstagramIcon = (props) => (
@@ -1142,7 +1683,8 @@ export default function CreatorSocialLinks() {
         </div>
 
         {/* Success/Error Messages */}
-        {(actionData?.success || callbackMessage) && (
+        {/* Don't show success message for Instagram verification - it's in pending state */}
+        {(actionData?.success || callbackMessage) && !actionData?.isInstagramVerification && (
           <div className="mb-6 rounded-md bg-green-50 p-4 dark:bg-green-900/20">
             <p className="text-sm font-medium text-green-800 dark:text-green-200">
               {callbackMessage || actionData?.message || 'Social links saved successfully'}
@@ -1164,6 +1706,7 @@ export default function CreatorSocialLinks() {
             const IconComponent = platform.Icon;
             const isConnected = !!socialLinks?.[platform.key];
             const connectedUrl = socialLinks?.[platform.key] || '';
+            const isInstagram = platform.key === 'instagram';
 
             return (
               <div key={platform.key} className="border-b border-gray-200 dark:border-gray-700 pb-6 last:border-b-0 last:pb-0">
@@ -1184,10 +1727,169 @@ export default function CreatorSocialLinks() {
                           {connectedUrl.replace(/^https?:\/\//, '').replace(/^www\./, '')}
                         </a>
                       )}
+                      {/* Instagram verification section - restructured with step-by-step guidance */}
+                      {isInstagram && (!isConnected || dmSent) && instagramCode && showInstagramCode && (
+                        <div className="mt-6 space-y-6">
+                          {/* Step-by-step verification guide */}
+                          <div className="rounded-lg p-6">
+                            <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                              Verify Your Instagram Account
+                            </h4>
+                            
+                            {/* Step 1: Enter Instagram URL */}
+                            <div className="space-y-3 mb-6">
+                              <div className="flex items-start gap-3">
+                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-semibold text-sm">
+                                  1
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <label htmlFor="instagram-url-input" className="block text-sm font-medium text-gray-900 dark:text-white mb-2">
+                                    Enter Your Instagram Profile URL
+                                  </label>
+                                  <input
+                                    id="instagram-url-input"
+                                    type="text"
+                                    value={instagramUrl}
+                                    onChange={handleInstagramUrlChange}
+                                    placeholder="https://instagram.com/yourusername"
+                                    disabled={dmSent}
+                                    className={`block w-full rounded-md border px-4 py-3 text-sm shadow-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-gray-700 dark:text-white dark:placeholder:text-gray-500 dark:border-gray-600 dark:focus:ring-indigo-400 transition-colors ${
+                                      instagramUrlError
+                                        ? 'border-red-300 dark:border-red-700 focus:ring-red-500 dark:focus:ring-red-400'
+                                        : 'border-gray-300 dark:border-gray-600'
+                                    } ${dmSent ? 'opacity-50 cursor-not-allowed bg-gray-50 dark:bg-gray-800' : ''}`}
+                                    aria-invalid={instagramUrlError ? 'true' : 'false'}
+                                    aria-describedby={instagramUrlError ? 'instagram-url-error' : undefined}
+                                  />
+                                  {instagramUrlError && (
+                                    <p id="instagram-url-error" className="mt-2 text-sm text-red-600 dark:text-red-400" role="alert">
+                                      {instagramUrlError}
+                                    </p>
+                                  )}
+                                  {instagramUrl && !instagramUrlError && getInstagramUsername(instagramUrl) && (
+                                    <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                                      ✓ We'll verify: <span className="font-semibold">@{getInstagramUsername(instagramUrl)}</span>
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Step 2: Copy Verification Code */}
+                            <div className="space-y-3 mb-6">
+                              <div className="flex items-start gap-3">
+                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-semibold text-sm">
+                                  2
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <label className="block text-sm font-medium text-gray-900 dark:text-white mb-2">
+                                    Copy Your Verification Code
+                                  </label>
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex-1 px-4 py-3 bg-white dark:bg-gray-800 border-2 border-indigo-300 dark:border-indigo-700 rounded-lg">
+                                      <code className="text-2xl font-mono font-bold text-gray-900 dark:text-white tracking-wider">
+                                        {instagramCode}
+                                      </code>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={handleCopyCode}
+                                      className="flex-shrink-0 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-600 dark:focus:ring-indigo-400 flex items-center gap-2"
+                                      aria-label="Copy verification code"
+                                    >
+                                      <ClipboardDocumentIcon className="h-5 w-5" />
+                                      {copied ? 'Copied!' : 'Copy'}
+                                    </button>
+                                  </div>
+                                  {copied && (
+                                    <p className="mt-2 text-sm text-green-600 dark:text-green-400 font-medium">
+                                      ✓ Code copied to clipboard!
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Step 3: Send DM */}
+                            <div className="space-y-3 mb-6">
+                              <div className="flex items-start gap-3">
+                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-semibold text-sm">
+                                  3
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <label className="block text-sm font-medium text-gray-900 dark:text-white mb-2">
+                                    Send DM to @w0rnvault
+                                  </label>
+                                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                                    Open Instagram and send a direct message to <span className="font-semibold text-gray-900 dark:text-white">@w0rnvault</span> with your verification code.
+                                  </p>
+                                  <div className="flex flex-wrap gap-3">
+                                    <a
+                                      href="https://www.instagram.com/w0rnvault/"
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg font-semibold text-sm transition-all shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+                                    >
+                                      <IconComponent className="h-5 w-5" />
+                                      Open Instagram
+                                    </a>
+                                    {!dmSent && (
+                                      <button
+                                        type="button"
+                                        onClick={handleDmSent}
+                                        disabled={!instagramUrl || !!instagramUrlError || isSubmitting}
+                                        className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-600"
+                                      >
+                                        {isSubmitting ? 'Submitting...' : "I've Sent the DM"}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Step 4: Verification Status */}
+                            {dmSent && (
+                              <div className="space-y-3">
+                                <div className="flex items-start gap-3">
+                                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-yellow-500 text-white flex items-center justify-center font-semibold text-sm">
+                                    4
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-4">
+                                      <div className="flex items-start justify-between gap-4">
+                                        <div className="flex-1">
+                                          <h5 className="text-sm font-semibold text-yellow-900 dark:text-yellow-200 mb-1">
+                                            Verification Pending
+                                          </h5>
+                                          <p className="text-sm text-yellow-800 dark:text-yellow-300">
+                                            We've received your verification request. Verification usually takes up to 24 hours. We'll review your DM and verify your account soon.
+                                          </p>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={handleCheckDm}
+                                          disabled={isChecking || revalidator.state === 'loading'}
+                                          className="flex-shrink-0 px-3 py-2 bg-yellow-100 hover:bg-yellow-200 dark:bg-yellow-900/40 dark:hover:bg-yellow-900/60 text-yellow-900 dark:text-yellow-200 rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 flex items-center gap-2"
+                                          aria-label="Check for DM verification"
+                                        >
+                                          <ArrowPathIcon className={`h-4 w-4 ${isChecking || revalidator.state === 'loading' ? 'animate-spin' : ''}`} />
+                                          {isChecking || revalidator.state === 'loading' ? 'Checking...' : 'Check Now'}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0">
-                    {isConnected ? (
+                    {/* Show connected state only when connected AND (not Instagram OR Instagram verified OR not pending verification) */}
+                    {isConnected && (!isInstagram || !dmSent || socialLinks?.instagramVerified) ? (
                       <div className="flex items-center gap-2">
                         <CheckCircleIcon className="h-6 w-6 text-green-600 dark:text-green-400" aria-hidden="true" />
                         <span className="sr-only">Connected</span>
@@ -1223,18 +1925,41 @@ export default function CreatorSocialLinks() {
                         </Menu>
                       </div>
                     ) : (
-                      <Form method="post" className="m-0">
-                        <input type="hidden" name="csrf_token" value={csrfToken} />
-                        <input type="hidden" name="action_type" value="verify" />
-                        <input type="hidden" name="platform" value={platform.key} />
-                        <button
-                          type="submit"
-                          disabled={isSubmitting}
-                          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
-                        >
-                          Connect
-                        </button>
-                      </Form>
+                      // Show Connect button for all platforms when not connected
+                      // For Instagram, clicking will show the verification code instead of OAuth
+                      isInstagram ? (
+                        showInstagramCode ? (
+                          <a
+                            href="https://www.instagram.com/w0rnvault/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500 transition-colors"
+                          >
+                            DM Wornvault
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setShowInstagramCode(true)}
+                            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
+                          >
+                            Connect
+                          </button>
+                        )
+                      ) : (
+                        <Form method="post" className="m-0">
+                          <input type="hidden" name="csrf_token" value={csrfToken} />
+                          <input type="hidden" name="action_type" value="verify" />
+                          <input type="hidden" name="platform" value={platform.key} />
+                          <button
+                            type="submit"
+                            disabled={isSubmitting}
+                            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
+                          >
+                            Connect
+                          </button>
+                        </Form>
+                      )
                     )}
                   </div>
                 </div>
