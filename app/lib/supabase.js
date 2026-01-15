@@ -2511,11 +2511,11 @@ export async function fetchAdminRecentActivity(supabaseUrl, serviceRoleKey, opti
   const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
   
   // Fetch activity logs for admin-relevant events
-  // Filter for activities related to creators and listings
+  // Filter for activities related to creators, listings, and verifications
   const {data: activityLogs, error: activityLogError} = await supabase
     .from('activity_log')
     .select('*')
-    .in('entity_type', ['creator', 'listing'])
+    .in('entity_type', ['creator', 'listing', 'verification'])
     .order('created_at', {ascending: false})
     .limit(limit);
 

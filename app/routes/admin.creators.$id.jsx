@@ -1,5 +1,5 @@
 import {useLoaderData, Link, redirect, Form, useActionData, useNavigation, useSearchParams} from 'react-router';
-import {checkAdminAuth, fetchAdminCreatorById, createServerSupabaseClient} from '~/lib/supabase';
+import {checkAdminAuth, fetchAdminCreatorById, createServerSupabaseClient, logActivityAdmin} from '~/lib/supabase';
 import {decodeHTMLEntities} from '~/lib/html-entities';
 import {generateCSRFToken, getClientIP, constantTimeEquals} from '~/lib/auth-helpers';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
@@ -53,9 +53,19 @@ export async function loader({params, request, context}) {
   const csrfToken = await generateCSRFToken(request, context.env.SESSION_SECRET);
   context.session.set('csrf_token', csrfToken);
   
+  // Generate Instagram verification code (last 3 characters of UUID, uppercase)
+  // This matches the code shown to creators on /creator/social-links
+  let instagramCode = null;
+  if (id && typeof id === 'string' && id.length >= 3) {
+    // Remove hyphens and get last 3 characters, convert to uppercase
+    const uuidWithoutHyphens = id.replace(/-/g, '');
+    instagramCode = uuidWithoutHyphens.slice(-3).toUpperCase();
+  }
+  
   return {
     creator,
     csrfToken,
+    instagramCode,
   };
 }
 
@@ -75,11 +85,26 @@ export async function action({params, request, context}) {
     return new Response('Invalid creator ID', {status: 400});
   }
   
+  const formData = await request.formData();
+  
+  // SECURITY: Validate action type before using it for rate limiting
+  // This prevents manipulation of rate limit keys and ensures only valid actions proceed
+  const actionType = formData.get('actionType')?.toString();
+  const VALID_ACTION_TYPES = ['verify_paypal_email', 'verify_instagram'];
+  
+  if (!actionType || !VALID_ACTION_TYPES.includes(actionType)) {
+    return new Response('Invalid action type', {status: 400});
+  }
+  
   // Rate limiting: max 10 requests per minute per admin
   const clientIP = getClientIP(request);
+  const rateLimitKey = actionType === 'verify_instagram' 
+    ? `admin-verify-instagram:${user.email}:${clientIP}`
+    : `admin-verify-paypal:${user.email}:${clientIP}`;
+  
   const rateLimit = await rateLimitMiddleware(
     request,
-    `admin-verify-paypal:${user.email}:${clientIP}`,
+    rateLimitKey,
     {
       maxRequests: 10,
       windowMs: 60000, // 1 minute
@@ -91,8 +116,6 @@ export async function action({params, request, context}) {
       status: 429,
     });
   }
-  
-  const formData = await request.formData();
   
   // Validate CSRF token
   const csrfToken = formData.get('csrf_token')?.toString();
@@ -106,9 +129,6 @@ export async function action({params, request, context}) {
   
   // Clear CSRF token after use
   context.session.unset('csrf_token');
-  
-  // Get action type
-  const actionType = formData.get('actionType')?.toString();
   
   if (actionType === 'verify_paypal_email') {
     const supabaseUrl = context.env.SUPABASE_URL;
@@ -132,7 +152,12 @@ export async function action({params, request, context}) {
       
       if (error) {
         console.error('Error verifying PayPal email:', error);
-        return new Response(`Failed to verify PayPal email: ${error.message}`, {status: 500});
+        // SECURITY: Don't expose internal error details in production
+        const isProduction = context.env.NODE_ENV === 'production';
+        const errorMessage = isProduction 
+          ? 'Failed to verify PayPal email. Please try again.'
+          : `Failed to verify PayPal email: ${error.message}`;
+        return new Response(errorMessage, {status: 500});
       }
       
       // Redirect back to creator detail page with success message
@@ -143,11 +168,171 @@ export async function action({params, request, context}) {
     }
   }
   
+  if (actionType === 'verify_instagram') {
+    const supabaseUrl = context.env.SUPABASE_URL;
+    const serviceRoleKey = context.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!supabaseUrl || !serviceRoleKey) {
+      return new Response('Server configuration error', {status: 500});
+    }
+    
+    try {
+      const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
+      
+      // Fetch creator data to get Instagram info for activity logging
+      const {data: creatorData, error: fetchError} = await supabase
+        .from('creators')
+        .select('instagram_url, instagram_username, display_name, email')
+        .eq('id', id)
+        .single();
+      
+      // SECURITY: Check for both error and null data to prevent null reference issues
+      if (fetchError) {
+        console.error('Error fetching creator data:', fetchError);
+        const isProduction = context.env.NODE_ENV === 'production';
+        const errorMessage = isProduction 
+          ? 'Failed to fetch creator data. Please try again.'
+          : `Failed to fetch creator data: ${fetchError.message}`;
+        return new Response(errorMessage, {status: 500});
+      }
+      
+      if (!creatorData) {
+        console.error('Creator data not found for ID:', id);
+        return new Response('Creator not found', {status: 404});
+      }
+      
+      // Update Instagram verification status
+      const {error} = await supabase
+        .from('creators')
+        .update({
+          instagram_verified: true,
+        })
+        .eq('id', id);
+      
+      if (error) {
+        console.error('Error verifying Instagram account:', error);
+        // SECURITY: Don't expose internal error details in production
+        const isProduction = context.env.NODE_ENV === 'production';
+        const errorMessage = isProduction 
+          ? 'Failed to verify Instagram account. Please try again.'
+          : `Failed to verify Instagram account: ${error.message}`;
+        return new Response(errorMessage, {status: 500});
+      }
+      
+      // SECURITY: Safely extract Instagram username from URL with proper validation
+      // This prevents URL parsing vulnerabilities and ensures safe string construction
+      const extractInstagramUsernameFromUrl = (url) => {
+        if (!url || typeof url !== 'string') return null;
+        
+        try {
+          // Validate URL format and domain
+          const urlObj = new URL(url);
+          const hostname = urlObj.hostname.toLowerCase();
+          
+          // Only allow Instagram domains
+          const validDomains = ['instagram.com', 'www.instagram.com'];
+          const isValidDomain = validDomains.some(domain => 
+            hostname === domain || hostname.endsWith('.' + domain)
+          );
+          
+          if (!isValidDomain) {
+            return null;
+          }
+          
+          // Extract username from pathname (e.g., /username or /username/)
+          const pathname = urlObj.pathname.trim();
+          const match = pathname.match(/^\/([^\/\?]+)\/?$/);
+          
+          if (match && match[1]) {
+            // Sanitize username: only allow alphanumeric, dots, underscores
+            const username = match[1].replace(/[^a-zA-Z0-9._]/g, '');
+            return username.length > 0 && username.length <= 30 ? username : null;
+          }
+          
+          return null;
+        } catch {
+          // Invalid URL format
+          return null;
+        }
+      };
+      
+      // Log activity to both creator's activity feed and admin activity feed
+      const instagramUsername = creatorData.instagram_username || 
+        extractInstagramUsernameFromUrl(creatorData.instagram_url) ||
+        null;
+      
+      // SECURITY: Safely construct display strings with fallbacks
+      const instagramDisplay = instagramUsername 
+        ? `@${instagramUsername}` 
+        : (creatorData.instagram_url || 'Instagram account');
+      
+      // SECURITY: Sanitize display name to prevent XSS (though it's sanitized later in logActivityAdmin)
+      const sanitizeDisplayName = (name) => {
+        if (!name || typeof name !== 'string') return 'Creator';
+        // Remove control characters and limit length
+        return name.replace(/[\x00-\x1F\x7F]/g, '').substring(0, 100) || 'Creator';
+      };
+      
+      const creatorDisplayName = sanitizeDisplayName(creatorData.display_name) || 
+        sanitizeDisplayName(creatorData.email) || 
+        'Creator';
+      
+      try {
+        const activityResult = await logActivityAdmin({
+          creatorId: id,
+          activityType: 'verification_approved',
+          entityType: 'verification',
+          entityId: null,
+          // Description for admin feed: shows admin action and creator context
+          description: `Verified Instagram account ${instagramDisplay} for ${creatorDisplayName}`,
+          metadata: {
+            platform: 'instagram',
+            instagramUrl: creatorData?.instagram_url || null,
+            instagramUsername: creatorData?.instagram_username || null,
+            verifiedBy: 'admin',
+            adminEmail: user.email,
+            creatorDisplayName: creatorDisplayName,
+          },
+          supabaseUrl,
+          serviceRoleKey,
+        });
+        
+        if (!activityResult.success) {
+          // Log error but don't fail the request
+          console.error('[Instagram Verification] Failed to log activity:', {
+            error: activityResult.error?.message || 'Unknown error',
+            creatorId: id,
+            timestamp: new Date().toISOString(),
+          });
+        } else {
+          console.log('[Instagram Verification] Activity logged successfully', {
+            creatorId: id,
+            instagramUsername,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      } catch (activityError) {
+        // Log error but don't fail the request
+        console.error('[Instagram Verification] Exception logging activity:', {
+          error: activityError instanceof Error ? activityError.message : 'Unknown error',
+          creatorId: id,
+          timestamp: new Date().toISOString(),
+        });
+      }
+      
+      // Redirect back to creator detail page with success message
+      return redirect(`/admin/creators/${id}?instagramVerified=true`);
+    } catch (error) {
+      console.error('Error in Instagram verification:', error);
+      return new Response('An unexpected error occurred', {status: 500});
+    }
+  }
+  
   return new Response('Invalid action', {status: 400});
 }
 
 export default function AdminCreatorDetail() {
-  const {creator, error, csrfToken} = useLoaderData();
+  const {creator, error, csrfToken, instagramCode} = useLoaderData();
   const actionData = useActionData();
   const navigation = useNavigation();
   const [searchParams] = useSearchParams();
@@ -155,6 +340,7 @@ export default function AdminCreatorDetail() {
   
   // Check for success message from URL params
   const paypalVerified = searchParams.get('paypalVerified') === 'true';
+  const instagramVerified = searchParams.get('instagramVerified') === 'true';
   
   if (error) {
     return (
@@ -610,31 +796,142 @@ export default function AdminCreatorDetail() {
           </section>
           
           {/* Verification Information */}
-          {creator.verification && (
+          {(creator.verification || creator.instagram_url || creator.instagram_username) && (
             <section className="bg-white dark:bg-white/5 rounded-lg shadow-sm p-6 border border-gray-200 dark:border-white/10">
               <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Verification Information</h2>
-              <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {creator.verification.reviewed_by && (
-                  <div>
-                    <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Reviewed By</dt>
-                    <dd className="mt-1 text-sm text-gray-900 dark:text-white">{creator.verification.reviewed_by}</dd>
+              
+              {/* Instagram Verification */}
+              {(creator.instagram_url || creator.instagram_username) && (
+                <div className="mb-6 pb-6 border-b border-gray-200 dark:border-white/10">
+                  <div className="flex items-center gap-3 mb-4">
+                    <svg className="h-6 w-6 text-gray-700 dark:text-gray-300" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path fillRule="evenodd" d="M12.315 2c2.43 0 2.784.013 3.808.06 1.064.049 1.791.218 2.427.465a4.902 4.902 0 011.772 1.153 4.902 4.902 0 011.153 1.772c.247.636.416 1.363.465 2.427.048 1.067.06 1.407.06 4.123v.08c0 2.643-.012 2.987-.06 4.043-.049 1.064-.218 1.791-.465 2.427a4.902 4.902 0 01-1.153 1.772 4.902 4.902 0 01-1.772 1.153c-.636.247-1.363.416-2.427.465-1.067.048-1.407.06-4.123.06h-.08c-2.643 0-2.987-.012-4.043-.06-1.064-.049-1.791-.218-2.427-.465a4.902 4.902 0 01-1.772-1.153 4.902 4.902 0 01-1.153-1.772c-.247-.636-.416-1.363-.465-2.427-.047-1.024-.06-1.379-.06-3.808v-.63c0-2.43.013-2.784.06-3.808.049-1.064.218-1.791.465-2.427a4.902 4.902 0 011.153-1.772A4.902 4.902 0 015.45 2.525c.636-.247 1.363-.416 2.427-.465C8.901 2.013 9.256 2 11.685 2h.63zm-.081 1.802h-.468c-2.456 0-2.784.011-3.807.058-.975.045-1.504.207-1.857.344-.467.182-.8.398-1.15.748-.35.35-.566.683-.748 1.15-.137.353-.3.882-.344 1.857-.047 1.023-.058 1.351-.058 3.807v.468c0 2.456.011 2.784.058 3.807.045.975.207 1.504.344 1.857.182.466.399.8.748 1.15.35.35.683.566 1.15.748.353.137.882.3 1.857.344 1.054.048 1.37.058 4.041.058h.08c2.597 0 2.917-.01 3.96-.058.976-.045 1.505-.207 1.858-.344.466-.182.8-.398 1.15-.748.35-.35.566-.683.748-1.15.137-.353.3-.882.344-1.857.048-1.055.058-1.37.058-4.041v-.08c0-2.597-.01-2.917-.058-3.96-.045-.976-.207-1.505-.344-1.858a3.097 3.097 0 00-.748-1.15 3.098 3.098 0 00-1.15-.748c-.353-.137-.882-.3-1.857-.344-1.023-.047-1.351-.058-3.807-.058zM12 6.865a5.135 5.135 0 110 10.27 5.135 5.135 0 010-10.27zm0 1.802a3.333 3.333 0 100 6.666 3.333 3.333 0 000-6.666zm5.338-3.205a1.2 1.2 0 110 2.4 1.2 1.2 0 010-2.4z" clipRule="evenodd" />
+                    </svg>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Instagram Account</h3>
                   </div>
-                )}
-                {creator.verification.internal_notes && (
-                  <div className="sm:col-span-2">
-                    <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Internal Notes</dt>
-                    <dd className="mt-1 text-sm text-gray-900 dark:text-white whitespace-pre-wrap">{creator.verification.internal_notes}</dd>
-                  </div>
-                )}
-                {creator.verification.submitted_links && (
-                  <div className="sm:col-span-2">
-                    <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Social Media Links</dt>
-                    <dd className="mt-1">
-                      <SocialLinksDisplay submittedLinks={creator.verification.submitted_links} />
-                    </dd>
-                  </div>
-                )}
-              </dl>
+                  
+                  {instagramVerified && (
+                    <div className="mb-4 rounded-md bg-green-50 dark:bg-green-900/20 p-4 border border-green-200 dark:border-green-800">
+                      <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                        Instagram account has been verified successfully.
+                      </p>
+                    </div>
+                  )}
+                  
+                  <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 mb-4">
+                    {creator.instagram_username && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Instagram Username</dt>
+                        <dd className="mt-1 text-sm text-gray-900 dark:text-white">
+                          @{creator.instagram_username}
+                        </dd>
+                      </div>
+                    )}
+                    {creator.instagram_url && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Instagram URL</dt>
+                        <dd className="mt-1">
+                          <a
+                            href={creator.instagram_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 break-all"
+                          >
+                            {creator.instagram_url}
+                          </a>
+                        </dd>
+                      </div>
+                    )}
+                    <div>
+                      <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Verification Status</dt>
+                      <dd className="mt-1">
+                        {creator.instagram_verified ? (
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-50 text-green-700 dark:bg-green-400/10 dark:text-green-400">
+                            <svg className="mr-1 h-4 w-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a1 1 0 00-1.714-1.029L9.5 9.5 8.207 8.207a1 1 0 00-1.414 1.414l1.5 1.5a1 1 0 001.414 0l3-3z" clipRule="evenodd" />
+                            </svg>
+                            Verified
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-50 text-yellow-800 dark:bg-yellow-400/10 dark:text-yellow-500">
+                            <svg className="mr-1 h-4 w-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                            </svg>
+                            Not Verified
+                          </span>
+                        )}
+                      </dd>
+                    </div>
+                    {instagramCode && (
+                      <div className="sm:col-span-2">
+                        <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Verification Code</dt>
+                        <dd className="mt-1">
+                          <div className="inline-flex items-center gap-3 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 border-2 border-indigo-200 dark:border-indigo-800 rounded-lg">
+                            <code className="text-2xl font-mono font-bold text-indigo-900 dark:text-indigo-100 tracking-wider">
+                              {instagramCode}
+                            </code>
+                          </div>
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+                  
+                  {!creator.instagram_verified && (
+                    <Form method="post" className="mt-4">
+                      <input type="hidden" name="csrf_token" value={csrfToken} />
+                      <input type="hidden" name="actionType" value="verify_instagram" />
+                      <button
+                        type="submit"
+                        disabled={isSubmitting}
+                        className="inline-flex items-center rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-green-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-green-500 dark:shadow-none dark:hover:bg-green-400 dark:focus-visible:outline-green-400"
+                      >
+                        {isSubmitting ? (
+                          <>
+                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Verifying...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="mr-2 h-4 w-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a1 1 0 00-1.714-1.029L9.5 9.5 8.207 8.207a1 1 0 00-1.414 1.414l1.5 1.5a1 1 0 001.414 0l3-3z" clipRule="evenodd" />
+                            </svg>
+                            Verify Instagram Account
+                          </>
+                        )}
+                      </button>
+                    </Form>
+                  )}
+                </div>
+              )}
+              
+              {/* Existing Verification Information */}
+              {creator.verification && (
+                <>
+                  {creator.verification.reviewed_by && (
+                    <div className="mb-4">
+                      <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Reviewed By</dt>
+                      <dd className="mt-1 text-sm text-gray-900 dark:text-white">{creator.verification.reviewed_by}</dd>
+                    </div>
+                  )}
+                  {creator.verification.internal_notes && (
+                    <div className="mb-4 sm:col-span-2">
+                      <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Internal Notes</dt>
+                      <dd className="mt-1 text-sm text-gray-900 dark:text-white whitespace-pre-wrap">{creator.verification.internal_notes}</dd>
+                    </div>
+                  )}
+                  {creator.verification.submitted_links && (
+                    <div className="sm:col-span-2">
+                      <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Social Media Links</dt>
+                      <dd className="mt-1">
+                        <SocialLinksDisplay submittedLinks={creator.verification.submitted_links} />
+                      </dd>
+                    </div>
+                  )}
+                </>
+              )}
             </section>
           )}
           

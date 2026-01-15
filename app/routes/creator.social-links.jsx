@@ -1,7 +1,7 @@
 import {Form, useLoaderData, useActionData, useNavigation, useRevalidator, useSubmit, data} from 'react-router';
 import {useEffect, useState} from 'react';
 import {requireAuth, generateCSRFToken, getClientIP, constantTimeEquals} from '~/lib/auth-helpers';
-import {fetchCreatorProfile, createUserSupabaseClient, createServerSupabaseClient} from '~/lib/supabase';
+import {fetchCreatorProfile, createUserSupabaseClient, createServerSupabaseClient, logActivity, logActivityAdmin} from '~/lib/supabase';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
 import {storeOAuthState} from '~/lib/oauth-state';
 import {CheckCircleIcon, XCircleIcon} from '@heroicons/react/24/solid';
@@ -1103,6 +1103,87 @@ export async function action({request, context}) {
           });
         }
         
+        // Log activity to activity_log table (for creator's own activity feed)
+        try {
+          const activityResult = await logActivity({
+            creatorId: profile.id,
+            activityType: 'verification_submitted',
+            entityType: 'verification',
+            description: `Submitted Instagram verification request for ${instagramUsername || instagramUrl}`,
+            metadata: {
+              platform: 'instagram',
+              instagramUrl,
+              instagramUsername,
+              verificationCode: instagramCode || 'N/A',
+            },
+            supabaseUrl: context.env.SUPABASE_URL,
+            anonKey: context.env.SUPABASE_ANON_KEY,
+            accessToken: session.access_token,
+          });
+          
+          if (!activityResult.success) {
+            // Log error but don't fail the request
+            console.error('[Instagram Verification] Failed to log activity:', {
+              error: activityResult.error?.message || 'Unknown error',
+              creatorId: profile.id,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        } catch (activityError) {
+          // Log error but don't fail the request
+          console.error('[Instagram Verification] Exception logging activity:', {
+            error: activityError instanceof Error ? activityError.message : 'Unknown error',
+            creatorId: profile.id,
+            timestamp: new Date().toISOString(),
+          });
+        }
+        
+        // Also log to admin activity feed using service role key
+        // This ensures admins can see Instagram DM verification requests
+        if (context.env.SUPABASE_SERVICE_ROLE_KEY) {
+          try {
+            const adminActivityResult = await logActivityAdmin({
+              creatorId: profile.id,
+              activityType: 'verification_submitted',
+              entityType: 'verification',
+              description: `Instagram DM verification request sent - @${instagramUsername || 'user'} (${instagramUrl})`,
+              entityId: null,
+              metadata: {
+                platform: 'instagram',
+                instagramUrl,
+                instagramUsername,
+                verificationCode: instagramCode || 'N/A',
+                action: 'dm_sent',
+                creatorEmail: user.email,
+              },
+              supabaseUrl: context.env.SUPABASE_URL,
+              serviceRoleKey: context.env.SUPABASE_SERVICE_ROLE_KEY,
+            });
+            
+            if (!adminActivityResult.success) {
+              // Log error but don't fail the request
+              console.error('[Instagram Verification] Failed to log admin activity:', {
+                error: adminActivityResult.error?.message || 'Unknown error',
+                creatorId: profile.id,
+                timestamp: new Date().toISOString(),
+              });
+            } else {
+              console.log('[Instagram Verification] Admin activity logged successfully', {
+                creatorId: profile.id,
+                instagramUsername,
+                timestamp: new Date().toISOString(),
+              });
+            }
+          } catch (adminActivityError) {
+            // Log error but don't fail the request
+            console.error('[Instagram Verification] Exception logging admin activity:', {
+              error: adminActivityError instanceof Error ? adminActivityError.message : 'Unknown error',
+              creatorId: profile.id,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        }
+        
         // For Instagram verification, return success but suppress the message
         // The UI will show the pending state instead
         return {
@@ -1401,7 +1482,20 @@ export default function CreatorSocialLinks() {
   });
   const [instagramUrl, setInstagramUrl] = useState(socialLinks?.instagram || '');
   const [instagramUrlError, setInstagramUrlError] = useState('');
-  const [isChecking, setIsChecking] = useState(false);
+  
+  // Determine pending state: Instagram URL exists but not verified
+  const isInstagramPending = !!(socialLinks?.instagram && !socialLinks?.instagramVerified);
+  
+  // Auto-show verification UI if Instagram is pending (URL exists but not verified)
+  useEffect(() => {
+    if (isInstagramPending && !showInstagramCode) {
+      setShowInstagramCode(true);
+      // Also set dmSent to true if we have a URL but aren't verified
+      if (!dmSent) {
+        setDmSent(true);
+      }
+    }
+  }, [isInstagramPending, showInstagramCode, dmSent]);
   
   // Sync instagramUrl state with loader data when it changes
   useEffect(() => {
@@ -1594,16 +1688,6 @@ export default function CreatorSocialLinks() {
     return extractInstagramUsername(url);
   };
 
-  // Handle checking for DM
-  const handleCheckDm = async () => {
-    setIsChecking(true);
-    try {
-      await revalidator.revalidate();
-    } finally {
-      setIsChecking(false);
-    }
-  };
-
   // Social media icon components matching footer style
   const InstagramIcon = (props) => (
     <svg fill="currentColor" viewBox="0 0 24 24" {...props}>
@@ -1728,7 +1812,8 @@ export default function CreatorSocialLinks() {
                         </a>
                       )}
                       {/* Instagram verification section - restructured with step-by-step guidance */}
-                      {isInstagram && (!isConnected || dmSent) && instagramCode && showInstagramCode && (
+                      {/* Show verification UI if: not connected, DM sent, or Instagram is pending (URL exists but not verified) */}
+                      {isInstagram && (!isConnected || dmSent || isInstagramPending) && instagramCode && showInstagramCode && (
                         <div className="mt-6 space-y-6">
                           {/* Step-by-step verification guide */}
                           <div className="rounded-lg p-6">
@@ -1752,12 +1837,12 @@ export default function CreatorSocialLinks() {
                                     value={instagramUrl}
                                     onChange={handleInstagramUrlChange}
                                     placeholder="https://instagram.com/yourusername"
-                                    disabled={dmSent}
+                                    disabled={dmSent || isInstagramPending}
                                     className={`block w-full rounded-md border px-4 py-3 text-sm shadow-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-gray-700 dark:text-white dark:placeholder:text-gray-500 dark:border-gray-600 dark:focus:ring-indigo-400 transition-colors ${
                                       instagramUrlError
                                         ? 'border-red-300 dark:border-red-700 focus:ring-red-500 dark:focus:ring-red-400'
                                         : 'border-gray-300 dark:border-gray-600'
-                                    } ${dmSent ? 'opacity-50 cursor-not-allowed bg-gray-50 dark:bg-gray-800' : ''}`}
+                                    } ${dmSent || isInstagramPending ? 'opacity-50 cursor-not-allowed bg-gray-50 dark:bg-gray-800' : ''}`}
                                     aria-invalid={instagramUrlError ? 'true' : 'false'}
                                     aria-describedby={instagramUrlError ? 'instagram-url-error' : undefined}
                                   />
@@ -1857,26 +1942,12 @@ export default function CreatorSocialLinks() {
                                   </div>
                                   <div className="flex-1 min-w-0">
                                     <div className="rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-4">
-                                      <div className="flex items-start justify-between gap-4">
-                                        <div className="flex-1">
-                                          <h5 className="text-sm font-semibold text-yellow-900 dark:text-yellow-200 mb-1">
-                                            Verification Pending
-                                          </h5>
-                                          <p className="text-sm text-yellow-800 dark:text-yellow-300">
-                                            We've received your verification request. Verification usually takes up to 24 hours. We'll review your DM and verify your account soon.
-                                          </p>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={handleCheckDm}
-                                          disabled={isChecking || revalidator.state === 'loading'}
-                                          className="flex-shrink-0 px-3 py-2 bg-yellow-100 hover:bg-yellow-200 dark:bg-yellow-900/40 dark:hover:bg-yellow-900/60 text-yellow-900 dark:text-yellow-200 rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 flex items-center gap-2"
-                                          aria-label="Check for DM verification"
-                                        >
-                                          <ArrowPathIcon className={`h-4 w-4 ${isChecking || revalidator.state === 'loading' ? 'animate-spin' : ''}`} />
-                                          {isChecking || revalidator.state === 'loading' ? 'Checking...' : 'Check Now'}
-                                        </button>
-                                      </div>
+                                      <h5 className="text-sm font-semibold text-yellow-900 dark:text-yellow-200 mb-1">
+                                        Verification Pending
+                                      </h5>
+                                      <p className="text-sm text-yellow-800 dark:text-yellow-300">
+                                        We've received your verification request. Verification usually takes up to 24 hours. We'll review your DM and verify your account soon.
+                                      </p>
                                     </div>
                                   </div>
                                 </div>
@@ -1927,17 +1998,9 @@ export default function CreatorSocialLinks() {
                     ) : (
                       // Show Connect button for all platforms when not connected
                       // For Instagram, clicking will show the verification code instead of OAuth
+                      // Only show Connect button if Instagram URL doesn't exist in database and not pending
                       isInstagram ? (
-                        showInstagramCode ? (
-                          <a
-                            href="https://www.instagram.com/w0rnvault/"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500 transition-colors"
-                          >
-                            DM Wornvault
-                          </a>
-                        ) : (
+                        !socialLinks?.instagram && !showInstagramCode && !isInstagramPending && (
                           <button
                             type="button"
                             onClick={() => setShowInstagramCode(true)}
