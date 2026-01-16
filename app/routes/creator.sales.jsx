@@ -59,19 +59,32 @@ export async function loader({context, request}) {
   const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
   const salesWithPhotoUrls = await Promise.all(
     soldListings.map(async (listing) => {
+      const saleData = {
+        ...listing,
+        // Format price from cents to dollars
+        price: listing.price_cents ? (listing.price_cents / 100).toFixed(2) : (parseFloat(listing.price) || 0).toFixed(2),
+        // Use sold_at if available, otherwise fall back to created_at
+        sold_at: listing.sold_at || listing.created_at,
+      };
+
       if (listing.photos && listing.photos.length > 0) {
         const {data} = supabase.storage
           .from('listing-photos')
           .getPublicUrl(listing.photos[0].storage_path);
         
-        return {
-          ...listing,
-          thumbnailUrl: data?.publicUrl || null,
-        };
+        saleData.thumbnailUrl = data?.publicUrl || null;
       }
-      return listing;
+
+      return saleData;
     })
   );
+
+  // Sort by sold_at date (most recent first)
+  salesWithPhotoUrls.sort((a, b) => {
+    const dateA = new Date(a.sold_at || a.created_at);
+    const dateB = new Date(b.sold_at || b.created_at);
+    return dateB - dateA;
+  });
 
   // Calculate totals
   const totalSales = salesWithPhotoUrls.length;
@@ -210,7 +223,7 @@ export default function CreatorSales() {
                       </div>
                       <div className="mt-1 flex items-center gap-x-2 text-xs/5 text-gray-500 dark:text-gray-400">
                         <p className="whitespace-nowrap">
-                          Sold on <time dateTime={formatDateTime(sale.created_at)}>{formatDate(sale.created_at)}</time>
+                          Sold on <time dateTime={formatDateTime(sale.sold_at || sale.created_at)}>{formatDate(sale.sold_at || sale.created_at)}</time>
                         </p>
                         {sale.category && (
                           <>
