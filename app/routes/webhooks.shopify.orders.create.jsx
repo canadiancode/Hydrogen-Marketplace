@@ -14,7 +14,7 @@
  * Endpoint: POST /webhooks/shopify/orders/create
  */
 
-import {json} from 'react-router';
+import {data} from 'react-router';
 import {
   verifyShopifyWebhook,
   parseWebhookPayload,
@@ -27,7 +27,7 @@ import {createServerSupabaseClient} from '~/lib/supabase';
  * Only allow POST requests
  */
 export async function loader() {
-  return json({error: 'Method not allowed'}, {status: 405});
+  return data({error: 'Method not allowed'}, {status: 405});
 }
 
 /**
@@ -38,13 +38,13 @@ export async function loader() {
 export async function action({request, context}) {
   // Only allow POST
   if (request.method !== 'POST') {
-    return json({error: 'Method not allowed'}, {status: 405});
+    return data({error: 'Method not allowed'}, {status: 405});
   }
 
   // Validate environment variables
   if (!validateWebhookEnv(context.env)) {
     console.error('Missing required webhook environment variables');
-    return json({error: 'Server configuration error'}, {status: 500});
+    return data({error: 'Server configuration error'}, {status: 500});
   }
 
   const {env} = context;
@@ -54,7 +54,7 @@ export async function action({request, context}) {
   const verification = await verifyShopifyWebhook(request, webhookSecret);
   if (!verification.valid) {
     console.error('Webhook verification failed:', verification.error);
-    return json({error: 'Unauthorized'}, {status: 401});
+    return data({error: 'Unauthorized'}, {status: 401});
   }
 
   try {
@@ -65,7 +65,7 @@ export async function action({request, context}) {
     const validation = validateOrderData(orderData);
     if (!validation.valid) {
       console.error('Invalid order data:', validation.error);
-      return json({error: validation.error}, {status: 400});
+      return data({error: validation.error}, {status: 400});
     }
 
     // Create Supabase client with service role key
@@ -79,17 +79,17 @@ export async function action({request, context}) {
 
     if (result.success) {
       // Return 200 OK to Shopify
-      return json({success: true, orderId: orderData.id}, {status: 200});
+      return data({success: true, orderId: orderData.id}, {status: 200});
     } else {
       // Log error but return 200 to prevent retries
       // Implement retry queue for production
       console.error('Error processing order:', result.error);
-      return json({error: result.error?.message || 'Processing failed'}, {status: 200});
+      return data({error: result.error?.message || 'Processing failed'}, {status: 200});
     }
   } catch (error) {
     console.error('Unexpected error processing webhook:', error);
     // Return 200 to prevent Shopify from retrying
-    return json({error: 'Internal server error'}, {status: 200});
+    return data({error: 'Internal server error'}, {status: 200});
   }
 }
 
