@@ -20,8 +20,8 @@ const navigation = [
   { name: 'Manage Listings', href: '/creator/listings', icon: RectangleStackIcon },
   { name: 'Create Listing', href: '/creator/listings/new', icon: PlusCircleIcon },
   { name: 'Social Links', href: '/creator/social-links', icon: LinkIcon },
-  { name: 'Logistics', href: '/creator/logistics', icon: TruckIcon },
   { name: 'Sales', href: '/creator/sales', icon: ShoppingCartIcon },
+  { name: 'Logistics', href: '/creator/logistics', icon: TruckIcon },
   { name: 'Payouts', href: '/creator/payouts', icon: BanknotesIcon },
 ]
 
