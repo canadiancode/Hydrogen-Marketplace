@@ -80,11 +80,19 @@ export async function verifyShopifyWebhookSignature(body, signature, webhookSecr
 export async function verifyShopifyWebhook(request, webhookSecret) {
   const signature = request.headers.get('X-Shopify-Hmac-SHA256');
   
+  console.error('[WEBHOOK VERIFY] Starting verification:', {
+    hasSignature: !!signature,
+    signatureLength: signature?.length || 0,
+    hasSecret: !!webhookSecret,
+  });
+  
   // Check Content-Length header for size limit
   const contentLength = request.headers.get('content-length');
   if (contentLength) {
     const size = parseInt(contentLength, 10);
+    console.error('[WEBHOOK VERIFY] Content-Length:', size);
     if (isNaN(size) || size > MAX_PAYLOAD_SIZE) {
+      console.error('[WEBHOOK VERIFY] Payload too large:', size);
       return {valid: false, error: 'Payload too large'};
     }
   }
@@ -93,12 +101,20 @@ export async function verifyShopifyWebhook(request, webhookSecret) {
     // Read body once
     const body = await request.text();
     
+    console.error('[WEBHOOK VERIFY] Body read:', {
+      bodyLength: body.length,
+      bodyPreview: body.substring(0, 200) + (body.length > 200 ? '...' : ''),
+    });
+    
     // Check actual body size
     if (body.length > MAX_PAYLOAD_SIZE) {
+      console.error('[WEBHOOK VERIFY] Actual body size exceeds limit:', body.length);
       return {valid: false, error: 'Payload too large'};
     }
 
     const isValid = await verifyShopifyWebhookSignature(body, signature, webhookSecret);
+    
+    console.error('[WEBHOOK VERIFY] Signature validation result:', isValid);
     
     if (!isValid) {
       return {valid: false, error: 'Invalid signature'};
@@ -106,7 +122,11 @@ export async function verifyShopifyWebhook(request, webhookSecret) {
 
     return {valid: true, body};
   } catch (error) {
-    console.error('Error verifying Shopify webhook:', error);
+    console.error('[WEBHOOK VERIFY] Error verifying Shopify webhook:', {
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+    });
     return {valid: false, error: 'Verification failed'};
   }
 }

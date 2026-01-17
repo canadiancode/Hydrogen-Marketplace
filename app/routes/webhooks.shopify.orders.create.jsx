@@ -36,35 +36,78 @@ export async function loader() {
  * @param {Route.ActionArgs}
  */
 export async function action({request, context}) {
+  // Log incoming webhook request details
+  const url = new URL(request.url);
+  const headers = Object.fromEntries(request.headers.entries());
+  
+  console.error('[WEBHOOK] Received Shopify webhook request:', {
+    method: request.method,
+    url: url.pathname + url.search,
+    headers: {
+      'content-type': headers['content-type'],
+      'content-length': headers['content-length'],
+      'x-shopify-hmac-sha256': headers['x-shopify-hmac-sha256'] ? 'present' : 'missing',
+      'x-shopify-shop-domain': headers['x-shopify-shop-domain'],
+      'x-shopify-topic': headers['x-shopify-topic'],
+      'x-shopify-webhook-id': headers['x-shopify-webhook-id'],
+      'user-agent': headers['user-agent'],
+    },
+    timestamp: new Date().toISOString(),
+  });
+
   // Only allow POST
   if (request.method !== 'POST') {
+    console.error('[WEBHOOK] Invalid method:', request.method);
     return data({error: 'Method not allowed'}, {status: 405});
   }
 
   // Validate environment variables
   if (!validateWebhookEnv(context.env)) {
-    console.error('Missing required webhook environment variables');
+    console.error('[WEBHOOK] Missing required webhook environment variables');
     return data({error: 'Server configuration error'}, {status: 500});
   }
 
   const {env} = context;
   const webhookSecret = env.SHOPIFY_WEBHOOK_SECRET;
 
+  // Log webhook secret status (without exposing the actual secret)
+  console.error('[WEBHOOK] Webhook secret configured:', !!webhookSecret);
+
   // Verify webhook signature and get body
   const verification = await verifyShopifyWebhook(request, webhookSecret);
   if (!verification.valid) {
-    console.error('Webhook verification failed:', verification.error);
+    console.error('[WEBHOOK] Webhook verification failed:', verification.error);
     return data({error: 'Unauthorized'}, {status: 401});
   }
 
+  // Log successful verification and payload info
+  console.error('[WEBHOOK] Webhook verified successfully. Payload size:', verification.body?.length || 0, 'bytes');
+
   try {
+    // Log raw body before parsing (first 500 chars to avoid huge logs)
+    const bodyPreview = verification.body?.substring(0, 500) || '';
+    console.error('[WEBHOOK] Raw payload preview:', bodyPreview + (verification.body?.length > 500 ? '...' : ''));
+
     // Parse webhook payload
     const orderData = parseWebhookPayload(verification.body);
+
+    // Log parsed order data summary
+    console.error('[WEBHOOK] Parsed order data:', {
+      orderId: orderData.id,
+      orderNumber: orderData.order_number || orderData.number,
+      orderName: orderData.name,
+      email: orderData.email,
+      totalPrice: orderData.total_price,
+      currency: orderData.currency,
+      lineItemsCount: Array.isArray(orderData.line_items) ? orderData.line_items.length : 0,
+      financialStatus: orderData.financial_status,
+      fulfillmentStatus: orderData.fulfillment_status,
+    });
 
     // Validate order data structure
     const validation = validateOrderData(orderData);
     if (!validation.valid) {
-      console.error('Invalid order data:', validation.error);
+      console.error('[WEBHOOK] Invalid order data:', validation.error);
       return data({error: validation.error}, {status: 400});
     }
 
@@ -79,15 +122,20 @@ export async function action({request, context}) {
 
     if (result.success) {
       // Return 200 OK to Shopify
+      console.error('[WEBHOOK] Order processed successfully:', orderData.id);
       return data({success: true, orderId: orderData.id}, {status: 200});
     } else {
       // Log error but return 200 to prevent retries
       // Implement retry queue for production
-      console.error('Error processing order:', result.error);
+      console.error('[WEBHOOK] Error processing order:', result.error);
       return data({error: result.error?.message || 'Processing failed'}, {status: 200});
     }
   } catch (error) {
-    console.error('Unexpected error processing webhook:', error);
+    console.error('[WEBHOOK] Unexpected error processing webhook:', {
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+    });
     // Return 200 to prevent Shopify from retrying
     return data({error: 'Internal server error'}, {status: 200});
   }
