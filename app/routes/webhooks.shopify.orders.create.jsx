@@ -4,12 +4,18 @@
  * Handles Shopify webhook notifications when a new order is created.
  * Updates Supabase database with order information and marks listings as sold.
  * 
+ * LISTING MATCHING:
+ * - Matches listings by SKU (lineItem.sku) which equals the listing UUID (id)
+ * - Only updates listings with status 'live' to prevent double-processing
+ * - Sets listing status to 'sold' and sold_at timestamp when order is created
+ * 
  * SECURITY FEATURES:
  * - HMAC SHA-256 signature verification
  * - Request size limits
- * - Input validation
- * - Idempotency checks
- * - Error handling
+ * - Input validation (UUID format validation for SKU)
+ * - Idempotency checks (duplicate order detection)
+ * - Race condition protection (only updates 'live' listings)
+ * - Error handling with detailed logging
  * 
  * Endpoint: POST /webhooks/shopify/orders/create
  */
@@ -181,22 +187,27 @@ async function processOrder(orderData, supabase) {
     }
 
     // Extract line items and find associated listings
+    // SKU in Shopify matches the listing UUID in Supabase
     const lineItems = Array.isArray(orderData.line_items) ? orderData.line_items : [];
     const listingUpdates = [];
+
+    // UUID validation regex
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
     for (const lineItem of lineItems) {
       // Validate line item structure
       if (!lineItem || typeof lineItem !== 'object') continue;
 
-      const shopifyProductId = lineItem.product_id ? String(lineItem.product_id) : null;
+      // Extract SKU from line item (SKU = listing UUID)
+      const sku = lineItem.sku ? String(lineItem.sku).trim() : null;
       
-      // Only use product_id since variant_id column doesn't exist yet
-      if (shopifyProductId && /^\d+$/.test(shopifyProductId)) {
-        // Find listing by Shopify product ID
+      // Validate SKU is a valid UUID format
+      if (sku && uuidRegex.test(sku)) {
+        // Find listing by UUID (SKU matches listing ID)
         const {data: listing, error: listingError} = await supabase
           .from('listings')
           .select('id, status, creator_id')
-          .eq('shopify_product_id', shopifyProductId)
+          .eq('id', sku)
           .eq('status', 'live')
           .maybeSingle();
 
@@ -211,8 +222,17 @@ async function processOrder(orderData, supabase) {
               quantity,
               price,
             });
+            
+            console.log(`[WEBHOOK] Found listing ${listing.id} for SKU ${sku}`);
           }
+        } else if (listingError) {
+          console.error(`[WEBHOOK] Error finding listing for SKU ${sku}:`, listingError);
+        } else {
+          console.log(`[WEBHOOK] No live listing found for SKU ${sku} (may already be sold or not exist)`);
         }
+      } else if (sku) {
+        // Log warning if SKU exists but isn't a valid UUID
+        console.warn(`[WEBHOOK] Invalid SKU format (expected UUID): ${sku}`);
       }
     }
 
@@ -281,22 +301,41 @@ async function processOrder(orderData, supabase) {
       return {success: false, error: orderError};
     }
 
-    // Update listing statuses to 'sold'
+    // Update listing statuses to 'sold' and set sold_at timestamp
+    const soldAtTimestamp = new Date().toISOString();
+    let updatedCount = 0;
+    let failedCount = 0;
+
     for (const update of listingUpdates) {
       const updateData = {
         status: 'sold',
-        sold_at: new Date().toISOString(), // Set sold_at timestamp
+        sold_at: soldAtTimestamp,
       };
       
-      const {error: updateError} = await supabase
+      // Only update if listing is still 'live' (safety check to prevent double-processing)
+      const {data: updatedListing, error: updateError} = await supabase
         .from('listings')
         .update(updateData)
-        .eq('id', update.listingId);
+        .eq('id', update.listingId)
+        .eq('status', 'live') // Only update if still live (prevents race conditions)
+        .select('id, status')
+        .single();
 
       if (updateError) {
-        console.error(`Error updating listing ${update.listingId}:`, updateError);
+        console.error(`[WEBHOOK] Error updating listing ${update.listingId}:`, updateError);
+        failedCount++;
         // Continue processing other listings even if one fails
+      } else if (updatedListing) {
+        console.log(`[WEBHOOK] Successfully marked listing ${update.listingId} as sold`);
+        updatedCount++;
+      } else {
+        // Listing was not updated (likely already sold or status changed)
+        console.warn(`[WEBHOOK] Listing ${update.listingId} was not updated (may already be sold)`);
       }
+    }
+
+    if (listingUpdates.length > 0) {
+      console.log(`[WEBHOOK] Listing update summary: ${updatedCount} updated, ${failedCount} failed, ${listingUpdates.length} total`);
     }
 
     return {success: true};
