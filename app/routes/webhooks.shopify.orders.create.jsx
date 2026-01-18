@@ -5,14 +5,14 @@
  * Updates Supabase database with order information and marks listings as sold.
  * 
  * LISTING MATCHING:
- * - Matches listings by SKU (lineItem.sku) which equals the listing UUID (id)
+ * - Matches listings by product_id (lineItem.product_id) which equals shopify_product_id in listings table
  * - Only updates listings with status 'live' to prevent double-processing
  * - Sets listing status to 'sold' and sold_at timestamp when order is created
  * 
  * SECURITY FEATURES:
  * - HMAC SHA-256 signature verification
  * - Request size limits
- * - Input validation (UUID format validation for SKU)
+ * - Input validation (numeric product_id validation)
  * - Idempotency checks (duplicate order detection)
  * - Race condition protection (only updates 'live' listings)
  * - Error handling with detailed logging
@@ -168,7 +168,6 @@ async function processOrder(orderData, supabase) {
     }
 
     // Check if order already exists (idempotency check)
-    // Note: You'll need to create an 'orders' table or use existing table
     const {data: existingOrder, error: checkError} = await supabase
       .from('orders')
       .select('id')
@@ -187,27 +186,24 @@ async function processOrder(orderData, supabase) {
     }
 
     // Extract line items and find associated listings
-    // SKU in Shopify matches the listing UUID in Supabase
+    // Use product_id from Shopify webhook to match shopify_product_id in listings table
     const lineItems = Array.isArray(orderData.line_items) ? orderData.line_items : [];
     const listingUpdates = [];
-
-    // UUID validation regex
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
     for (const lineItem of lineItems) {
       // Validate line item structure
       if (!lineItem || typeof lineItem !== 'object') continue;
 
-      // Extract SKU from line item (SKU = listing UUID)
-      const sku = lineItem.sku ? String(lineItem.sku).trim() : null;
+      // Extract product_id from line item (matches shopify_product_id in listings table)
+      const shopifyProductId = lineItem.product_id ? String(lineItem.product_id).trim() : null;
       
-      // Validate SKU is a valid UUID format
-      if (sku && uuidRegex.test(sku)) {
-        // Find listing by UUID (SKU matches listing ID)
+      // Validate product_id format (Shopify product IDs are numeric strings)
+      if (shopifyProductId && /^\d+$/.test(shopifyProductId)) {
+        // Find listing by Shopify product ID
         const {data: listing, error: listingError} = await supabase
           .from('listings')
           .select('id, status, creator_id')
-          .eq('id', sku)
+          .eq('shopify_product_id', shopifyProductId)
           .eq('status', 'live')
           .maybeSingle();
 
@@ -221,18 +217,20 @@ async function processOrder(orderData, supabase) {
               creatorId: listing.creator_id,
               quantity,
               price,
+              shopifyProductId, // Store for matching back to Shopify line item
+              shopifyLineItem: lineItem, // Store full line item for order_line_items creation
             });
             
-            console.log(`[WEBHOOK] Found listing ${listing.id} for SKU ${sku}`);
+            console.log(`[WEBHOOK] Found listing ${listing.id} for Shopify product ${shopifyProductId}`);
           }
         } else if (listingError) {
-          console.error(`[WEBHOOK] Error finding listing for SKU ${sku}:`, listingError);
+          console.error(`[WEBHOOK] Error finding listing for Shopify product ${shopifyProductId}:`, listingError);
         } else {
-          console.log(`[WEBHOOK] No live listing found for SKU ${sku} (may already be sold or not exist)`);
+          console.log(`[WEBHOOK] No live listing found for Shopify product ${shopifyProductId} (may already be sold or not exist)`);
         }
-      } else if (sku) {
-        // Log warning if SKU exists but isn't a valid UUID
-        console.warn(`[WEBHOOK] Invalid SKU format (expected UUID): ${sku}`);
+      } else if (shopifyProductId) {
+        // Log warning if product_id exists but isn't numeric
+        console.warn(`[WEBHOOK] Invalid product_id format (expected numeric): ${shopifyProductId}`);
       }
     }
 
@@ -299,6 +297,62 @@ async function processOrder(orderData, supabase) {
       }
       console.error('Error creating order:', orderError);
       return {success: false, error: orderError};
+    }
+
+    // Create order line items for each listing found
+    const orderLineItems = [];
+
+    for (const update of listingUpdates) {
+      const shopifyLineItem = update.shopifyLineItem;
+      if (!shopifyLineItem) continue;
+
+      const unitPriceCents = Math.round(update.price * 100);
+      const lineTotalCents = Math.round(update.price * update.quantity * 100);
+      
+      // Calculate line subtotal (may differ from total if discounts apply)
+      const lineSubtotalCents = shopifyLineItem.subtotal
+        ? Math.round(parseFloat(shopifyLineItem.subtotal) * 100)
+        : lineTotalCents;
+
+      orderLineItems.push({
+        order_id: order.id,
+        listing_id: update.listingId,
+        creator_id: update.creatorId,
+        shopify_line_item_id: shopifyLineItem.id ? String(shopifyLineItem.id) : null,
+        shopify_product_id: String(shopifyLineItem.product_id),
+        shopify_variant_id: shopifyLineItem.variant_id ? String(shopifyLineItem.variant_id) : null,
+        quantity: update.quantity,
+        unit_price_cents: unitPriceCents,
+        line_total_cents: lineTotalCents,
+        line_subtotal_cents: lineSubtotalCents,
+        product_title: shopifyLineItem.title || shopifyLineItem.name || null,
+        variant_title: shopifyLineItem.variant_title || null,
+      });
+    }
+
+    // Insert all order line items in a single transaction
+    if (orderLineItems.length > 0) {
+      const {data: insertedLineItems, error: lineItemsError} = await supabase
+        .from('order_line_items')
+        .insert(orderLineItems)
+        .select('id, creator_id, listing_id');
+
+      if (lineItemsError) {
+        console.error('[WEBHOOK] Error creating order line items:', lineItemsError);
+        // Log error but continue processing - order is already created
+        // Consider whether to fail the entire transaction or continue
+      } else {
+        console.log(`[WEBHOOK] Created ${insertedLineItems?.length || 0} order line items`);
+        
+        // Log creator breakdown for debugging
+        const creatorBreakdown = {};
+        insertedLineItems?.forEach(item => {
+          creatorBreakdown[item.creator_id] = (creatorBreakdown[item.creator_id] || 0) + 1;
+        });
+        console.log('[WEBHOOK] Order line items by creator:', creatorBreakdown);
+      }
+    } else {
+      console.warn('[WEBHOOK] No order line items to create (no matching listings found)');
     }
 
     // Update listing statuses to 'sold' and set sold_at timestamp

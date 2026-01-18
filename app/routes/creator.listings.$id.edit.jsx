@@ -1081,12 +1081,6 @@ export default function EditListing() {
               Only listings with "draft", "pending_approval", or "live" status can be edited. 
               Live listings that are edited will return to "pending_approval" status for review.
             </p>
-            <button
-              onClick={() => navigate(`/creator/listings/${listing.id}`)}
-              className="text-sm font-medium text-yellow-800 dark:text-yellow-200 hover:underline"
-            >
-              View Listing Details →
-            </button>
           </div>
         </div>
       </div>
