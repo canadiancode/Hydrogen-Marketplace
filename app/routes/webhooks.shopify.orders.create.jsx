@@ -195,43 +195,111 @@ async function processOrder(orderData, supabase) {
       if (!lineItem || typeof lineItem !== 'object') continue;
 
       // Extract product_id from line item (matches shopify_product_id in listings table)
-      const shopifyProductId = lineItem.product_id ? String(lineItem.product_id).trim() : null;
+      // Shopify product_id can be a number or string, ensure we handle both
+      const productIdRaw = lineItem.product_id;
+      let shopifyProductId = null;
       
-      // Validate product_id format (Shopify product IDs are numeric strings)
-      if (shopifyProductId && /^\d+$/.test(shopifyProductId)) {
-        // Find listing by Shopify product ID
-        const {data: listing, error: listingError} = await supabase
+      if (productIdRaw != null) {
+        // Convert to string first, then validate
+        const productIdStr = String(productIdRaw).trim();
+        // Validate product_id format (Shopify product IDs are numeric strings)
+        if (/^\d+$/.test(productIdStr)) {
+          shopifyProductId = productIdStr;
+        }
+      }
+      
+      if (!shopifyProductId) {
+        // Log warning if product_id exists but isn't numeric
+        if (productIdRaw != null) {
+          console.warn(`[WEBHOOK] Invalid product_id format (expected numeric): ${productIdRaw}`);
+        }
+        continue;
+      }
+
+      // Find listing by Shopify product ID
+      // Handle both formats: numeric ID (9401593757847) and GID (gid://shopify/Product/9401593757847)
+      const productIdGid = `gid://shopify/Product/${shopifyProductId}`;
+      
+      let listing = null;
+      let listingError = null;
+      
+      // Try matching numeric ID first (most common format from webhooks)
+      const {data: listingByNumeric, error: numericError} = await supabase
+        .from('listings')
+        .select('id, status, creator_id, shopify_product_id')
+        .eq('shopify_product_id', shopifyProductId)
+        .eq('status', 'live')
+        .maybeSingle();
+
+      if (!numericError && listingByNumeric) {
+        listing = listingByNumeric;
+        console.log(`[WEBHOOK] Found listing by numeric ID: ${listing.id} (product: ${shopifyProductId})`);
+      } else {
+        // Try matching GID format
+        const {data: listingByGid, error: gidError} = await supabase
           .from('listings')
-          .select('id, status, creator_id')
-          .eq('shopify_product_id', shopifyProductId)
+          .select('id, status, creator_id, shopify_product_id')
+          .eq('shopify_product_id', productIdGid)
           .eq('status', 'live')
           .maybeSingle();
 
-        if (listing && !listingError) {
-          const quantity = Math.max(1, Math.floor(parseFloat(lineItem.quantity) || 1));
-          const price = Math.max(0, parseFloat(lineItem.price || '0'));
-          
-          if (isFinite(quantity) && isFinite(price)) {
-            listingUpdates.push({
-              listingId: listing.id,
-              creatorId: listing.creator_id,
-              quantity,
-              price,
-              shopifyProductId, // Store for matching back to Shopify line item
-              shopifyLineItem: lineItem, // Store full line item for order_line_items creation
-            });
-            
-            console.log(`[WEBHOOK] Found listing ${listing.id} for Shopify product ${shopifyProductId}`);
-          }
-        } else if (listingError) {
-          console.error(`[WEBHOOK] Error finding listing for Shopify product ${shopifyProductId}:`, listingError);
+        if (!gidError && listingByGid) {
+          listing = listingByGid;
+          console.log(`[WEBHOOK] Found listing by GID format: ${listing.id} (product: ${productIdGid})`);
         } else {
-          console.log(`[WEBHOOK] No live listing found for Shopify product ${shopifyProductId} (may already be sold or not exist)`);
+          // Try a more flexible search - check if shopify_product_id ends with the numeric ID
+          // This handles cases where GID might be stored with different formatting
+          const {data: listingByEndsWith, error: endsWithError} = await supabase
+            .from('listings')
+            .select('id, status, creator_id, shopify_product_id')
+            .eq('status', 'live')
+            .like('shopify_product_id', `%${shopifyProductId}`)
+            .maybeSingle();
+          
+          if (!endsWithError && listingByEndsWith) {
+            listing = listingByEndsWith;
+            console.log(`[WEBHOOK] Found listing using flexible matching: ${listing.id} (stored as: ${listing.shopify_product_id})`);
+          } else {
+            // Log all attempted formats for debugging
+            console.log(`[WEBHOOK] No live listing found for Shopify product ${shopifyProductId}`, {
+              triedFormats: [shopifyProductId, productIdGid],
+              numericError: numericError?.message,
+              gidError: gidError?.message,
+              endsWithError: endsWithError?.message,
+            });
+            continue;
+          }
         }
-      } else if (shopifyProductId) {
-        // Log warning if product_id exists but isn't numeric
-        console.warn(`[WEBHOOK] Invalid product_id format (expected numeric): ${shopifyProductId}`);
       }
+
+      // Validate listing data
+      if (!listing.id || !listing.creator_id) {
+        console.error(`[WEBHOOK] Invalid listing data for Shopify product ${shopifyProductId}:`, listing);
+        continue;
+      }
+
+      const quantity = Math.max(1, Math.floor(parseFloat(lineItem.quantity) || 1));
+      const price = Math.max(0, parseFloat(lineItem.price || '0'));
+      
+      if (!isFinite(quantity) || !isFinite(price)) {
+        console.error(`[WEBHOOK] Invalid quantity or price for line item:`, {
+          quantity: lineItem.quantity,
+          price: lineItem.price,
+          productId: shopifyProductId,
+        });
+        continue;
+      }
+
+      listingUpdates.push({
+        listingId: listing.id,
+        creatorId: listing.creator_id,
+        quantity,
+        price,
+        shopifyProductId,
+        shopifyLineItem: lineItem,
+      });
+      
+      console.log(`[WEBHOOK] Found listing ${listing.id} for Shopify product ${shopifyProductId}`);
     }
 
     // Validate and sanitize order data
@@ -292,11 +360,33 @@ async function processOrder(orderData, supabase) {
     if (orderError) {
       // Check if it's a duplicate key error (race condition)
       if (orderError.code === '23505') {
-        console.log(`Order ${shopifyOrderId} was processed concurrently, skipping`);
+        console.log(`[WEBHOOK] Order ${shopifyOrderId} was processed concurrently, skipping`);
         return {success: true};
       }
-      console.error('Error creating order:', orderError);
+      console.error('[WEBHOOK] Error creating order in Supabase:', {
+        error: orderError,
+        code: orderError.code,
+        message: orderError.message,
+        details: orderError.details,
+        orderId: shopifyOrderId,
+      });
       return {success: false, error: orderError};
+    }
+
+    // Log successful order creation in Supabase
+    if (order) {
+      console.error('[WEBHOOK] ✅ Successfully created order in Supabase:', {
+        supabaseOrderId: order.id,
+        shopifyOrderId: shopifyOrderId,
+        orderNumber: order.order_number,
+        orderName: order.order_name,
+        customerEmail: order.customer_email,
+        totalPriceCents: order.total_price_cents,
+        currency: order.currency,
+        createdAt: order.created_at,
+      });
+    } else {
+      console.error('[WEBHOOK] ⚠️ Order insert returned no data (unexpected)');
     }
 
     // Create order line items for each listing found
@@ -335,21 +425,41 @@ async function processOrder(orderData, supabase) {
       const {data: insertedLineItems, error: lineItemsError} = await supabase
         .from('order_line_items')
         .insert(orderLineItems)
-        .select('id, creator_id, listing_id');
+        .select('id, creator_id, listing_id, shopify_product_id, quantity, unit_price_cents');
 
       if (lineItemsError) {
-        console.error('[WEBHOOK] Error creating order line items:', lineItemsError);
+        console.error('[WEBHOOK] ❌ Error creating order line items in Supabase:', {
+          error: lineItemsError,
+          code: lineItemsError.code,
+          message: lineItemsError.message,
+          details: lineItemsError.details,
+          orderId: order?.id,
+          lineItemsCount: orderLineItems.length,
+        });
         // Log error but continue processing - order is already created
         // Consider whether to fail the entire transaction or continue
-      } else {
-        console.log(`[WEBHOOK] Created ${insertedLineItems?.length || 0} order line items`);
+      } else if (insertedLineItems && insertedLineItems.length > 0) {
+        console.error('[WEBHOOK] ✅ Successfully created order line items in Supabase:', {
+          count: insertedLineItems.length,
+          orderId: order?.id,
+          lineItems: insertedLineItems.map(item => ({
+            id: item.id,
+            listingId: item.listing_id,
+            creatorId: item.creator_id,
+            productId: item.shopify_product_id,
+            quantity: item.quantity,
+            unitPriceCents: item.unit_price_cents,
+          })),
+        });
         
         // Log creator breakdown for debugging
         const creatorBreakdown = {};
-        insertedLineItems?.forEach(item => {
+        insertedLineItems.forEach(item => {
           creatorBreakdown[item.creator_id] = (creatorBreakdown[item.creator_id] || 0) + 1;
         });
-        console.log('[WEBHOOK] Order line items by creator:', creatorBreakdown);
+        console.error('[WEBHOOK] Order line items by creator:', creatorBreakdown);
+      } else {
+        console.error('[WEBHOOK] ⚠️ Order line items insert returned no data (unexpected)');
       }
     } else {
       console.warn('[WEBHOOK] No order line items to create (no matching listings found)');
@@ -359,7 +469,9 @@ async function processOrder(orderData, supabase) {
     const soldAtTimestamp = new Date().toISOString();
     let updatedCount = 0;
     let failedCount = 0;
+    let skippedCount = 0;
 
+    // Process updates sequentially to avoid race conditions
     for (const update of listingUpdates) {
       const updateData = {
         status: 'sold',
@@ -367,29 +479,62 @@ async function processOrder(orderData, supabase) {
       };
       
       // Only update if listing is still 'live' (safety check to prevent double-processing)
+      // Use maybeSingle() instead of single() to avoid errors when no rows match
       const {data: updatedListing, error: updateError} = await supabase
         .from('listings')
         .update(updateData)
         .eq('id', update.listingId)
         .eq('status', 'live') // Only update if still live (prevents race conditions)
-        .select('id, status')
-        .single();
+        .select('id, status, shopify_product_id')
+        .maybeSingle();
 
       if (updateError) {
-        console.error(`[WEBHOOK] Error updating listing ${update.listingId}:`, updateError);
+        console.error(`[WEBHOOK] ❌ Error updating listing ${update.listingId} (product ${update.shopifyProductId}) in Supabase:`, {
+          error: updateError,
+          code: updateError.code,
+          message: updateError.message,
+          details: updateError.details,
+          listingId: update.listingId,
+          productId: update.shopifyProductId,
+        });
         failedCount++;
         // Continue processing other listings even if one fails
       } else if (updatedListing) {
-        console.log(`[WEBHOOK] Successfully marked listing ${update.listingId} as sold`);
+        console.error(`[WEBHOOK] ✅ Successfully updated listing in Supabase:`, {
+          listingId: updatedListing.id,
+          productId: updatedListing.shopify_product_id,
+          oldStatus: 'live',
+          newStatus: updatedListing.status,
+          soldAt: soldAtTimestamp,
+        });
         updatedCount++;
       } else {
         // Listing was not updated (likely already sold or status changed)
-        console.warn(`[WEBHOOK] Listing ${update.listingId} was not updated (may already be sold)`);
+        // Verify current status for debugging
+        const {data: currentListing} = await supabase
+          .from('listings')
+          .select('id, status, shopify_product_id')
+          .eq('id', update.listingId)
+          .maybeSingle();
+        
+        console.warn(`[WEBHOOK] ⚠️ Listing ${update.listingId} (product ${update.shopifyProductId}) was not updated. Current status: ${currentListing?.status || 'not found'}`);
+        skippedCount++;
       }
     }
 
     if (listingUpdates.length > 0) {
-      console.log(`[WEBHOOK] Listing update summary: ${updatedCount} updated, ${failedCount} failed, ${listingUpdates.length} total`);
+      console.error(`[WEBHOOK] Listing update summary: ${updatedCount} updated, ${failedCount} failed, ${skippedCount} skipped, ${listingUpdates.length} total`);
+      
+      // Log detailed breakdown for debugging
+      if (updatedCount === 0 && listingUpdates.length > 0) {
+        console.error(`[WEBHOOK] ⚠️ WARNING: No listings were updated! This may indicate a data mismatch issue.`);
+        console.error(`[WEBHOOK] Debug info:`, {
+          listingIds: listingUpdates.map(u => u.listingId),
+          productIds: listingUpdates.map(u => u.shopifyProductId),
+        });
+      }
+    } else {
+      console.warn('[WEBHOOK] No listings found to update for this order');
     }
 
     return {success: true};
