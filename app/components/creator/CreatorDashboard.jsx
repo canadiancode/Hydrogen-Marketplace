@@ -172,6 +172,19 @@ function getActivityIcon(activityType) {
     };
   }
   
+  // Sale activities
+  if (activityType === 'listing_sold') {
+    return {
+      icon: (
+        <svg className={baseClasses} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ),
+      bgColor: 'bg-emerald-100 dark:bg-emerald-900/30',
+      iconColor: 'text-emerald-600 dark:text-emerald-400',
+    };
+  }
+  
   // Default icon
   return {
     icon: (

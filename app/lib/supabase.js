@@ -22,14 +22,19 @@ import {createClient} from '@supabase/supabase-js';
  * 
  * @param {string} supabaseUrl - Your Supabase project URL
  * @param {string} serviceRoleKey - Supabase service role key (server-side only)
+ * @param {typeof fetch} [customFetch] - Optional custom fetch function (required for Cloudflare Workers)
  * @returns {import('@supabase/supabase-js').SupabaseClient}
  */
-export function createServerSupabaseClient(supabaseUrl, serviceRoleKey) {
+export function createServerSupabaseClient(supabaseUrl, serviceRoleKey, customFetch) {
   if (!supabaseUrl || !serviceRoleKey) {
     throw new Error('Supabase URL and service role key are required');
   }
 
   const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    global: {
+      // Use custom fetch if provided (required for Cloudflare Workers to avoid I/O context errors)
+      fetch: customFetch || fetch,
+    },
     auth: {
       autoRefreshToken: false,
       persistSession: false,
@@ -46,9 +51,10 @@ export function createServerSupabaseClient(supabaseUrl, serviceRoleKey) {
  * @param {string} supabaseUrl - Your Supabase project URL
  * @param {string} anonKey - Supabase anon/public key
  * @param {string} accessToken - User's access token from session
+ * @param {typeof fetch} [customFetch] - Optional custom fetch function (required for Cloudflare Workers)
  * @returns {import('@supabase/supabase-js').SupabaseClient}
  */
-export function createUserSupabaseClient(supabaseUrl, anonKey, accessToken) {
+export function createUserSupabaseClient(supabaseUrl, anonKey, accessToken, customFetch) {
   if (!supabaseUrl || !anonKey) {
     throw new Error('Supabase URL and anon key are required');
   }
@@ -58,6 +64,8 @@ export function createUserSupabaseClient(supabaseUrl, anonKey, accessToken) {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
+      // Use custom fetch if provided (required for Cloudflare Workers to avoid I/O context errors)
+      fetch: customFetch || fetch,
     },
     auth: {
       autoRefreshToken: false,
@@ -738,7 +746,8 @@ export async function fetchCreatorProfile(userEmail, supabaseUrl, anonKey, acces
     return null;
   }
 
-  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  // Pass fetch explicitly to ensure Cloudflare Workers uses request-scoped fetch
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken, fetch);
   
   // RLS will automatically filter by auth.email()
   const {data, error} = await supabase
@@ -1404,7 +1413,36 @@ export async function fetchAllCreators(supabaseUrl, serviceRoleKey) {
     return [];
   }
   
-  return creators;
+  // Fetch all sold listings to calculate revenue per creator
+  // This is more efficient than fetching listings per creator
+  const {data: soldListings, error: listingsError} = await supabase
+    .from('listings')
+    .select('creator_id, price_cents, status')
+    .in('status', ['sold', 'shipped', 'completed']);
+  
+  if (listingsError) {
+    console.error('Error fetching sold listings for revenue calculation:', listingsError);
+    // Continue without revenue data rather than failing
+  }
+  
+  // Calculate total revenue per creator
+  const revenueByCreator = {};
+  if (soldListings && soldListings.length > 0) {
+    soldListings.forEach(listing => {
+      if (listing.creator_id && listing.price_cents) {
+        if (!revenueByCreator[listing.creator_id]) {
+          revenueByCreator[listing.creator_id] = 0;
+        }
+        revenueByCreator[listing.creator_id] += listing.price_cents / 100;
+      }
+    });
+  }
+  
+  // Add revenue to each creator
+  return creators.map(creator => ({
+    ...creator,
+    totalRevenue: revenueByCreator[creator.id] || 0,
+  }));
 }
 
 /**
@@ -1486,6 +1524,17 @@ export async function fetchAdminCreatorById(creatorId, supabaseUrl, serviceRoleK
     price: (listing.price_cents / 100).toFixed(2),
   }));
 
+  // Calculate total revenue from sold listings (gross amount before fees)
+  // Revenue includes all sold listings regardless of payout status
+  const soldListings = listingsWithPrice.filter(listing => 
+    listing.status === 'sold' || 
+    listing.status === 'shipped' || 
+    listing.status === 'completed'
+  );
+  const totalRevenue = soldListings.reduce((sum, listing) => {
+    return sum + (listing.price_cents || 0) / 100;
+  }, 0);
+
   return {
     ...creator,
     verification: verification || null,
@@ -1494,6 +1543,7 @@ export async function fetchAdminCreatorById(creatorId, supabaseUrl, serviceRoleK
     totalListings: listingsWithPrice.length,
     totalPayouts: payoutsWithCurrency.length,
     totalEarnings: payoutsWithCurrency.reduce((sum, p) => sum + p.netAmountDollars, 0),
+    totalRevenue,
   };
 }
 
@@ -1564,7 +1614,8 @@ export async function fetchCreatorDashboardStats(creatorId, supabaseUrl, anonKey
     };
   }
 
-  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  // Pass fetch explicitly to ensure Cloudflare Workers uses request-scoped fetch
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken, fetch);
   
   // Fetch all listings for this creator to calculate stats
   const {data: listings, error: listingsError} = await supabase
@@ -1885,7 +1936,8 @@ export async function fetchCreatorRecentActivity(creatorId, supabaseUrl, anonKey
     limit = 20; // Default to safe value if invalid
   }
   limit = Math.floor(limit); // Ensure it's an integer
-  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  // Pass fetch explicitly to ensure Cloudflare Workers uses request-scoped fetch
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken, fetch);
   
   // First, try to fetch from activity_log table (preferred method)
   const {data: activityLogs, error: activityLogError} = await supabase
@@ -2237,7 +2289,7 @@ function validateActivityTypes(activityType, entityType) {
   const allowedEntityTypes = ['listing', 'payout', 'verification', 'logistics_event', 'creator'];
   const allowedActivityTypes = [
     'listing_created', 'listing_updated', 'listing_status_changed', 'listing_published', 
-    'listing_submitted', 'listing_approved', 'listing_rejected', 'listing_deleted',
+    'listing_submitted', 'listing_approved', 'listing_rejected', 'listing_deleted', 'listing_sold',
     'payout_created', 'payout_completed', 'payout_pending', 'payout_failed',
     'verification_submitted', 'verification_approved', 'verification_rejected',
     'listing_shipped', 'listing_delivered', 'listing_received',

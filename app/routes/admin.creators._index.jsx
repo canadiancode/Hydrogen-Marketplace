@@ -767,11 +767,11 @@ export default function AdminCreators() {
           </section>
         ) : (
           <section className="bg-white dark:bg-white/5 rounded-lg shadow-sm border border-gray-200 dark:border-white/10">
-            <div className="px-6 py-4 border-b border-gray-200 dark:border-white/10 flex items-center justify-between">
-              <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
+            <div className="px-4 sm:px-6 py-4 border-b border-gray-200 dark:border-white/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <h2 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-white">
                 All Creators ({filteredCreators.length})
               </h2>
-              <Menu as="div" className="relative inline-block">
+              <Menu as="div" className="relative inline-block self-start sm:self-auto">
                 <div className="flex">
                   <MenuButton className="group inline-flex justify-center text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100">
                     Sort
@@ -813,7 +813,7 @@ export default function AdminCreators() {
             </div>
             <ul role="list" className="divide-y divide-gray-200 dark:divide-white/10">
               {/* Select All Checkbox */}
-              <li className="px-6 py-3 border-b border-gray-200 dark:border-white/10">
+              <li className="px-4 sm:px-6 py-3 border-b border-gray-200 dark:border-white/10">
                 <div className="flex items-center gap-3">
                   <Checkbox
                     id="select-all-checkbox"
@@ -966,72 +966,97 @@ function CreatorItem({creator, isSelected, onSelect}) {
     'Unknown';
 
   return (
-    <li className="flex items-center justify-between gap-x-6 py-5 px-6 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
-      {/* Checkbox for selection */}
-      <div className="flex-shrink-0">
-        <Checkbox
-          id={`creator-checkbox-${creator.id}`}
-          checked={isSelected}
-          onChange={(e) => onSelect(e.target.checked)}
-          aria-label={`Select creator: ${displayName}`}
-        />
+    <li className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 sm:gap-x-6 py-5 px-4 sm:px-6 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+      {/* Checkbox and main content */}
+      <div className="flex items-start gap-3 sm:gap-x-6 min-w-0 flex-1">
+        {/* Checkbox for selection */}
+        <div className="flex-shrink-0 pt-0.5">
+          <Checkbox
+            id={`creator-checkbox-${creator.id}`}
+            checked={isSelected}
+            onChange={(e) => onSelect(e.target.checked)}
+            aria-label={`Select creator: ${displayName}`}
+          />
+        </div>
+        
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+            <Link
+              to={`/admin/creators/${creator.id}`}
+              className="text-sm/6 font-semibold text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 break-words"
+            >
+              {displayName}
+            </Link>
+            <VerificationStatusBadge status={creator.verification_status} />
+          </div>
+          
+          {/* Metadata - responsive layout */}
+          <div className="mt-2 flex flex-col sm:flex-row sm:items-center gap-y-1 sm:gap-y-0 sm:gap-x-2 text-xs/5 text-gray-500 dark:text-gray-400">
+            <div className="flex items-center gap-x-2 flex-wrap">
+              <p className="truncate sm:whitespace-nowrap">
+                <span className="font-medium sm:font-normal">Email:</span> {creator.email || 'N/A'}
+              </p>
+              {creator.handle && (
+                <>
+                  <svg viewBox="0 0 2 2" className="size-0.5 fill-current flex-shrink-0">
+                    <circle r={1} cx={1} cy={1} />
+                  </svg>
+                  <p className="truncate">Handle: @{creator.handle}</p>
+                </>
+              )}
+            </div>
+            
+            <div className="flex items-center gap-x-2 flex-wrap">
+              <svg viewBox="0 0 2 2" className="size-0.5 fill-current flex-shrink-0">
+                <circle r={1} cx={1} cy={1} />
+              </svg>
+              <p className="truncate sm:whitespace-nowrap">
+                <span className="font-medium sm:font-normal">Joined:</span> <time dateTime={creator.created_at}>{formatDate(creator.created_at)}</time>
+              </p>
+            </div>
+            
+            {(creator.totalRevenue || creator.totalRevenue === 0) && (
+              <div className="flex items-center gap-x-2 flex-wrap">
+                <svg viewBox="0 0 2 2" className="size-0.5 fill-current flex-shrink-0">
+                  <circle r={1} cx={1} cy={1} />
+                </svg>
+                <p className="truncate sm:whitespace-nowrap">
+                  <span className="font-medium sm:font-normal">Revenue:</span> <span className="font-semibold text-blue-600 dark:text-blue-400">${(creator.totalRevenue || 0).toFixed(2)}</span>
+                </p>
+              </div>
+            )}
+            
+            {creator.paypal_email && (
+              <div className="flex items-center gap-x-2 flex-wrap">
+                <svg viewBox="0 0 2 2" className="size-0.5 fill-current flex-shrink-0">
+                  <circle r={1} cx={1} cy={1} />
+                </svg>
+                <p className="truncate sm:whitespace-nowrap">
+                  {creator.paypal_email_verified ? (
+                    <span className="text-green-600 dark:text-green-400">PayPal verified</span>
+                  ) : (
+                    <span className="text-yellow-600 dark:text-yellow-400">PayPal pending</span>
+                  )}
+                </p>
+              </div>
+            )}
+          </div>
+          
+          {creator.bio && (
+            <div className="mt-2">
+              <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
+                {decodeHTMLEntities(creator.bio)}
+              </p>
+            </div>
+          )}
+        </div>
       </div>
       
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start gap-x-3">
-          <Link
-            to={`/admin/creators/${creator.id}`}
-            className="text-sm/6 font-semibold text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400"
-          >
-            {displayName}
-          </Link>
-          <VerificationStatusBadge status={creator.verification_status} />
-        </div>
-        <div className="mt-1 flex items-center gap-x-2 text-xs/5 text-gray-500 dark:text-gray-400">
-          <p className="whitespace-nowrap">
-            Email: {creator.email || 'N/A'}
-          </p>
-          {creator.handle && (
-            <>
-              <svg viewBox="0 0 2 2" className="size-0.5 fill-current">
-                <circle r={1} cx={1} cy={1} />
-              </svg>
-              <p className="truncate">Handle: @{creator.handle}</p>
-            </>
-          )}
-          <svg viewBox="0 0 2 2" className="size-0.5 fill-current">
-            <circle r={1} cx={1} cy={1} />
-          </svg>
-          <p className="whitespace-nowrap">
-            Joined <time dateTime={creator.created_at}>{formatDate(creator.created_at)}</time>
-          </p>
-          {creator.paypal_email && (
-            <>
-              <svg viewBox="0 0 2 2" className="size-0.5 fill-current">
-                <circle r={1} cx={1} cy={1} />
-              </svg>
-              <p className="whitespace-nowrap">
-                {creator.paypal_email_verified ? (
-                  <span className="text-green-600 dark:text-green-400">PayPal verified</span>
-                ) : (
-                  <span className="text-yellow-600 dark:text-yellow-400">PayPal pending</span>
-                )}
-              </p>
-            </>
-          )}
-        </div>
-        {creator.bio && (
-          <div className="mt-2">
-            <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
-              {decodeHTMLEntities(creator.bio)}
-            </p>
-          </div>
-        )}
-      </div>
-      <div className="flex flex-none items-center gap-x-4">
+      {/* Action button - hidden on mobile, shown on desktop */}
+      <div className="flex flex-none items-center gap-x-4 sm:ml-auto">
         <Link
           to={`/admin/creators/${creator.id}`}
-          className="hidden rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs inset-ring inset-ring-gray-300 hover:bg-gray-50 sm:block dark:bg-white/10 dark:text-white dark:shadow-none dark:inset-ring-white/5 dark:hover:bg-white/20"
+          className="hidden sm:block rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs inset-ring inset-ring-gray-300 hover:bg-gray-50 dark:bg-white/10 dark:text-white dark:shadow-none dark:inset-ring-white/5 dark:hover:bg-white/20"
         >
           View details<span className="sr-only">, {displayName}</span>
         </Link>

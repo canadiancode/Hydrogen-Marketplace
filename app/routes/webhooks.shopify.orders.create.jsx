@@ -10,6 +10,7 @@
  * - Sets listing status to 'sold' and sold_at timestamp when order is created
  * 
  * SECURITY FEATURES:
+ * - Rate limiting (before signature verification to prevent DoS)
  * - HMAC SHA-256 signature verification
  * - Request size limits
  * - Input validation (numeric product_id validation)
@@ -27,7 +28,9 @@ import {
   validateWebhookEnv,
   validateOrderData,
 } from '~/lib/webhooks/shopify';
-import {createServerSupabaseClient} from '~/lib/supabase';
+import {createServerSupabaseClient, logActivityAdmin} from '~/lib/supabase';
+import {checkRateLimit} from '~/lib/rate-limit';
+import {getClientIP} from '~/lib/auth-helpers';
 
 /**
  * Only allow POST requests
@@ -65,6 +68,44 @@ export async function action({request, context}) {
   if (request.method !== 'POST') {
     console.error('[WEBHOOK] Invalid method:', request.method);
     return data({error: 'Method not allowed'}, {status: 405});
+  }
+
+  // Rate limiting (before signature verification to prevent DoS)
+  // Using loose limits for development/testing phase
+  const clientIP = getClientIP(request);
+  const rateLimit = await checkRateLimit(
+    `webhook:orders:create:${clientIP}`,
+    1000, // Max 1000 requests per minute (loose for testing)
+    60000 // 1 minute window
+  );
+
+  if (!rateLimit.allowed) {
+    console.error('[WEBHOOK] Rate limit exceeded:', {
+      ip: clientIP,
+      remaining: rateLimit.remaining,
+      resetAt: new Date(rateLimit.resetAt).toISOString(),
+    });
+    return data(
+      {error: 'Rate limit exceeded', retryAfter: Math.ceil((rateLimit.resetAt - Date.now()) / 1000)},
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(Math.ceil((rateLimit.resetAt - Date.now()) / 1000)),
+          'X-RateLimit-Limit': '1000',
+          'X-RateLimit-Remaining': String(rateLimit.remaining),
+          'X-RateLimit-Reset': String(rateLimit.resetAt),
+        },
+      }
+    );
+  }
+
+  // Log rate limit status for monitoring
+  if (rateLimit.remaining < 100) {
+    console.warn('[WEBHOOK] Rate limit warning:', {
+      ip: clientIP,
+      remaining: rateLimit.remaining,
+      resetAt: new Date(rateLimit.resetAt).toISOString(),
+    });
   }
 
   // Validate environment variables
@@ -124,7 +165,7 @@ export async function action({request, context}) {
     );
 
     // Process order and update Supabase
-    const result = await processOrder(orderData, supabase);
+    const result = await processOrder(orderData, supabase, env);
 
     if (result.success) {
       // Return 200 OK to Shopify
@@ -154,9 +195,10 @@ export async function action({request, context}) {
  * 
  * @param {object} orderData - Shopify order data
  * @param {object} supabase - Supabase client instance
+ * @param {object} env - Environment variables
  * @returns {Promise<{success: boolean, error?: Error}>}
  */
-async function processOrder(orderData, supabase) {
+async function processOrder(orderData, supabase, env) {
   try {
     const shopifyOrderId = String(orderData.id);
     const orderNumber = orderData.order_number || orderData.number;
@@ -226,7 +268,7 @@ async function processOrder(orderData, supabase) {
       // Try matching numeric ID first (most common format from webhooks)
       const {data: listingByNumeric, error: numericError} = await supabase
         .from('listings')
-        .select('id, status, creator_id, shopify_product_id')
+        .select('id, status, creator_id, shopify_product_id, title')
         .eq('shopify_product_id', shopifyProductId)
         .eq('status', 'live')
         .maybeSingle();
@@ -238,7 +280,7 @@ async function processOrder(orderData, supabase) {
         // Try matching GID format
         const {data: listingByGid, error: gidError} = await supabase
           .from('listings')
-          .select('id, status, creator_id, shopify_product_id')
+          .select('id, status, creator_id, shopify_product_id, title')
           .eq('shopify_product_id', productIdGid)
           .eq('status', 'live')
           .maybeSingle();
@@ -251,7 +293,7 @@ async function processOrder(orderData, supabase) {
           // This handles cases where GID might be stored with different formatting
           const {data: listingByEndsWith, error: endsWithError} = await supabase
             .from('listings')
-            .select('id, status, creator_id, shopify_product_id')
+            .select('id, status, creator_id, shopify_product_id, title')
             .eq('status', 'live')
             .like('shopify_product_id', `%${shopifyProductId}`)
             .maybeSingle();
@@ -293,6 +335,7 @@ async function processOrder(orderData, supabase) {
       listingUpdates.push({
         listingId: listing.id,
         creatorId: listing.creator_id,
+        listingTitle: listing.title || 'Untitled Listing',
         quantity,
         price,
         shopifyProductId,
@@ -508,6 +551,40 @@ async function processOrder(orderData, supabase) {
           soldAt: soldAtTimestamp,
         });
         updatedCount++;
+        
+        // Log activity for creator to notify them of the sale
+        // Use logActivityAdmin since we're in a webhook context (no user session)
+        const listingTitle = update.listingTitle || 'a listing';
+        const salePrice = (update.price * update.quantity).toFixed(2);
+        const activityDescription = update.quantity > 1
+          ? `Sold "${listingTitle}" (${update.quantity}x) for $${salePrice}`
+          : `Sold "${listingTitle}" for $${salePrice}`;
+        
+        const activityResult = await logActivityAdmin({
+          creatorId: update.creatorId,
+          activityType: 'listing_sold',
+          entityType: 'listing',
+          entityId: update.listingId,
+          description: activityDescription,
+          metadata: {
+            listingId: update.listingId,
+            listingTitle,
+            quantity: update.quantity,
+            unitPrice: update.price,
+            totalPrice: update.price * update.quantity,
+            orderId: order?.id,
+            shopifyOrderId: shopifyOrderId,
+          },
+          supabaseUrl: env.SUPABASE_URL,
+          serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+        });
+        
+        if (!activityResult.success) {
+          // Log error but don't fail the webhook - activity logging is non-critical
+          console.error(`[WEBHOOK] ⚠️ Failed to log activity for listing ${update.listingId}:`, activityResult.error);
+        } else {
+          console.log(`[WEBHOOK] ✅ Logged sale activity for creator ${update.creatorId}`);
+        }
       } else {
         // Listing was not updated (likely already sold or status changed)
         // Verify current status for debugging

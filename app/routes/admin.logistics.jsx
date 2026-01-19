@@ -47,11 +47,6 @@ export default function AdminLogistics() {
             <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Tracking Numbers</h2>
             {/* Display tracking numbers */}
           </section>
-          
-          <section className="bg-white dark:bg-white/5 rounded-lg shadow-sm p-6 border border-gray-200 dark:border-white/10">
-            <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Status Overrides</h2>
-            {/* Status override controls */}
-          </section>
         </div>
       </div>
     </div>

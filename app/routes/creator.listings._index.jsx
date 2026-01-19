@@ -42,12 +42,19 @@ export async function loader({context, request}) {
   }
 
   // Fetch creator's listings from Supabase
-  const listings = await fetchCreatorListings(creatorProfile.id, supabaseUrl, anonKey, accessToken);
+  const allListings = await fetchCreatorListings(creatorProfile.id, supabaseUrl, anonKey, accessToken);
+  
+  // Filter out sold items (sold, shipped, completed) - these belong in /creator/sales
+  const activeListings = allListings.filter(listing => 
+    listing.status !== 'sold' && 
+    listing.status !== 'shipped' && 
+    listing.status !== 'completed'
+  );
   
   // Get public URLs for photos
   const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
   const listingsWithPhotoUrls = await Promise.all(
-    listings.map(async (listing) => {
+    activeListings.map(async (listing) => {
       if (listing.photos && listing.photos.length > 0) {
         // Get public URL for the first photo
         const {data} = supabase.storage

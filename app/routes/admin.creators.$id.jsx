@@ -777,7 +777,7 @@ export default function AdminCreatorDetail() {
           {/* Stats Summary */}
           <section className="bg-white dark:bg-white/5 rounded-lg shadow-sm p-6 border border-gray-200 dark:border-white/10">
             <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Statistics</h2>
-            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Listings</dt>
                 <dd className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">{creator.totalListings || 0}</dd>
@@ -785,6 +785,12 @@ export default function AdminCreatorDetail() {
               <div>
                 <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Payouts</dt>
                 <dd className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">{creator.totalPayouts || 0}</dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Revenue</dt>
+                <dd className="mt-1 text-2xl font-bold text-blue-600 dark:text-blue-400">
+                  {formatCurrency(creator.totalRevenue || 0)}
+                </dd>
               </div>
               <div>
                 <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Earnings</dt>

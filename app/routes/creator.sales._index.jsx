@@ -191,58 +191,60 @@ export default function CreatorSales() {
             </div>
             <ul role="list" className="divide-y divide-gray-200 dark:divide-white/10">
               {sales.map((sale) => (
-                <li key={sale.id} className="flex items-center justify-between gap-x-6 py-5 px-6 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
-                  <div className="flex items-center gap-x-4 flex-1 min-w-0">
-                    {/* Thumbnail */}
-                    <div className="flex-shrink-0">
-                      <div className="h-16 w-16 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-white/10 flex items-center justify-center">
-                        {sale.thumbnailUrl ? (
-                          <img
-                            src={sale.thumbnailUrl}
-                            alt={sale.title}
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <svg className="h-8 w-8 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                          </svg>
-                        )}
-                      </div>
-                    </div>
-                    
-                    {/* Details */}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start gap-x-3">
-                        <Link
-                          to={`/creator/listings/${sale.id}`}
-                          className="text-sm/6 font-semibold text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400"
-                        >
-                          {sale.title}
-                        </Link>
-                        <StatusBadge status={sale.status} />
-                      </div>
-                      <div className="mt-1 flex items-center gap-x-2 text-xs/5 text-gray-500 dark:text-gray-400">
-                        <p className="whitespace-nowrap">
-                          Sold on <time dateTime={formatDateTime(sale.sold_at || sale.created_at)}>{formatDate(sale.sold_at || sale.created_at)}</time>
-                        </p>
-                        {sale.category && (
-                          <>
-                            <svg viewBox="0 0 2 2" className="size-0.5 fill-current">
-                              <circle r={1} cx={1} cy={1} />
+                <li key={sale.id}>
+                  <Link
+                    to={`/creator/sales/${sale.id}`}
+                    className="flex items-center justify-between gap-x-6 py-5 px-6 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center gap-x-4 flex-1 min-w-0">
+                      {/* Thumbnail */}
+                      <div className="flex-shrink-0">
+                        <div className="h-16 w-16 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-white/10 flex items-center justify-center">
+                          {sale.thumbnailUrl ? (
+                            <img
+                              src={sale.thumbnailUrl}
+                              alt={sale.title}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <svg className="h-8 w-8 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                             </svg>
-                            <p className="truncate">{sale.category}</p>
-                          </>
-                        )}
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* Details */}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start gap-x-3">
+                          <p className="text-sm/6 font-semibold text-gray-900 dark:text-white">
+                            {sale.title}
+                          </p>
+                          <StatusBadge status={sale.status} />
+                        </div>
+                        <div className="mt-1 flex items-center gap-x-2 text-xs/5 text-gray-500 dark:text-gray-400">
+                          <p className="whitespace-nowrap">
+                            Sold on <time dateTime={formatDateTime(sale.sold_at || sale.created_at)}>{formatDate(sale.sold_at || sale.created_at)}</time>
+                          </p>
+                          {sale.category && (
+                            <>
+                              <svg viewBox="0 0 2 2" className="size-0.5 fill-current">
+                                <circle r={1} cx={1} cy={1} />
+                              </svg>
+                              <p className="truncate">{sale.category}</p>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* Price */}
+                      <div className="flex-shrink-0">
+                        <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                          ${sale.price}
+                        </p>
                       </div>
                     </div>
-                    
-                    {/* Price */}
-                    <div className="flex-shrink-0">
-                      <p className="text-lg font-semibold text-gray-900 dark:text-white">
-                        ${sale.price}
-                      </p>
-                    </div>
-                  </div>
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -253,5 +255,5 @@ export default function CreatorSales() {
   );
 }
 
-/** @typedef {import('./+types/creator.sales').Route} Route */
+/** @typedef {import('./+types/creator.sales._index').Route} Route */
 /** @typedef {import('@shopify/remix-oxygen').SerializeFrom<typeof loader>} LoaderReturnData */
