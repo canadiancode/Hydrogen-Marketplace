@@ -53,6 +53,21 @@ export async function loader({context}) {
       }
     }
     
+    // Fetch OAuth-verified platforms from creators table
+    let creatorsDataMap = {};
+    if (creatorIds.length > 0) {
+      const {data: creatorsData, error: creatorsError} = await supabase
+        .from('creators')
+        .select('id,x_url,x_username,x_verified,instagram_url,instagram_username,instagram_verified,tiktok_url,tiktok_username,tiktok_verified,youtube_url,youtube_username,youtube_verified,twitch_url,twitch_username,twitch_verified')
+        .in('id', creatorIds);
+      
+      if (!creatorsError && creatorsData) {
+        creatorsData.forEach(creator => {
+          creatorsDataMap[creator.id] = creator;
+        });
+      }
+    }
+    
     // Process creators to add image URLs and social links
     const processedCreators = creators.map(creator => {
       // Construct cover image URL from storage path if available
@@ -80,18 +95,35 @@ export async function loader({context}) {
         profileImageUrl = 'https://via.placeholder.com/150?text=No+Image';
       }
       
-      // Extract social links from verification data
+      // Extract social links from verification data AND creators table
       let creatorSocialLinks = null;
       const submittedLinks = verificationsMap[creator.id];
-      if (submittedLinks) {
-        creatorSocialLinks = {
-          instagram: submittedLinks.instagram_url || submittedLinks.instagram || null,
-          facebook: submittedLinks.facebook_url || submittedLinks.facebook || null,
-          tiktok: submittedLinks.tiktok_url || submittedLinks.tiktok || null,
-          x: submittedLinks.x_url || submittedLinks.x || null,
-          youtube: submittedLinks.youtube_url || submittedLinks.youtube || null,
-          twitch: submittedLinks.twitch_url || submittedLinks.twitch || null,
-        };
+      const creatorData = creatorsDataMap[creator.id];
+      
+      // Merge both sources (OAuth-verified takes precedence)
+      const socialLinks = {
+        instagram: submittedLinks?.instagram_url || submittedLinks?.instagram || null,
+        facebook: submittedLinks?.facebook_url || submittedLinks?.facebook || null,
+        tiktok: submittedLinks?.tiktok_url || submittedLinks?.tiktok || null,
+        x: submittedLinks?.x_url || submittedLinks?.x || null,
+        youtube: submittedLinks?.youtube_url || submittedLinks?.youtube || null,
+        twitch: submittedLinks?.twitch_url || submittedLinks?.twitch || null,
+      };
+      
+      // Override with OAuth-verified data from creators table (takes precedence)
+      if (creatorData) {
+        const platforms = ['instagram', 'tiktok', 'x', 'youtube', 'twitch'];
+        platforms.forEach((platform) => {
+          const urlField = `${platform}_url`;
+          if (creatorData[urlField]) {
+            socialLinks[platform] = creatorData[urlField];
+          }
+        });
+      }
+      
+      // Only set creatorSocialLinks if at least one platform has a URL
+      if (Object.values(socialLinks).some(url => url)) {
+        creatorSocialLinks = socialLinks;
       }
       
       return {

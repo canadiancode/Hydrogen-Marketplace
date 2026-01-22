@@ -67,12 +67,13 @@ export async function loader({params, context, request}) {
       }
     }
     
-    // Fetch creator's social links from creator_verifications
+    // Fetch creator's social links from creator_verifications AND creators table
     let creatorSocialLinks = null;
     if (creator.id) {
       const {createServerSupabaseClient} = await import('~/lib/supabase');
       const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
       
+      // Fetch from creator_verifications
       const {data: verification, error: verificationError} = await supabase
         .from('creator_verifications')
         .select('submitted_links')
@@ -81,9 +82,18 @@ export async function loader({params, context, request}) {
         .limit(1)
         .maybeSingle();
       
-      if (!verificationError && verification?.submitted_links) {
-        const submittedLinks = verification.submitted_links;
-        creatorSocialLinks = {
+      // Fetch from creators table for OAuth-verified platforms
+      const {data: creatorData, error: creatorError} = await supabase
+        .from('creators')
+        .select('x_url,x_username,x_verified,instagram_url,instagram_username,instagram_verified,tiktok_url,tiktok_username,tiktok_verified,youtube_url,youtube_username,youtube_verified,twitch_url,twitch_username,twitch_verified')
+        .eq('id', creator.id)
+        .maybeSingle();
+      
+      if (!verificationError && !creatorError) {
+        const submittedLinks = verification?.submitted_links || {};
+        
+        // Merge both sources (OAuth-verified takes precedence)
+        const socialLinks = {
           instagram: submittedLinks.instagram_url || submittedLinks.instagram || null,
           facebook: submittedLinks.facebook_url || submittedLinks.facebook || null,
           tiktok: submittedLinks.tiktok_url || submittedLinks.tiktok || null,
@@ -91,6 +101,19 @@ export async function loader({params, context, request}) {
           youtube: submittedLinks.youtube_url || submittedLinks.youtube || null,
           twitch: submittedLinks.twitch_url || submittedLinks.twitch || null,
         };
+        
+        // Override with OAuth-verified data from creators table (takes precedence)
+        if (creatorData) {
+          const platforms = ['instagram', 'tiktok', 'x', 'youtube', 'twitch'];
+          platforms.forEach((platform) => {
+            const urlField = `${platform}_url`;
+            if (creatorData[urlField]) {
+              socialLinks[platform] = creatorData[urlField];
+            }
+          });
+        }
+        
+        creatorSocialLinks = socialLinks;
       }
     }
     
