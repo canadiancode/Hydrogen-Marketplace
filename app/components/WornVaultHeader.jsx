@@ -25,6 +25,7 @@ import {useCartDrawer} from '~/components/CartDrawer';
 import {useOptimisticCart, useAnalytics} from '@shopify/hydrogen';
 import {useSearchModal} from '~/components/SearchModal';
 import {startTransition} from 'react';
+import logoImage from '~/assets/wornvault-square-logo.svg';
 
 const shopItems = [
   { name: 'Explore All', href: '/shop' },
@@ -280,9 +281,17 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
     <header ref={headerRef} className="relative z-10 bg-white dark:bg-gray-900">
       <nav aria-label="Global" className="mx-auto flex max-w-7xl items-center justify-between p-6 lg:px-8">
         <div className="flex lg:flex-1">
-          <Link to="/" className="-m-1.5 p-1.5">
+          <Link to="/" className="-m-1.5 p-1.5 flex items-center">
             <span className="sr-only">WornVault</span>
-            <span className="text-2xl font-bold text-gray-900 dark:text-white">WornVault</span>
+            <img
+              src={logoImage}
+              alt="WornVault"
+              className="h-8 w-auto dark:brightness-0 dark:invert"
+              width={200}
+              height={40}
+              loading="eager"
+              decoding="async"
+            />
           </Link>
         </div>
         <div className="flex lg:hidden items-center gap-x-3">
@@ -432,9 +441,17 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
         <div className="fixed inset-0 z-50" />
         <DialogPanel className="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white p-6 sm:max-w-sm sm:ring-1 sm:ring-gray-900/10 dark:bg-gray-900 dark:sm:ring-gray-100/10">
           <div className="flex items-center justify-between">
-            <Link to="/" className="-m-1.5 p-1.5">
+            <Link to="/" className="-m-1.5 p-1.5 flex items-center">
               <span className="sr-only">WornVault</span>
-              <span className="text-2xl font-bold text-gray-900 dark:text-white">WornVault</span>
+              <img
+                src={logoImage}
+                alt="WornVault"
+                className="h-8 w-auto"
+                width={200}
+                height={40}
+                loading="eager"
+                decoding="async"
+              />
             </Link>
             <button
               type="button"

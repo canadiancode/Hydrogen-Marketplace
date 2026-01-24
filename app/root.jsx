@@ -11,7 +11,7 @@ import {
   useRevalidator,
 } from 'react-router';
 import {useEffect} from 'react';
-import favicon from '~/assets/favicon.svg';
+import favicon from '~/assets/wornvault-favicon.svg';
 import {FOOTER_QUERY, HEADER_QUERY} from '~/lib/fragments';
 import resetStyles from '~/styles/reset.css?url';
 import appStyles from '~/styles/app.css?url';

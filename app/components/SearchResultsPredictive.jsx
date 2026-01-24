@@ -6,7 +6,6 @@ import {
   urlWithTrackingParams,
 } from '~/lib/search';
 import {decodeHTMLEntities} from '~/lib/html-entities';
-import {sanitizeHTML} from '~/lib/sanitize';
 import {sanitizeHandle} from '~/lib/validation';
 import {useAside} from './Aside';
 
@@ -229,7 +228,7 @@ function SearchResultsPredictiveProducts({term, products, closeSearch}) {
                   </p>
                   {product.creator && (
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      {sanitizeHTML(decodeHTMLEntities(product.creator.displayName))}
+                      {decodeHTMLEntities(product.creator.displayName)}
                     </p>
                   )}
                   {price && (
@@ -269,12 +268,12 @@ function SearchResultsPredictiveCreators({term, creators, closeSearch}) {
             return null;
           }
           const creatorUrl = `/creators/${sanitizedHandle}`;
-          // Decode HTML entities and sanitize for XSS protection
-          // React will escape text content, but we sanitize as defense in depth
+          // Decode HTML entities for plain text display
+          // React automatically escapes HTML when rendering text content, so no need for sanitizeHTML
           const displayName = creator.displayName 
-            ? sanitizeHTML(decodeHTMLEntities(creator.displayName)) 
+            ? decodeHTMLEntities(creator.displayName)
             : sanitizedHandle;
-          const decodedBio = creator.bio ? sanitizeHTML(decodeHTMLEntities(creator.bio)) : null;
+          const decodedBio = creator.bio ? decodeHTMLEntities(creator.bio) : null;
           const isVerified = creator.verificationStatus === 'verified';
           
           // Safely extract first character for placeholder - only allow alphanumeric

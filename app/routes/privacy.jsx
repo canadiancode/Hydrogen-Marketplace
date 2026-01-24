@@ -440,7 +440,7 @@ export default function PrivacyPage() {
               </li>
             </ul>
             <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-              Buyers know who they\'re buying from — without creators giving up control.
+              Buyers know who they're buying from — without creators giving up control.
             </p>
           </section>
           

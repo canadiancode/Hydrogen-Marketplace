@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { NavLink, Link } from 'react-router'
 import { Dialog, DialogBackdrop, DialogPanel, TransitionChild } from '@headlessui/react'
+import { Image } from '@shopify/hydrogen'
+import logo from '~/assets/wornvault-square-logo.svg'
 import {
   Squares2X2Icon,
   RectangleStackIcon,
@@ -60,7 +62,18 @@ export function CreatorNavigation({isAdmin = false}) {
         <div className="flex flex-1 items-center gap-x-4">
           <Link to="/" className="-m-1.5 p-1.5">
             <span className="sr-only">WornVault</span>
-            <span className="text-xl font-bold text-gray-900 dark:text-white">WornVault</span>
+            <Image
+              data={{
+                url: logo,
+                altText: 'WornVault',
+                width: 32,
+                height: 32,
+              }}
+              alt="WornVault"
+              aspectRatio="1/1"
+              className="h-8 w-auto dark:brightness-0 dark:invert"
+              sizes="32px"
+            />
           </Link>
         </div>
       </div>
@@ -89,8 +102,19 @@ export function CreatorNavigation({isAdmin = false}) {
             <div className="relative flex grow flex-col gap-y-5 overflow-y-auto bg-gray-50 px-6 dark:bg-gray-900 dark:ring dark:ring-white/10 dark:before:pointer-events-none dark:before:absolute dark:before:inset-0 dark:before:bg-black/10">
               <div className="relative flex h-16 shrink-0 items-center">
                 <Link to="/" className="-m-1.5 p-1.5">
-                  <span className="sr-only">WornVault</span>
-                  <span className="text-2xl font-bold text-gray-900 dark:text-white">WornVault</span>
+                <span className="sr-only">WornVault</span>
+                <Image
+                  data={{
+                    url: logo,
+                    altText: 'WornVault',
+                    width: 32,
+                    height: 32,
+                  }}
+                  alt="WornVault"
+                  aspectRatio="1/1"
+                  className="h-8 w-auto dark:brightness-0 dark:invert"
+                  sizes="32px"
+                />
                 </Link>
               </div>
               <nav className="relative flex flex-1 flex-col">
@@ -214,7 +238,18 @@ export function CreatorNavigation({isAdmin = false}) {
           <div className="flex h-16 shrink-0 items-center">
             <Link to="/" className="-m-1.5 p-1.5">
               <span className="sr-only">WornVault</span>
-              <span className="text-2xl font-bold text-gray-900 dark:text-white">WornVault</span>
+              <Image
+                data={{
+                  url: logo,
+                  altText: 'WornVault',
+                  width: 32,
+                  height: 32,
+                }}
+                alt="WornVault"
+                aspectRatio="1/1"
+                className="h-8 w-auto dark:brightness-0 dark:invert"
+                sizes="32px"
+              />
             </Link>
           </div>
           <nav className="flex flex-1 flex-col">
