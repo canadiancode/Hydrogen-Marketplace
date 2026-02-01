@@ -1,6 +1,6 @@
 import {Form, useLoaderData, redirect, Link, useActionData, useNavigation, useSearchParams} from 'react-router';
 import {useState, useEffect} from 'react';
-import {checkAdminAuth, fetchAdminListingById} from '~/lib/supabase';
+import {checkAdminAuth, fetchAdminListingById, fetchAcceptedOfferForListing} from '~/lib/supabase';
 import {rateLimitMiddleware} from '~/lib/rate-limit';
 import {generateCSRFToken, getClientIP} from '~/lib/auth-helpers';
 import {PhotoIcon} from '@heroicons/react/24/outline';
@@ -49,8 +49,19 @@ export async function loader({params, request, context}) {
     throw new Response('Listing not found', {status: 404});
   }
   
+  // Fetch accepted offer for this listing (with error handling)
+  let acceptedOffer = null;
+  try {
+    acceptedOffer = await fetchAcceptedOfferForListing(id, supabaseUrl, serviceRoleKey);
+  } catch (error) {
+    // Log error but don't fail the page load - offer section will simply not display
+    console.error('Error fetching accepted offer:', error);
+    acceptedOffer = null;
+  }
+  
   return {
     listing,
+    acceptedOffer: acceptedOffer || null,
     csrfToken,
   };
 }
@@ -247,7 +258,7 @@ export async function action({request, params, context}) {
 }
 
 export default function AdminListingReview() {
-  const {listing, csrfToken, error} = useLoaderData();
+  const {listing, acceptedOffer, csrfToken, error} = useLoaderData();
   const actionData = useActionData();
   const navigation = useNavigation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -323,6 +334,20 @@ export default function AdminListingReview() {
   
   const formatCurrency = (cents) => {
     return `$${(cents / 100).toFixed(2)}`;
+  };
+
+  const formatDateTime = (dateString) => {
+    if (!dateString) return '';
+    return new Date(dateString).toISOString();
+  };
+
+  const formatTime = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    return date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
   };
   
   const StatusBadge = ({status}) => {
@@ -689,6 +714,112 @@ export default function AdminListingReview() {
                     </div>
                   </div>
                 ))}
+              </div>
+            </section>
+          )}
+          
+          {/* Accepted Offer */}
+          {acceptedOffer && (
+            <section className="bg-white dark:bg-white/5 rounded-lg shadow-sm p-6 border border-gray-200 dark:border-white/10">
+              <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Accepted Offer</h2>
+              <div className="flex items-start gap-6">
+                {/* Thumbnail */}
+                {acceptedOffer.thumbnailUrl && (
+                  <div className="flex-shrink-0">
+                    <div className="h-24 w-24 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-white/10 flex items-center justify-center">
+                      <img
+                        src={acceptedOffer.thumbnailUrl}
+                        alt={acceptedOffer.listing?.title || 'Product'}
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
+                  </div>
+                )}
+                {!acceptedOffer.thumbnailUrl && (
+                  <div className="flex-shrink-0">
+                    <div className="h-24 w-24 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-white/10 flex items-center justify-center">
+                      <PhotoIcon className="h-8 w-8 text-gray-400 dark:text-gray-500" />
+                    </div>
+                  </div>
+                )}
+                
+                {/* Offer Details */}
+                <div className="flex-1 min-w-0">
+                  <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="sm:col-span-2">
+                      <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Listing</dt>
+                      <dd className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
+                        {acceptedOffer.listing?.title || 'Unknown Product'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Customer Email</dt>
+                      <dd className="mt-1 text-sm text-gray-900 dark:text-white">{acceptedOffer.customer_email}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Original Price</dt>
+                      <dd className="mt-1 text-sm text-gray-900 dark:text-white">
+                        ${acceptedOffer.listing?.price || '0.00'} {acceptedOffer.listing?.currency || 'USD'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Offer Amount</dt>
+                      <dd className="mt-1 text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                        ${acceptedOffer.offer_amount || '0.00'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Discount</dt>
+                      <dd className="mt-1 text-sm text-gray-900 dark:text-white">
+                        {acceptedOffer.discount_percentage || '0.0'}%
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Offer Created</dt>
+                      <dd className="mt-1 text-sm text-gray-900 dark:text-white">
+                        <time dateTime={formatDateTime(acceptedOffer.created_at)}>
+                          {formatDate(acceptedOffer.created_at)} at {formatTime(acceptedOffer.created_at)}
+                        </time>
+                      </dd>
+                    </div>
+                    {acceptedOffer.accepted_at && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Accepted At</dt>
+                        <dd className="mt-1 text-sm text-gray-900 dark:text-white">
+                          <time dateTime={formatDateTime(acceptedOffer.accepted_at)}>
+                            {formatDate(acceptedOffer.accepted_at)} at {formatTime(acceptedOffer.accepted_at)}
+                          </time>
+                        </dd>
+                      </div>
+                    )}
+                    {acceptedOffer.expires_at && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Expires</dt>
+                        <dd className="mt-1 text-sm text-gray-900 dark:text-white">
+                          <time dateTime={formatDateTime(acceptedOffer.expires_at)}>
+                            {formatDate(acceptedOffer.expires_at)}
+                          </time>
+                        </dd>
+                      </div>
+                    )}
+                    {acceptedOffer.discount_code && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Discount Code</dt>
+                        <dd className="mt-1 text-sm text-gray-900 dark:text-white font-mono">{acceptedOffer.discount_code}</dd>
+                      </div>
+                    )}
+                    {acceptedOffer.purchased_at && (
+                      <div className="sm:col-span-2">
+                        <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Purchased At</dt>
+                        <dd className="mt-1 text-sm text-gray-900 dark:text-white">
+                          <time dateTime={formatDateTime(acceptedOffer.purchased_at)}>
+                            {formatDate(acceptedOffer.purchased_at)} at {formatTime(acceptedOffer.purchased_at)}
+                          </time>
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+                </div>
               </div>
             </section>
           )}

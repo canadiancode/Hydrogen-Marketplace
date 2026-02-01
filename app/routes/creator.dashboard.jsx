@@ -16,7 +16,7 @@ export async function loader({context, request}) {
     return {
       user,
       stats: {
-        totalListings: 0,
+        pendingOffers: 0,
         activeListings: 0,
         pendingApproval: 0,
         totalEarnings: '0.00',
@@ -34,7 +34,7 @@ export async function loader({context, request}) {
     return {
       user,
       stats: {
-        totalListings: 0,
+        pendingOffers: 0,
         activeListings: 0,
         pendingApproval: 0,
         totalEarnings: '0.00',
@@ -51,7 +51,7 @@ export async function loader({context, request}) {
     return {
       user,
       stats: {
-        totalListings: 0,
+        pendingOffers: 0,
         activeListings: 0,
         pendingApproval: 0,
         totalEarnings: '0.00',

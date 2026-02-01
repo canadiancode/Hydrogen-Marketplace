@@ -72,6 +72,19 @@ export async function loader({params, context, request}) {
     throw new Response('Listing not found', {status: 404});
   }
 
+  // Decode HTML entities in the story/description field
+  if (listing.story && typeof listing.story === 'string') {
+    // Decode common HTML entities
+    listing.story = listing.story
+      .replace(/&#x27;/g, "'")
+      .replace(/&#39;/g, "'")
+      .replace(/&apos;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&');
+  }
+
   // Check if listing can be edited (draft, pending_approval, or live)
   // Live listings can be edited but will go back to pending_approval status
   const editableStatuses = ['draft', 'pending_approval', 'live'];
@@ -1078,7 +1091,7 @@ export default function EditListing() {
             </h2>
             <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-4">
               This listing cannot be edited because it is in "{listing.status}" status. 
-              Only listings with "draft", "pending_approval", or "live" status can be edited. 
+              Only listings with "pending_approval" or "live" status can be edited. 
               Live listings that are edited will return to "pending_approval" status for review.
             </p>
           </div>
@@ -1287,7 +1300,7 @@ export default function EditListing() {
                       name="description"
                       required
                       rows={6}
-                      defaultValue={listing.story}
+                      defaultValue={listing.story || ''}
                       placeholder="Describe your item..."
                       className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
                     />

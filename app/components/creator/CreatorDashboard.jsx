@@ -239,9 +239,9 @@ function ActivityItem({activity, isLast}) {
 /**
  * Creator Dashboard Component
  * Displays overview and stats for the creator
- * @param {{user?: {id?: string, email?: string}, stats?: {totalListings: number, activeListings: number, pendingApproval: number, totalEarnings: string}, recentActivity?: Array}} props - Component props
+ * @param {{user?: {id?: string, email?: string}, stats?: {pendingOffers: number, activeListings: number, pendingApproval: number, totalEarnings: string}, recentActivity?: Array}} props - Component props
  */
-export default function CreatorDashboard({user = null, stats = {totalListings: 0, activeListings: 0, pendingApproval: 0, totalEarnings: '0.00'}, recentActivity = []}) {
+export default function CreatorDashboard({user = null, stats = {pendingOffers: 0, activeListings: 0, pendingApproval: 0, totalEarnings: '0.00'}, recentActivity = []}) {
   return (
     <div className="bg-gray-50 dark:bg-gray-900">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -257,16 +257,16 @@ export default function CreatorDashboard({user = null, stats = {totalListings: 0
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
             <div className="flex items-center">
               <div className="flex-shrink-0">
-                <div className="flex items-center justify-center h-12 w-12 rounded-md bg-indigo-500 text-white">
+                <div className="flex items-center justify-center h-12 w-12 rounded-md bg-yellow-500 text-white">
                   <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
               </div>
               <div className="ml-5 w-0 flex-1">
                 <dl>
-                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Total Listings</dt>
-                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">{stats.totalListings || 0}</dd>
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Pending Approval</dt>
+                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">{stats.pendingApproval || 0}</dd>
                 </dl>
               </div>
             </div>
@@ -290,23 +290,26 @@ export default function CreatorDashboard({user = null, stats = {totalListings: 0
             </div>
           </div>
 
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+          <Link
+            to="/creator/offers"
+            className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 hover:shadow-md transition-shadow cursor-pointer"
+          >
             <div className="flex items-center">
               <div className="flex-shrink-0">
-                <div className="flex items-center justify-center h-12 w-12 rounded-md bg-yellow-500 text-white">
+                <div className="flex items-center justify-center h-12 w-12 rounded-md bg-indigo-500 text-white">
                   <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                   </svg>
                 </div>
               </div>
               <div className="ml-5 w-0 flex-1">
                 <dl>
-                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Pending Approval</dt>
-                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">{stats.pendingApproval || 0}</dd>
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Pending Offers</dt>
+                  <dd className="text-2xl font-semibold text-gray-900 dark:text-white">{stats.pendingOffers || 0}</dd>
                 </dl>
               </div>
             </div>
-          </div>
+          </Link>
 
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
             <div className="flex items-center">

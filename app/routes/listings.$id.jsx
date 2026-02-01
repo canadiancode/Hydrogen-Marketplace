@@ -5,11 +5,10 @@ import {startTransition} from 'react';
 import {fetchPublicListingById} from '~/lib/supabase';
 import {sanitizeHTML} from '~/lib/sanitize';
 import {decodeHTMLEntities} from '~/lib/html-entities';
-import {BuyNowButton} from '~/components/BuyNowButton';
 import {AddToCartButton} from '~/components/AddToCartButton';
-import {useAside} from '~/components/Aside';
 import {useCartDrawer} from '~/components/CartDrawer';
 import {Breadcrumbs} from '~/components/Breadcrumbs';
+import {MakeOfferModal} from '~/components/MakeOfferModal';
 
 export const meta = ({data}) => {
   return [
@@ -137,8 +136,6 @@ export async function loader({context, params}) {
         ? listing.shopify_product_id
         : `gid://shopify/Product/${listing.shopify_product_id.split('/').pop()}`;
       
-      console.log('[Listing Loader] Querying Storefront API for product:', productIdGid);
-      
       // Hydrogen's storefront.query returns data directly, not wrapped in a 'data' property
       const response = await context.storefront.query(PRODUCT_VARIANT_QUERY, {
         variables: {id: productIdGid},
@@ -166,14 +163,11 @@ export async function loader({context, params}) {
       
       if (!errors && node?.__typename === 'Product') {
         const variants = node.variants?.nodes || [];
-        console.log('[Listing Loader] Found variants:', variants.length, variants.map(v => ({id: v.id, available: v.availableForSale})));
         
         if (variants.length > 0) {
           const firstVariant = variants[0];
           shopifyVariant = firstVariant;
           variantIdGid = firstVariant.id;
-          
-          console.log('[Listing Loader] Successfully set variant:', variantIdGid);
           
           // Optionally update the listing with the variant ID for future requests
           // (This is a non-blocking operation, don't await it)
@@ -302,12 +296,6 @@ export async function loader({context, params}) {
     }
   }
   
-  console.log('[Listing Loader] Final variant state:', {
-    variantIdGid,
-    hasShopifyVariant: !!shopifyVariant,
-    shopifyProductId: listing.shopify_product_id,
-  });
-  
   return {
     listing,
     shopifyVariant,
@@ -334,7 +322,7 @@ export default function ListingDetail() {
   const {listing, shopifyVariant, variantIdGid, creatorSocialLinks} = useLoaderData();
   const [copied, setCopied] = useState(false);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
-  const {open} = useAside();
+  const [offerModalOpen, setOfferModalOpen] = useState(false);
   const {setOpen: setCartDrawerOpen} = useCartDrawer();
   
   if (!listing) {
@@ -468,13 +456,13 @@ export default function ListingDetail() {
             <div className="mt-10 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
               {variantIdGid ? (
                 <>
-                  <BuyNowButton
-                    variantId={variantIdGid}
-                    quantity={1}
-                    className="flex w-full items-center justify-center rounded-md border border-transparent bg-indigo-600 dark:bg-indigo-500 px-8 py-3 text-base font-medium text-white hover:bg-indigo-700 dark:hover:bg-indigo-600 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:outline-hidden disabled:opacity-50 disabled:cursor-not-allowed"
+                  <button
+                    type="button"
+                    onClick={() => setOfferModalOpen(true)}
+                    className="flex w-full items-center justify-center rounded-md border border-transparent bg-indigo-50 dark:bg-indigo-900/20 px-8 py-3 text-base font-medium text-indigo-700 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:outline-hidden"
                   >
-                    Buy Now
-                  </BuyNowButton>
+                    Make an offer
+                  </button>
                   <AddToCartButton
                     disabled={shopifyVariant?.availableForSale === false}
                     onClick={() => {
@@ -500,7 +488,7 @@ export default function ListingDetail() {
                         ...(shopifyVariant ? {selectedVariant: shopifyVariant} : {}),
                       },
                     ]}
-                    className="flex w-full items-center justify-center rounded-md border border-transparent bg-indigo-50 dark:bg-indigo-900/20 px-8 py-3 text-base font-medium text-indigo-700 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:outline-hidden disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-400"
+                    className="flex w-full items-center justify-center rounded-md border border-transparent bg-indigo-600 dark:bg-indigo-500 px-8 py-3 text-base font-medium text-white hover:bg-indigo-700 dark:hover:bg-indigo-600 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:outline-hidden disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-400"
                   >
                     {shopifyVariant?.availableForSale === false ? 'Sold Out' : 'Add to Cart'}
                   </AddToCartButton>
@@ -510,15 +498,15 @@ export default function ListingDetail() {
                   <button
                     type="button"
                     disabled
-                    className="flex w-full items-center justify-center rounded-md border border-transparent bg-gray-400 dark:bg-gray-600 px-8 py-3 text-base font-medium text-white cursor-not-allowed opacity-50"
+                    className="flex w-full items-center justify-center rounded-md border border-transparent bg-gray-100 dark:bg-gray-800 px-8 py-3 text-base font-medium text-gray-500 dark:text-gray-400 cursor-not-allowed"
                     title="This item is not available for purchase yet"
                   >
-                    Buy Now (Unavailable)
+                    Make an offer (Unavailable)
                   </button>
                   <button
                     type="button"
                     disabled
-                    className="flex w-full items-center justify-center rounded-md border border-transparent bg-gray-100 dark:bg-gray-800 px-8 py-3 text-base font-medium text-gray-500 dark:text-gray-400 cursor-not-allowed"
+                    className="flex w-full items-center justify-center rounded-md border border-transparent bg-gray-400 dark:bg-gray-600 px-8 py-3 text-base font-medium text-white cursor-not-allowed opacity-50"
                     title="This item is not available for purchase yet"
                   >
                     Add to Cart (Unavailable)
@@ -781,6 +769,17 @@ export default function ListingDetail() {
           </div>
         </div>
       </div>
+      
+      {/* Make Offer Modal */}
+      {variantIdGid && (
+        <MakeOfferModal
+          listing={listing}
+          variantIdGid={variantIdGid}
+          shopifyVariant={shopifyVariant}
+          open={offerModalOpen}
+          onClose={() => setOfferModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

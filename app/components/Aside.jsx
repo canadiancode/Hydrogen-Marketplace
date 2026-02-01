@@ -128,7 +128,7 @@ export function useAside() {
   return aside;
 }
 
-/** @typedef {'search' | 'cart' | 'mobile' | 'closed'} AsideType */
+/** @typedef {'search' | 'cart' | 'mobile' | 'make-offer' | 'closed'} AsideType */
 /**
  * @typedef {{
  *   type: AsideType;

@@ -339,7 +339,7 @@ export default function FeesPayoutsPage() {
             </p>
             <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-6 mb-6">
               <p className="text-3xl font-bold text-indigo-900 dark:text-indigo-100">
-                15% of the final sale price
+                25% of the final sale price
               </p>
             </div>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">
@@ -381,12 +381,18 @@ export default function FeesPayoutsPage() {
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
               Buyer Fees
             </h2>
-            <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
-              Buyers pay no platform fees.
+            <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed mb-4">
+            To keep credit card payments available, discreet, and 100% secure, WornVault uses a specialized payment processor designed for high-risk-protected transactions.
+            Because of this, a <strong>small processing fee of 10% is added at checkout</strong>.
             </p>
-            <p className="text-base text-gray-700 dark:text-gray-300 mt-4 leading-relaxed">
-              Trust, verification, and discretion are built into the experience and reflected in the item price, keeping checkout simple and transparent.
-            </p>
+            <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed font-medium mb-2">
+                WornVault never adds hidden platform fees.
+              </p>
+              <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
+                This processing fee exists solely to provide the safest possible checkout experience.
+              </p>
+            </div>
           </section>
           
           {/* Minimum Item Price Section */}

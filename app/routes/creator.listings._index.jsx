@@ -51,8 +51,90 @@ export async function loader({context, request}) {
     listing.status !== 'completed'
   );
   
-  // Get public URLs for photos
+  // SECURITY: Validate UUID format for all listing IDs to prevent injection attacks
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  
+  // Get public URLs for photos and fetch accepted offers for draft and reserved listings
   const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  
+  // SECURITY: Get draft and reserved listing IDs with explicit ownership verification
+  // Filter by status and validate UUID format, then verify ownership
+  const draftAndReservedListingIds = activeListings
+    .filter(listing => {
+      // Validate UUID format
+      if (!uuidRegex.test(listing.id)) {
+        console.error('SECURITY: Invalid listing ID format:', listing.id);
+        return false;
+      }
+      // SECURITY: Explicitly verify listing belongs to creator
+      if (listing.creator_id !== creatorProfile.id) {
+        console.error('SECURITY: Listing does not belong to creator:', listing.id);
+        return false;
+      }
+      // Only include draft and reserved listings (both can have accepted offers)
+      return listing.status === 'draft' || listing.status === 'reserved';
+    })
+    .map(listing => listing.id);
+  
+  // SECURITY: Fetch accepted offers for draft and reserved listings with validation
+  let acceptedOffersMap = {};
+  if (draftAndReservedListingIds.length > 0) {
+    const now = new Date();
+    const {data: acceptedOffers, error: offersError} = await supabase
+      .from('offers')
+      .select('listing_id, offer_amount_cents, discount_expires_at')
+      .in('listing_id', draftAndReservedListingIds)
+      .eq('status', 'accepted')
+      .order('created_at', {ascending: false});
+    
+    if (offersError) {
+      console.error('Error fetching accepted offers:', offersError);
+    } else if (acceptedOffers) {
+      // SECURITY: Create a map of listing_id -> accepted offer
+      // If multiple accepted offers exist (shouldn't happen in normal flow),
+      // we take the most recent one based on created_at ordering
+      // This ensures consistency in display
+      acceptedOffers.forEach(offer => {
+        // SECURITY: Validate offer data before adding to map
+        if (!offer.listing_id || !uuidRegex.test(offer.listing_id)) {
+          console.error('SECURITY: Invalid offer listing_id:', offer.listing_id);
+          return;
+        }
+        
+        // SECURITY: Validate offer amount is a positive integer
+        if (!offer.offer_amount_cents || 
+            !Number.isInteger(offer.offer_amount_cents) || 
+            offer.offer_amount_cents <= 0) {
+          console.error('SECURITY: Invalid offer amount:', offer.offer_amount_cents);
+          return;
+        }
+        
+        // SECURITY: Only add offer if listing_id is in our verified list
+        if (!draftAndReservedListingIds.includes(offer.listing_id)) {
+          console.error('SECURITY: Offer listing_id not in verified list:', offer.listing_id);
+          return;
+        }
+        
+        // SECURITY: Filter out expired offers
+        if (offer.discount_expires_at) {
+          const expirationDate = new Date(offer.discount_expires_at);
+          if (expirationDate <= now) {
+            // Offer has expired, skip it
+            return;
+          }
+        }
+        
+        // Only store the first (most recent) offer for each listing
+        if (!acceptedOffersMap[offer.listing_id]) {
+          acceptedOffersMap[offer.listing_id] = {
+            offerAmountCents: offer.offer_amount_cents,
+            discountExpiresAt: offer.discount_expires_at,
+          };
+        }
+      });
+    }
+  }
+  
   const listingsWithPhotoUrls = await Promise.all(
     activeListings.map(async (listing) => {
       if (listing.photos && listing.photos.length > 0) {
@@ -64,20 +146,25 @@ export async function loader({context, request}) {
         return {
           ...listing,
           thumbnailUrl: data?.publicUrl || null,
+          acceptedOffer: acceptedOffersMap[listing.id] || null,
         };
       }
-      return listing;
+      return {
+        ...listing,
+        acceptedOffer: acceptedOffersMap[listing.id] || null,
+      };
     })
   );
   
   return {
     user,
+    creatorProfile,
     listings: listingsWithPhotoUrls,
   };
 }
 
 export default function CreatorListings() {
-  const {listings} = useLoaderData();
+  const {listings, creatorProfile} = useLoaderData();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [showSuccessBanner, setShowSuccessBanner] = useState(false);
@@ -188,7 +275,7 @@ export default function CreatorListings() {
         ) : (
           <ul role="list" className="divide-y divide-gray-100 dark:divide-white/5">
             {listings.map((listing) => (
-              <ListingItem key={listing.id} listing={listing} />
+              <ListingItem key={listing.id} listing={listing} creatorId={creatorProfile?.id} />
             ))}
           </ul>
         )}
@@ -267,8 +354,10 @@ function StatusBadge({status}) {
 
 /**
  * Listing item component - matches template style
+ * 
+ * SECURITY: Validates ownership before displaying sensitive offer information
  */
-function ListingItem({listing}) {
+function ListingItem({listing, creatorId}) {
   const formatDate = (dateString) => {
     if (!dateString) return '';
     const date = new Date(dateString);
@@ -283,6 +372,34 @@ function ListingItem({listing}) {
     if (!dateString) return '';
     return new Date(dateString).toISOString();
   };
+
+  // SECURITY: Sanitize and validate offer amount before display
+  const getSafeOfferAmount = (offerAmountCents) => {
+    if (!offerAmountCents || !Number.isInteger(offerAmountCents) || offerAmountCents <= 0) {
+      return '0.00';
+    }
+    // Ensure safe conversion to dollars with 2 decimal places
+    const amount = (offerAmountCents / 100).toFixed(2);
+    // Validate result is a valid number string
+    if (isNaN(parseFloat(amount)) || !isFinite(parseFloat(amount))) {
+      return '0.00';
+    }
+    return amount;
+  };
+
+  // SECURITY: Check if offer is still valid (not expired)
+  const isOfferValid = (discountExpiresAt) => {
+    if (!discountExpiresAt) return true; // No expiration means always valid
+    const expirationDate = new Date(discountExpiresAt);
+    const now = new Date();
+    return expirationDate > now;
+  };
+
+  // SECURITY: Verify ownership before displaying offer information
+  const canDisplayOffer = listing.acceptedOffer && 
+                          (listing.status === 'draft' || listing.status === 'reserved') &&
+                          listing.creator_id === creatorId &&
+                          isOfferValid(listing.acceptedOffer.discountExpiresAt);
 
   return (
     <li className="flex items-center justify-between gap-x-6 py-5">
@@ -326,9 +443,32 @@ function ListingItem({listing}) {
           )}
         </div>
         <div className="mt-1">
-          <p className="text-sm font-semibold text-gray-900 dark:text-white">
-            ${listing.price}
-          </p>
+          <div>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">
+              ${listing.price}
+            </p>
+          </div>
+          {/* SECURITY: Only display offer information if ownership is verified and offer is valid */}
+          {canDisplayOffer && (
+            <div className="mt-2 flex items-center gap-x-4">
+              <div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Accepted Offer</p>
+                <p className="text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                  ${getSafeOfferAmount(listing.acceptedOffer.offerAmountCents)}
+                </p>
+              </div>
+              {listing.acceptedOffer.discountExpiresAt && (
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Expires</p>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                    <time dateTime={formatDateTime(listing.acceptedOffer.discountExpiresAt)}>
+                      {formatDate(listing.acceptedOffer.discountExpiresAt)}
+                    </time>
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
       <div className="flex flex-none items-center gap-x-4">
@@ -340,51 +480,44 @@ function ListingItem({listing}) {
             View listing<span className="sr-only">, {listing.title}</span>
           </Link>
         )}
-        <Menu as="div" className="relative flex-none">
-          <MenuButton className="relative block text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">
-            <span className="absolute -inset-2.5" />
-            <span className="sr-only">Open options</span>
-            <EllipsisVerticalIcon aria-hidden="true" className="size-5" />
-          </MenuButton>
-          <MenuItems
-            transition
-            className="absolute right-0 z-10 mt-2 w-32 origin-top-right rounded-md bg-white py-2 shadow-lg outline-1 outline-gray-900/5 transition data-closed:scale-95 data-closed:transform data-closed:opacity-0 data-enter:duration-100 data-enter:ease-out data-leave:duration-75 data-leave:ease-in dark:bg-gray-800 dark:shadow-none dark:-outline-offset-1 dark:outline-white/10"
-          >
-            <MenuItem>
-              <Link
-                to={`/creator/listings/${listing.id}/edit`}
-                className="block px-3 py-1 text-sm/6 text-gray-900 data-focus:bg-gray-50 data-focus:outline-hidden dark:text-white dark:data-focus:bg-white/5"
-              >
-                Edit<span className="sr-only">, {listing.title}</span>
-              </Link>
-            </MenuItem>
-            {listing.status === 'draft' && (
+        {/* Hide menu (3 dots) for draft and reserved listings - these cannot be edited or deleted */}
+        {listing.status !== 'draft' && listing.status !== 'reserved' && (
+          <Menu as="div" className="relative flex-none">
+            <MenuButton className="relative block text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">
+              <span className="absolute -inset-2.5" />
+              <span className="sr-only">Open options</span>
+              <EllipsisVerticalIcon aria-hidden="true" className="size-5" />
+            </MenuButton>
+            <MenuItems
+              transition
+              className="absolute right-0 z-10 mt-2 w-32 origin-top-right rounded-md bg-white py-2 shadow-lg outline-1 outline-gray-900/5 transition data-closed:scale-95 data-closed:transform data-closed:opacity-0 data-enter:duration-100 data-enter:ease-out data-leave:duration-75 data-leave:ease-in dark:bg-gray-800 dark:shadow-none dark:-outline-offset-1 dark:outline-white/10"
+            >
               <MenuItem>
                 <Link
-                  to={`/creator/listings/${listing.id}/submit`}
+                  to={`/creator/listings/${listing.id}/edit`}
                   className="block px-3 py-1 text-sm/6 text-gray-900 data-focus:bg-gray-50 data-focus:outline-hidden dark:text-white dark:data-focus:bg-white/5"
                 >
-                  Submit<span className="sr-only">, {listing.title}</span>
+                  Edit<span className="sr-only">, {listing.title}</span>
                 </Link>
               </MenuItem>
-            )}
-            <MenuItem>
-              <button
-                type="button"
-                className="block w-full text-left px-3 py-1 text-sm/6 text-red-600 data-focus:bg-red-50 data-focus:outline-hidden dark:text-red-400 dark:data-focus:bg-red-900/20"
-                onClick={(e) => {
-                  e.preventDefault();
-                  // TODO: Implement delete functionality
-                  if (confirm(`Are you sure you want to delete "${listing.title}"?`)) {
-                    // Handle delete
-                  }
-                }}
-              >
-                Delete<span className="sr-only">, {listing.title}</span>
-              </button>
-            </MenuItem>
-          </MenuItems>
-        </Menu>
+              <MenuItem>
+                <button
+                  type="button"
+                  className="block w-full text-left px-3 py-1 text-sm/6 text-red-600 data-focus:bg-red-50 data-focus:outline-hidden dark:text-red-400 dark:data-focus:bg-red-900/20"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    // TODO: Implement delete functionality
+                    if (confirm(`Are you sure you want to delete "${listing.title}"?`)) {
+                      // Handle delete
+                    }
+                  }}
+                >
+                  Delete<span className="sr-only">, {listing.title}</span>
+                </button>
+              </MenuItem>
+            </MenuItems>
+          </Menu>
+        )}
       </div>
     </li>
   );

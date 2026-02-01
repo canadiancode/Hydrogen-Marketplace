@@ -71,7 +71,7 @@ export function PageLayout({
               </Await>
             </Suspense>
           )}
-          <main className="pb-32 sm:pb-12">{children}</main>
+          <main className="pb-32 sm:pb-12 bg-white dark:bg-gray-900">{children}</main>
           {!hideHeaderFooter && (
             <Footer
               footer={footer}

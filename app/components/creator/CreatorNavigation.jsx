@@ -15,6 +15,7 @@ import {
   TruckIcon,
   LinkIcon,
   Bars3Icon,
+  TagIcon,
 } from '@heroicons/react/24/outline'
 
 const navigation = [
@@ -22,6 +23,7 @@ const navigation = [
   { name: 'Social Links', href: '/creator/social-links', icon: LinkIcon },
   { name: 'Create Listing', href: '/creator/listings/new', icon: PlusCircleIcon },
   { name: 'Manage Listings', href: '/creator/listings', icon: RectangleStackIcon },
+  { name: 'Offers', href: '/creator/offers', icon: TagIcon },
   { name: 'Sales', href: '/creator/sales', icon: ShoppingCartIcon },
   { name: 'Logistics', href: '/creator/logistics', icon: TruckIcon },
   { name: 'Payouts', href: '/creator/payouts', icon: BanknotesIcon },
@@ -234,7 +236,7 @@ export function CreatorNavigation({isAdmin = false}) {
 
       {/* Desktop Sidebar */}
       <div className="hidden xl:fixed xl:inset-y-0 xl:z-50 xl:flex xl:w-72 xl:flex-col dark:bg-gray-900">
-        <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-gray-50 px-6 ring-1 ring-gray-200 dark:bg-black/10 dark:ring-white/5">
+        <div className="flex grow flex-col gap-y-5 overflow-y-auto overflow-x-hidden bg-gray-50 px-6 ring-1 ring-gray-200 dark:bg-black/10 dark:ring-white/5">
           <div className="flex h-16 shrink-0 items-center">
             <Link to="/" className="-m-1.5 p-1.5">
               <span className="sr-only">WornVault</span>
@@ -252,8 +254,8 @@ export function CreatorNavigation({isAdmin = false}) {
               />
             </Link>
           </div>
-          <nav className="flex flex-1 flex-col">
-            <ul role="list" className="flex flex-1 flex-col gap-y-7 pb-4">
+          <nav className="flex min-w-0 flex-1 flex-col">
+            <ul role="list" className="flex min-w-0 flex-1 flex-col gap-y-7 pb-4">
               <li>
                 <ul role="list" className="-mx-2 space-y-1">
                   {navigation.map((item) => (

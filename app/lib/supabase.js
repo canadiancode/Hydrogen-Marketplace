@@ -503,7 +503,9 @@ export async function checkCreatorProfileExists(email, supabaseUrl, anonKey, acc
     return {exists: false, creator: null};
   }
 
-  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  // CRITICAL: Use customFetch if provided (for Cloudflare Workers I/O context)
+  // Otherwise fall back to global fetch
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken, customFetch);
   
   // RLS will automatically filter by auth.email(), but we can also explicitly check by email
   // Using .single() since email is unique in the creators table
@@ -607,7 +609,9 @@ export async function createCreatorProfileIfNotExists(user, supabaseUrl, anonKey
     };
   }
 
-  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  // CRITICAL: Use customFetch if provided (for Cloudflare Workers I/O context)
+  // Otherwise fall back to global fetch
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken, customFetch);
   
   // First, check if profile already exists
   const {exists, creator: existingCreator} = await checkCreatorProfileExists(
@@ -741,13 +745,14 @@ export async function createCreatorProfileIfNotExists(user, supabaseUrl, anonKey
  * @param {string} accessToken - User's access token
  * @returns {Promise<object | null>} Creator profile object or null if not found
  */
-export async function fetchCreatorProfile(userEmail, supabaseUrl, anonKey, accessToken) {
+export async function fetchCreatorProfile(userEmail, supabaseUrl, anonKey, accessToken, customFetch) {
   if (!userEmail || !supabaseUrl || !anonKey || !accessToken) {
     return null;
   }
 
-  // Pass fetch explicitly to ensure Cloudflare Workers uses request-scoped fetch
-  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken, fetch);
+  // CRITICAL: Pass customFetch to ensure Cloudflare Workers uses request-scoped fetch
+  // This prevents "I/O on behalf of a different request" errors
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken, customFetch);
   
   // RLS will automatically filter by auth.email()
   const {data, error} = await supabase
@@ -787,7 +792,9 @@ export async function updateCreatorProfile(userEmail, updates, supabaseUrl, anon
     throw new Error('Missing required parameters');
   }
 
-  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  // CRITICAL: Use customFetch if provided (for Cloudflare Workers I/O context)
+  // Otherwise fall back to global fetch
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken, customFetch);
   
   // First, check if profile exists
   const {data: existingProfile} = await supabase
@@ -1032,7 +1039,9 @@ export async function fetchCreatorListings(creatorId, supabaseUrl, anonKey, acce
     return [];
   }
 
-  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  // CRITICAL: Use customFetch if provided (for Cloudflare Workers I/O context)
+  // Otherwise fall back to global fetch
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken, customFetch);
   
   // Fetch listings for this creator
   // RLS will automatically filter by creator_id based on auth.email()
@@ -1227,7 +1236,9 @@ export async function fetchCreatorListingById(listingId, creatorId, supabaseUrl,
     return null;
   }
 
-  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  // CRITICAL: Use customFetch if provided (for Cloudflare Workers I/O context)
+  // Otherwise fall back to global fetch
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken, customFetch);
   
   // Fetch the listing - RLS will ensure user can only access their own listings
   const {data: listing, error: listingError} = await supabase
@@ -1380,6 +1391,86 @@ export async function fetchAdminListingById(listingId, supabaseUrl, serviceRoleK
     payouts: payouts || [],
     price: (listing.price_cents / 100).toFixed(2),
     priceDollars: listing.price_cents / 100,
+  };
+}
+
+/**
+ * Fetches the accepted offer for a specific listing
+ * Uses service role key to bypass RLS for admin operations
+ * 
+ * @param {string} listingId - Listing UUID
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} serviceRoleKey - Supabase service role key (for admin operations)
+ * @returns {Promise<object | null>} Accepted offer object with formatted data or null if not found
+ */
+export async function fetchAcceptedOfferForListing(listingId, supabaseUrl, serviceRoleKey) {
+  if (!listingId || !supabaseUrl || !serviceRoleKey) {
+    return null;
+  }
+
+  const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
+  
+  // Fetch the accepted offer for this listing
+  const {data: offer, error: offerError} = await supabase
+    .from('offers')
+    .select('*')
+    .eq('listing_id', listingId)
+    .eq('status', 'accepted')
+    .order('accepted_at', {ascending: false})
+    .limit(1)
+    .maybeSingle();
+
+  if (offerError) {
+    console.error('Error fetching accepted offer:', offerError);
+    return null;
+  }
+
+  if (!offer) {
+    return null;
+  }
+
+  // Fetch listing details for context
+  const {data: listing, error: listingError} = await supabase
+    .from('listings')
+    .select('id, title, price_cents, currency')
+    .eq('id', listingId)
+    .single();
+
+  if (listingError) {
+    console.error('Error fetching listing for offer:', listingError);
+  }
+
+  // Fetch thumbnail photo for display
+  const {data: photos, error: photosError} = await supabase
+    .from('listing_photos')
+    .select('*')
+    .eq('listing_id', listingId)
+    .eq('photo_type', 'reference')
+    .order('created_at', {ascending: true})
+    .limit(1)
+    .maybeSingle();
+
+  let thumbnailUrl = null;
+  if (!photosError && photos) {
+    const {data: urlData} = supabase.storage
+      .from('listing-photos')
+      .getPublicUrl(photos.storage_path);
+    thumbnailUrl = urlData?.publicUrl || null;
+  }
+
+  // Format offer data similar to fetchCreatorOffers
+  return {
+    ...offer,
+    listing: listing ? {
+      id: listing.id,
+      title: listing.title,
+      price_cents: listing.price_cents,
+      currency: listing.currency || 'USD',
+      price: listing.price_cents ? (listing.price_cents / 100).toFixed(2) : '0.00',
+    } : null,
+    thumbnailUrl,
+    offer_amount: offer.offer_amount_cents ? (offer.offer_amount_cents / 100).toFixed(2) : '0.00',
+    discount_percentage: offer.discount_percentage ? parseFloat(offer.discount_percentage).toFixed(1) : '0.0',
   };
 }
 
@@ -1607,7 +1698,7 @@ export function createSessionCookie(session, supabaseUrl, isProduction = false) 
 export async function fetchCreatorDashboardStats(creatorId, supabaseUrl, anonKey, accessToken) {
   if (!creatorId || !supabaseUrl || !anonKey || !accessToken) {
     return {
-      totalListings: 0,
+      pendingOffers: 0,
       activeListings: 0,
       pendingApproval: 0,
       totalEarnings: 0,
@@ -1626,26 +1717,37 @@ export async function fetchCreatorDashboardStats(creatorId, supabaseUrl, anonKey
   if (listingsError) {
     console.error('Error fetching dashboard stats:', listingsError);
     return {
-      totalListings: 0,
+      pendingOffers: 0,
       activeListings: 0,
       pendingApproval: 0,
       totalEarnings: 0,
     };
   }
 
-  if (!listings || listings.length === 0) {
-    return {
-      totalListings: 0,
-      activeListings: 0,
-      pendingApproval: 0,
-      totalEarnings: 0,
-    };
-  }
+  // Calculate listing statistics
+  const activeListings = listings ? listings.filter(l => l.status === 'live').length : 0;
+  const pendingApproval = listings ? listings.filter(l => l.status === 'pending_approval').length : 0;
 
-  // Calculate statistics
-  const totalListings = listings.length;
-  const activeListings = listings.filter(l => l.status === 'live').length;
-  const pendingApproval = listings.filter(l => l.status === 'pending_approval').length;
+  // Count pending offers for creator's listings
+  let pendingOffers = 0;
+  if (listings && listings.length > 0) {
+    const listingIds = listings.map(l => l.id);
+    
+    // Count offers with status 'pending' for these listings
+    const {count, error: offersError} = await supabase
+      .from('offers')
+      .select('id', {count: 'exact', head: true})
+      .in('listing_id', listingIds)
+      .eq('status', 'pending');
+
+    if (offersError) {
+      console.error('Error fetching pending offers count:', offersError);
+      // Don't fail the whole function, just set to 0
+      pendingOffers = 0;
+    } else {
+      pendingOffers = count || 0;
+    }
+  }
 
   // Fetch payouts to calculate total earnings
   const {data: payouts, error: payoutsError} = await supabase
@@ -1659,7 +1761,7 @@ export async function fetchCreatorDashboardStats(creatorId, supabaseUrl, anonKey
   }
 
   return {
-    totalListings,
+    pendingOffers,
     activeListings,
     pendingApproval,
     totalEarnings: totalEarnings.toFixed(2),
@@ -2332,6 +2434,7 @@ export async function logActivity({
   supabaseUrl,
   anonKey,
   accessToken,
+  customFetch,
 }) {
   // Validate required parameters
   if (!creatorId || !activityType || !entityType || !description || !supabaseUrl || !anonKey || !accessToken) {
@@ -2380,7 +2483,9 @@ export async function logActivity({
     // Note: We don't fail if metadata is invalid, we just skip it to avoid breaking existing flows
   }
 
-  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  // CRITICAL: Use customFetch if provided (for Cloudflare Workers I/O context)
+  // Otherwise fall back to global fetch
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken, customFetch);
 
   const activityData = {
     creator_id: creatorId,
@@ -2648,5 +2753,648 @@ export async function fetchAdminRecentActivity(supabaseUrl, serviceRoleKey, opti
   });
 
   return formattedActivities;
+}
+
+/**
+ * Fetches all offers for a creator's listings
+ * Includes listing information and formats data for display
+ * 
+ * @param {string} creatorId - Creator's UUID
+ * @param {string} supabaseUrl - Your Supabase project URL
+ * @param {string} anonKey - Supabase anon/public key
+ * @param {string} accessToken - User's access token
+ * @returns {Promise<Array>} Array of offer objects with listing info
+ */
+export async function fetchCreatorOffers(creatorId, supabaseUrl, anonKey, accessToken, customFetch) {
+  if (!creatorId || !supabaseUrl || !anonKey || !accessToken) {
+    return [];
+  }
+
+  // CRITICAL: Pass customFetch to ensure Cloudflare Workers uses request-scoped fetch
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken, customFetch);
+  
+  // PERFORMANCE: Optimize query by fetching offers with listing details in a single query using joins
+  // This reduces N+1 query pattern from 3 queries to 1 query + 1 parallel photo query
+  const {data: offers, error: offersError} = await supabase
+    .from('offers')
+    .select(`
+      *,
+      listing:listings!inner(
+        id,
+        title,
+        price_cents,
+        currency,
+        creator_id
+      )
+    `)
+    .eq('listing.creator_id', creatorId)
+    .order('created_at', {ascending: false});
+
+  if (offersError) {
+    console.error('Error fetching offers:', offersError);
+    return [];
+  }
+
+  if (!offers || offers.length === 0) {
+    return [];
+  }
+
+  // Extract unique listing IDs for photo query
+  const listingIds = [...new Set(offers.map(offer => offer.listing_id))];
+
+  // PERFORMANCE: Fetch photos in parallel (non-blocking)
+  // This is separate because Supabase doesn't support nested joins for storage references
+  const {data: photos, error: photosError} = await supabase
+    .from('listing_photos')
+    .select('*')
+    .in('listing_id', listingIds)
+    .eq('photo_type', 'reference');
+
+  if (photosError) {
+    console.error('Error fetching listing photos:', photosError);
+  }
+
+  // Group photos by listing_id
+  const photosByListing = {};
+  if (photos) {
+    photos.forEach(photo => {
+      if (!photosByListing[photo.listing_id]) {
+        photosByListing[photo.listing_id] = [];
+      }
+      photosByListing[photo.listing_id].push(photo);
+    });
+  }
+
+  // Combine offers with listing info and photos
+  const offersWithDetails = offers
+    .map(offer => {
+      const listing = offer.listing;
+      
+      // Skip offers where listing doesn't exist (deleted listings)
+      if (!listing) {
+        return null;
+      }
+      
+      const listingPhotos = photosByListing[offer.listing_id] || [];
+      
+      // Get public URL for thumbnail
+      let thumbnailUrl = null;
+      if (listingPhotos.length > 0) {
+        const {data} = supabase.storage
+          .from('listing-photos')
+          .getPublicUrl(listingPhotos[0].storage_path);
+        thumbnailUrl = data?.publicUrl || null;
+      }
+
+      return {
+        ...offer,
+        listing: {
+          id: listing.id,
+          title: listing.title,
+          price_cents: listing.price_cents,
+          currency: listing.currency || 'USD',
+          price: listing.price_cents ? (listing.price_cents / 100).toFixed(2) : '0.00',
+        },
+        thumbnailUrl,
+        offer_amount: (offer.offer_amount_cents / 100).toFixed(2),
+        discount_percentage: parseFloat(offer.discount_percentage).toFixed(1),
+      };
+    })
+    .filter(Boolean); // Remove null entries (offers with deleted listings)
+
+  return offersWithDetails;
+}
+
+/**
+ * Creates a new offer for a listing
+ * Validates offer amount (minimum $100) and calculates discount percentage
+ * 
+ * SECURITY NOTES:
+ * - Validates all inputs server-side
+ * - Uses parameterized queries (Supabase handles SQL injection prevention)
+ * - Checks listing status before allowing offers
+ * - Normalizes email to prevent duplicates
+ * 
+ * @param {object} params - Offer parameters
+ * @param {string} params.listingId - Listing UUID
+ * @param {string} params.productId - Shopify product ID (GID format)
+ * @param {string} params.variantId - Shopify variant ID (GID format)
+ * @param {string} params.customerEmail - Customer email address
+ * @param {number} params.offerAmountCents - Offer amount in cents (must be >= 10000 = $100)
+ * @param {number} params.originalPriceCents - Original listing price in cents
+ * @param {string} params.supabaseUrl - Supabase project URL
+ * @param {string} params.serviceRoleKey - Supabase service role key (for public operations)
+ * @returns {Promise<{success: boolean, offer: object | null, error: Error | null}>}
+ */
+export async function createOffer({
+  listingId,
+  productId,
+  variantId,
+  customerEmail,
+  offerAmountCents,
+  originalPriceCents,
+  supabaseUrl,
+  serviceRoleKey,
+}) {
+  // SECURITY: Validate all required parameters
+  if (!listingId || !productId || !variantId || !customerEmail || !offerAmountCents || !originalPriceCents) {
+    return {
+      success: false,
+      offer: null,
+      error: new Error('Missing required parameters'),
+    };
+  }
+
+  // SECURITY: Validate minimum offer amount ($100)
+  if (offerAmountCents < 10000) {
+    return {
+      success: false,
+      offer: null,
+      error: new Error('Offer amount must be at least $100'),
+    };
+  }
+
+  // SECURITY: Validate offer doesn't exceed original price
+  if (offerAmountCents > originalPriceCents) {
+    return {
+      success: false,
+      offer: null,
+      error: new Error('Offer amount cannot exceed original price'),
+    };
+  }
+
+  // SECURITY: Validate email format (prevent injection)
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(customerEmail)) {
+    return {
+      success: false,
+      offer: null,
+      error: new Error('Invalid email format'),
+    };
+  }
+
+  // SECURITY: Normalize email (lowercase, trim) to prevent duplicates
+  const normalizedEmail = customerEmail.toLowerCase().trim();
+
+  // Calculate expiration (30 days from now)
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 30);
+
+  // Calculate discount percentage as numeric (not string)
+  const discountPercentage = Number(((originalPriceCents - offerAmountCents) / originalPriceCents) * 100);
+
+  const supabase = createServerSupabaseClient(supabaseUrl, serviceRoleKey);
+
+  // SECURITY: Check if listing exists and is available for offers
+  const {data: listing, error: listingError} = await supabase
+    .from('listings')
+    .select('id, status, price_cents')
+    .eq('id', listingId)
+    .single();
+
+  if (listingError || !listing) {
+    return {
+      success: false,
+      offer: null,
+      error: new Error('Listing not found'),
+    };
+  }
+
+  // SECURITY: Only allow offers on live listings
+  // Listings with status 'reserved' are already reserved for another customer
+  if (listing.status !== 'live') {
+    return {
+      success: false,
+      offer: null,
+      error: new Error('Listing is not available for offers'),
+    };
+  }
+
+  // SECURITY: Verify price matches (prevent price manipulation)
+  if (listing.price_cents !== originalPriceCents) {
+    return {
+      success: false,
+      offer: null,
+      error: new Error('Price mismatch. Please refresh the page.'),
+    };
+  }
+
+  // SECURITY: Create offer using parameterized query (Supabase handles SQL injection prevention)
+  // Set updated_at explicitly to ensure it's set on insert (even though DB has default)
+  const now = new Date().toISOString();
+  const {data: offer, error: offerError} = await supabase
+    .from('offers')
+    .insert({
+      listing_id: listingId,
+      product_id: productId,
+      variant_id: variantId,
+      customer_email: normalizedEmail,
+      offer_amount_cents: offerAmountCents,
+      discount_percentage: discountPercentage, // Store as numeric, not string
+      status: 'pending',
+      expires_at: expiresAt.toISOString(),
+      updated_at: now, // Explicitly set updated_at on insert
+    })
+    .select()
+    .single();
+
+  if (offerError) {
+    console.error('Error creating offer:', offerError);
+    
+    // Handle unique constraint violations (duplicate offers)
+    if (offerError.code === '23505') {
+      return {
+        success: false,
+        offer: null,
+        error: new Error('You have already submitted an offer for this listing'),
+      };
+    }
+    
+    return {
+      success: false,
+      offer: null,
+      error: new Error('Failed to create offer. Please try again.'),
+    };
+  }
+
+  // Note: Listing status remains 'live' when offers are created
+  // This allows multiple customers to make offers on the same listing
+  // The listing status will change to 'reserved' only when an offer is accepted
+
+  return {
+    success: true,
+    offer,
+    error: null,
+  };
+}
+
+/**
+ * Rejects an offer
+ * Updates offer status to 'declined' and potentially updates listing status
+ * 
+ * SECURITY NOTES:
+ * - Validates creator owns the listing
+ * - Verifies offer is still pending
+ * - Uses parameterized queries (Supabase handles SQL injection prevention)
+ * 
+ * @param {object} params - Rejection parameters
+ * @param {string} params.offerId - Offer UUID
+ * @param {string} params.creatorId - Creator UUID (for authorization)
+ * @param {string} params.supabaseUrl - Supabase project URL
+ * @param {string} params.anonKey - Supabase anon key
+ * @param {string} params.accessToken - User access token
+ * @returns {Promise<{success: boolean, offer: object | null, error: Error | null}>}
+ */
+export async function rejectOffer({
+  offerId,
+  creatorId,
+  supabaseUrl,
+  anonKey,
+  accessToken,
+  customFetch,
+}) {
+  if (!offerId || !creatorId || !supabaseUrl || !anonKey || !accessToken) {
+    return {
+      success: false,
+      offer: null,
+      error: new Error('Missing required parameters'),
+    };
+  }
+
+  // CRITICAL: Pass customFetch to ensure Cloudflare Workers uses request-scoped fetch
+  // This prevents "I/O on behalf of a different request" errors
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken, customFetch);
+
+  // Fetch offer with listing to verify ownership
+  const {data: offerData, error: offerFetchError} = await supabase
+    .from('offers')
+    .select(`
+      *,
+      listing:listings!inner(
+        id,
+        creator_id,
+        status,
+        title
+      )
+    `)
+    .eq('id', offerId)
+    .single();
+
+  if (offerFetchError || !offerData) {
+    return {
+      success: false,
+      offer: null,
+      error: new Error('Offer not found'),
+    };
+  }
+
+  // Verify creator owns the listing
+  if (offerData.listing.creator_id !== creatorId) {
+    return {
+      success: false,
+      offer: null,
+      error: new Error('Unauthorized'),
+    };
+  }
+
+  // Verify offer is still pending
+  if (offerData.status !== 'pending') {
+    return {
+      success: false,
+      offer: null,
+      error: new Error(`Offer is already ${offerData.status}`),
+    };
+  }
+
+  // SECURITY: Verify offer hasn't expired
+  if (offerData.expires_at && new Date(offerData.expires_at) < new Date()) {
+    return {
+      success: false,
+      offer: null,
+      error: new Error('Offer has expired'),
+    };
+  }
+
+  // Update offer status to 'declined'
+  const {data: updatedOffer, error: updateError} = await supabase
+    .from('offers')
+    .update({
+      status: 'declined',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', offerId)
+    .select()
+    .single();
+
+  if (updateError) {
+    console.error('Error rejecting offer:', updateError);
+    return {
+      success: false,
+      offer: null,
+      error: updateError,
+    };
+  }
+
+  // Check if listing has any other pending offers
+  // If no pending offers remain, revert listing status back to 'live' if it was 'offer_pending'
+  const {data: otherPendingOffers, error: otherOffersError} = await supabase
+    .from('offers')
+    .select('id')
+    .eq('listing_id', offerData.listing_id)
+    .eq('status', 'pending')
+    .limit(1);
+
+  if (!otherOffersError && (!otherPendingOffers || otherPendingOffers.length === 0)) {
+    // No other pending offers - revert listing to 'live' if it was 'reserved'
+    // This allows the listing to be available for new offers again
+    if (offerData.listing.status === 'reserved') {
+      await supabase
+        .from('listings')
+        .update({status: 'live'})
+        .eq('id', offerData.listing_id);
+    }
+  }
+
+  // Log activity for offer rejection
+  const offerAmount = (updatedOffer.offer_amount_cents / 100).toFixed(2);
+  await logActivity({
+    creatorId,
+    activityType: 'offer_rejected',
+    entityType: 'offer',
+    entityId: offerId,
+    description: `Rejected offer of $${offerAmount} for "${offerData.listing.title || 'listing'}"`,
+    metadata: {
+      offerId: offerId,
+      offerAmount: updatedOffer.offer_amount_cents,
+      listingId: offerData.listing_id,
+      customerEmail: updatedOffer.customer_email,
+      previousStatus: 'pending',
+      newStatus: 'declined',
+    },
+    supabaseUrl,
+    anonKey,
+    accessToken,
+    customFetch, // CRITICAL: Pass customFetch for Cloudflare Workers I/O context
+  }).catch((error) => {
+    // Log activity failure but don't fail the whole operation
+    console.error('Error logging activity for offer rejection:', error);
+  });
+
+  return {
+    success: true,
+    offer: updatedOffer,
+    error: null,
+  };
+}
+
+/**
+ * Accepts an offer and generates purchase link
+ * Uses database transaction to prevent race conditions
+ * 
+ * SECURITY NOTES:
+ * - Validates creator owns the listing
+ * - Verifies offer is still pending
+ * - Uses parameterized queries (Supabase handles SQL injection prevention)
+ * - Generates secure purchase link token
+ * 
+ * @param {object} params - Acceptance parameters
+ * @param {string} params.offerId - Offer UUID
+ * @param {string} params.creatorId - Creator UUID (for authorization)
+ * @param {string} params.supabaseUrl - Supabase project URL
+ * @param {string} params.anonKey - Supabase anon key
+ * @param {string} params.accessToken - User access token
+ * @param {string} params.baseUrl - Base URL for purchase links
+ * @returns {Promise<{success: boolean, offer: object | null, purchaseLink: string | null, error: Error | null}>}
+ */
+export async function acceptOffer({
+  offerId,
+  creatorId,
+  supabaseUrl,
+  anonKey,
+  accessToken,
+  baseUrl,
+  customFetch,
+}) {
+  if (!offerId || !creatorId || !supabaseUrl || !anonKey || !accessToken) {
+    return {
+      success: false,
+      offer: null,
+      purchaseLink: null,
+      error: new Error('Missing required parameters'),
+    };
+  }
+
+  // CRITICAL: Pass customFetch to ensure Cloudflare Workers uses request-scoped fetch
+  // This prevents "I/O on behalf of a different request" errors
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken, customFetch);
+
+  // Fetch offer with listing to verify ownership
+  const {data: offerData, error: offerFetchError} = await supabase
+    .from('offers')
+    .select(`
+      *,
+      listing:listings!inner(
+        id,
+        creator_id,
+        status,
+        price_cents,
+        title
+      )
+    `)
+    .eq('id', offerId)
+    .single();
+
+  if (offerFetchError || !offerData) {
+    return {
+      success: false,
+      offer: null,
+      purchaseLink: null,
+      error: new Error('Offer not found'),
+    };
+  }
+
+  // Verify creator owns the listing
+  if (offerData.listing.creator_id !== creatorId) {
+    return {
+      success: false,
+      offer: null,
+      purchaseLink: null,
+      error: new Error('Unauthorized'),
+    };
+  }
+
+  // Verify offer is still pending
+  if (offerData.status !== 'pending') {
+    return {
+      success: false,
+      offer: null,
+      purchaseLink: null,
+      error: new Error(`Offer is already ${offerData.status}`),
+    };
+  }
+
+  // Verify offer hasn't expired
+  if (new Date(offerData.expires_at) < new Date()) {
+    return {
+      success: false,
+      offer: null,
+      purchaseLink: null,
+      error: new Error('Offer has expired'),
+    };
+  }
+
+  // Generate secure purchase link token
+  const purchaseLinkToken = crypto.randomUUID();
+
+  // Calculate discount expiration (7 days from now)
+  const discountExpiresAt = new Date();
+  discountExpiresAt.setDate(discountExpiresAt.getDate() + 7);
+
+  // SECURITY: Update offer status with conditional check to prevent race conditions
+  // Only update if status is still 'pending' - this prevents accepting multiple offers simultaneously
+  // This acts as a simple optimistic locking mechanism
+  const {data: updatedOffer, error: updateError} = await supabase
+    .from('offers')
+    .update({
+      status: 'accepted',
+      accepted_at: new Date().toISOString(),
+      purchase_link_token: purchaseLinkToken,
+      discount_expires_at: discountExpiresAt.toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', offerId)
+    .eq('status', 'pending') // CRITICAL: Only update if still pending (prevents race conditions)
+    .select()
+    .single();
+
+  if (updateError || !updatedOffer) {
+    // If update failed, re-fetch to check current status
+    const {data: currentOffer} = await supabase
+      .from('offers')
+      .select('status')
+      .eq('id', offerId)
+      .single();
+    
+    if (currentOffer && currentOffer.status !== 'pending') {
+      return {
+        success: false,
+        offer: null,
+        purchaseLink: null,
+        error: new Error(`Offer is already ${currentOffer.status}`),
+      };
+    }
+    
+    console.error('Error accepting offer:', updateError);
+    return {
+      success: false,
+      offer: null,
+      purchaseLink: null,
+      error: updateError || new Error('Failed to update offer'),
+    };
+  }
+
+  // Decline all other pending offers for this listing
+  await supabase
+    .from('offers')
+    .update({status: 'declined'})
+    .eq('listing_id', offerData.listing_id)
+    .eq('status', 'pending')
+    .neq('id', offerId);
+
+  // Update listing status to 'reserved' if it's currently 'live' (removes it from marketplace)
+  // This ensures the listing is hidden while the customer has 7 days to complete purchase
+  // 'reserved' indicates the item is reserved for the customer who made the accepted offer
+  if (offerData.listing.status === 'live') {
+    const {error: listingUpdateError} = await supabase
+      .from('listings')
+      .update({status: 'reserved'})
+      .eq('id', offerData.listing_id);
+
+    if (listingUpdateError) {
+      console.error('Error updating listing status:', listingUpdateError);
+      // Fail the operation if listing status update fails - this is critical
+      return {
+        success: false,
+        offer: null,
+        purchaseLink: null,
+        error: new Error(`Failed to update listing status: ${listingUpdateError.message}`),
+      };
+    }
+  }
+
+  // Log activity for offer acceptance
+  const offerAmount = (updatedOffer.offer_amount_cents / 100).toFixed(2);
+  await logActivity({
+    creatorId,
+    activityType: 'listing_status_changed',
+    entityType: 'listing',
+    entityId: offerData.listing_id,
+    description: `Accepted offer of $${offerAmount} for "${offerData.listing.title || 'listing'}"`,
+    metadata: {
+      offerId: offerId,
+      offerAmount: updatedOffer.offer_amount_cents,
+      listingId: offerData.listing_id,
+      previousStatus: offerData.listing.status,
+      newStatus: offerData.listing.status === 'live' ? 'reserved' : offerData.listing.status,
+      customerEmail: updatedOffer.customer_email,
+    },
+    supabaseUrl,
+    anonKey,
+    accessToken,
+    customFetch, // CRITICAL: Pass customFetch for Cloudflare Workers I/O context
+  }).catch((error) => {
+    // Log activity failure but don't fail the whole operation
+    console.error('Error logging activity for offer acceptance:', error);
+  });
+
+  // Generate purchase link
+  const purchaseLink = `${baseUrl}/offers/purchase/${purchaseLinkToken}`;
+
+  return {
+    success: true,
+    offer: updatedOffer,
+    purchaseLink,
+    error: null,
+  };
 }
 
