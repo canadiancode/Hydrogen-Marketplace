@@ -31,7 +31,7 @@ export async function loader({context, request}) {
   }
 
   // Fetch creator profile to get creator_id
-  const creatorProfile = await fetchCreatorProfile(user.email, supabaseUrl, anonKey, accessToken);
+  const creatorProfile = await fetchCreatorProfile(user.email, supabaseUrl, anonKey, accessToken, request.fetch || fetch);
   
   if (!creatorProfile || !creatorProfile.id) {
     // Creator profile doesn't exist yet - return empty listings
@@ -42,7 +42,7 @@ export async function loader({context, request}) {
   }
 
   // Fetch creator's listings from Supabase
-  const allListings = await fetchCreatorListings(creatorProfile.id, supabaseUrl, anonKey, accessToken);
+  const allListings = await fetchCreatorListings(creatorProfile.id, supabaseUrl, anonKey, accessToken, request.fetch || fetch);
   
   // Filter out sold items (sold, shipped, completed) - these belong in /creator/sales
   const activeListings = allListings.filter(listing => 
@@ -55,7 +55,7 @@ export async function loader({context, request}) {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   
   // Get public URLs for photos and fetch accepted offers for draft and reserved listings
-  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken, request.fetch || fetch);
   
   // SECURITY: Get draft and reserved listing IDs with explicit ownership verification
   // Filter by status and validate UUID format, then verify ownership

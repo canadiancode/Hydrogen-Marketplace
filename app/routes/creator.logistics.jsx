@@ -32,7 +32,7 @@ export async function loader({context, request}) {
   }
 
   // Fetch creator profile to get creator_id
-  const creatorProfile = await fetchCreatorProfile(user.email, supabaseUrl, anonKey, accessToken);
+  const creatorProfile = await fetchCreatorProfile(user.email, supabaseUrl, anonKey, accessToken, request.fetch || fetch);
   
   if (!creatorProfile || !creatorProfile.id) {
     return {
@@ -43,7 +43,7 @@ export async function loader({context, request}) {
   }
 
   // Fetch creator's listings
-  const allListings = await fetchCreatorListings(creatorProfile.id, supabaseUrl, anonKey, accessToken);
+  const allListings = await fetchCreatorListings(creatorProfile.id, supabaseUrl, anonKey, accessToken, request.fetch || fetch);
   
   // Filter for listings that have logistics events (sold, shipped, etc.)
   const listingsWithLogistics = allListings.filter(listing => 
@@ -54,7 +54,7 @@ export async function loader({context, request}) {
   );
 
   // Fetch logistics events for these listings
-  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken);
+  const supabase = createUserSupabaseClient(supabaseUrl, anonKey, accessToken, request.fetch || fetch);
   const listingIds = listingsWithLogistics.map(l => l.id);
   
   let logisticsEvents = [];

@@ -34,7 +34,7 @@ export async function loader({context, request}) {
   }
 
   // Fetch creator profile to get creator_id
-  const creatorProfile = await fetchCreatorProfile(user.email, supabaseUrl, anonKey, accessToken);
+  const creatorProfile = await fetchCreatorProfile(user.email, supabaseUrl, anonKey, accessToken, request.fetch || fetch);
   
   if (!creatorProfile || !creatorProfile.id) {
     return {
@@ -46,7 +46,7 @@ export async function loader({context, request}) {
   }
 
   // Fetch creator's listings
-  const allListings = await fetchCreatorListings(creatorProfile.id, supabaseUrl, anonKey, accessToken);
+  const allListings = await fetchCreatorListings(creatorProfile.id, supabaseUrl, anonKey, accessToken, request.fetch || fetch);
   
   // Filter for completed listings (these would have payouts)
   const completedListings = allListings.filter(listing => 

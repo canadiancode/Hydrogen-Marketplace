@@ -1034,7 +1034,7 @@ export async function checkAdminAuth(request, env) {
  * @param {string} accessToken - User's access token
  * @returns {Promise<Array>} Array of listing objects with photos
  */
-export async function fetchCreatorListings(creatorId, supabaseUrl, anonKey, accessToken) {
+export async function fetchCreatorListings(creatorId, supabaseUrl, anonKey, accessToken, customFetch) {
   if (!creatorId || !supabaseUrl || !anonKey || !accessToken) {
     return [];
   }
