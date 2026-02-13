@@ -21,7 +21,7 @@ export function HeroSection() {
   }
   
   return (
-    <div className="bg-white dark:bg-gray-900">
+    <div className="">
       <div className="absolute inset-x-0 top-0 z-50">
         <Suspense fallback={<HeaderFallback />}>
           <Await resolve={rootData.isLoggedIn} errorElement={<HeaderFallback />}>
