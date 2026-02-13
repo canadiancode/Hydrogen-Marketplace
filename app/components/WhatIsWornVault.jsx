@@ -58,10 +58,10 @@ export function WhatIsWornVault() {
                 </ul>
                 <div className="mt-8 border-t border-gray-200 pt-6 dark:border-gray-700">
                   <p className="text-sm/6 font-medium text-gray-950 dark:text-white">
-                    You don't need to trust a stranger.
+                    A platform built to verify.
                   </p>
                   <p className="mt-1 text-sm/6 font-medium text-gray-950 dark:text-white">
-                    You can trust WornVault.
+                    Trust without compromise.
                   </p>
                 </div>
               </div>

@@ -32,7 +32,7 @@ const steps = [
     number: '4',
     name: 'Discreet Buyer Delivery',
     description:
-      'The item arrives in discreet, platform-controlled packaging with no creator-identifying information. Neither party ever receives the other\'s personal address or contact details.',
+      'The item arrives in discreet, platform-controlled packaging with no creator-identifying information. Neither party ever receives the other\'s contact details.',
     icon: GiftIcon,
   },
 ];
@@ -63,7 +63,7 @@ export function HowMarketplaceWorks() {
                 A trusted process
               </p>
               <p className="mt-6 text-lg/8 text-gray-700 dark:text-gray-300">
-                Every order on WornVault follows a platform-controlled flow built for privacy, discretion, and consistency. Buyers never interact directly with creators. Creators never expose personal information.
+                Every order on WornVault follows a platform-controlled flow built for privacy, discretion, and consistency.
               </p>
               <dl className="mt-10 max-w-xl space-y-8 text-base/7 text-gray-600 lg:max-w-none dark:text-gray-400">
                 {steps.map((step) => (
