@@ -82,17 +82,26 @@ export const shouldRevalidate = ({formMethod, currentUrl, nextUrl, request}) => 
 };
 
 /**
- * The main and reset stylesheets are added in the Layout component
- * to prevent a bug in development HMR updates.
- *
- * This avoids the "failed to execute 'insertBefore' on 'Node'" error
- * that occurs after editing and navigating to another page.
- *
- * It's a temporary fix until the issue is resolved.
+ * Stable stylesheet paths used for both SSR and client to avoid hydration mismatch.
+ * Vite SSR resolves ?url imports to /app/... paths; we use the same literals
+ * so server and client render identical <link> hrefs.
+ */
+const STYLESHEET_HREFS = {
+  tailwind: '/app/styles/tailwind.css',
+  reset: '/app/styles/reset.css',
+  app: '/app/styles/app.css',
+};
+
+/**
+ * The main and reset stylesheets are added via links() to prevent a bug in
+ * development HMR updates and to avoid hydration mismatch (same hrefs both sides).
  * https://github.com/remix-run/remix/issues/9242
  */
 export function links() {
   return [
+    { rel: 'stylesheet', href: STYLESHEET_HREFS.tailwind },
+    { rel: 'stylesheet', href: STYLESHEET_HREFS.reset },
+    { rel: 'stylesheet', href: STYLESHEET_HREFS.app },
     {
       rel: 'preconnect',
       href: 'https://cdn.shopify.com',
@@ -207,13 +216,10 @@ export function Layout({children}) {
   const nonce = useNonce();
 
   return (
-    <html lang="en" className="bg-gray-50 dark:bg-gray-900">
-      <head>
+    <html lang="en" className="bg-gray-50 dark:bg-gray-900" suppressHydrationWarning>
+      <head suppressHydrationWarning>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
-        <link rel="stylesheet" href={tailwindCss}></link>
-        <link rel="stylesheet" href={resetStyles}></link>
-        <link rel="stylesheet" href={appStyles}></link>
         <Meta />
         <Links />
       </head>

@@ -1,5 +1,5 @@
 import {Await, Link, useMatches, useRouteLoaderData} from 'react-router';
-import {Suspense} from 'react';
+import {Suspense, useRef} from 'react';
 import {Aside} from '~/components/Aside';
 import {Footer} from '~/components/Footer';
 import {Header, HeaderMenu} from '~/components/Header';
@@ -48,7 +48,8 @@ export function PageLayout({
 }) {
   const hideHeaderFooter = shouldHideHeaderFooter();
   const rootData = useRouteLoaderData('root');
-  
+  const mainRef = useRef(/** @type {HTMLElement | null} */ (null));
+
   return (
     <Aside.Provider>
       <SearchModalProvider>
@@ -56,11 +57,12 @@ export function PageLayout({
           <MobileMenuAside header={header} publicStoreDomain={publicStoreDomain} />
           {!hideHeaderFooter && (
             <Suspense fallback={<div className="h-16" />}>
-              <Await resolve={isLoggedIn} errorElement={<WornVaultHeader isLoggedIn={false} isCreator={false} cart={cart} />}>
+              <Await resolve={isLoggedIn} errorElement={<WornVaultHeader mainRef={mainRef} isLoggedIn={false} isCreator={false} cart={cart} />}>
                 {(loggedIn) => (
-                  <Await resolve={isCreator} errorElement={<WornVaultHeader isLoggedIn={loggedIn} isCreator={false} cart={cart} />}>
+                  <Await resolve={isCreator} errorElement={<WornVaultHeader mainRef={mainRef} isLoggedIn={loggedIn} isCreator={false} cart={cart} />}>
                     {(creator) => (
                       <WornVaultHeader 
+                        mainRef={mainRef}
                         isLoggedIn={loggedIn} 
                         isCreator={creator} 
                         cart={cart}
@@ -71,7 +73,7 @@ export function PageLayout({
               </Await>
             </Suspense>
           )}
-          <main className="pb-32 sm:pb-12 bg-white dark:bg-gray-900">{children}</main>
+          <main ref={mainRef} className="pb-32 sm:pb-12 bg-white dark:bg-gray-900">{children}</main>
           {!hideHeaderFooter && (
             <Footer
               footer={footer}

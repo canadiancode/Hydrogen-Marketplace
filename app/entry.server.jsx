@@ -62,6 +62,8 @@ export default async function handleRequest(
     },
     // Allow images from Supabase Storage (restricted to storage subdomain)
     imgSrc: supabaseImgSrc,
+    // Allow fonts so stylesheets can load font files (default-src fallback was blocking)
+    fontSrc: ["'self'", 'data:', 'https://cdn.shopify.com'],
   });
 
   const body = await renderToReadableStream(
