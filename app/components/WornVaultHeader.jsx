@@ -172,13 +172,18 @@ export function WornVaultHeader({mainRef, isLoggedIn, isCreator, isAdmin, cart})
 
     const handleClickOutside = (event) => {
       const target = /** @type {Node} */ (event.target);
-      if (headerRef.current && !headerRef.current.contains(target)) {
-        closeHeaderMenus();
-        return;
-      }
-      if (mainRef?.current?.contains(target)) {
-        closeHeaderMenus();
-        return;
+      const isOutsideHeader = headerRef.current && !headerRef.current.contains(target);
+      const isInMain = mainRef?.current?.contains(target);
+      if (!isOutsideHeader && !isInMain) return;
+
+      // Save scroll position before closing; Headless UI restores focus to the
+      // trigger (in the header), which causes the browser to scroll to top.
+      const scrollY = typeof window !== 'undefined' ? window.scrollY : 0;
+      closeHeaderMenus();
+      // Restore scroll after focus restoration (runs after React/Headless UI).
+      if (typeof window !== 'undefined') {
+        const restoreScroll = () => window.scrollTo(0, scrollY);
+        setTimeout(restoreScroll, 0);
       }
     };
 
