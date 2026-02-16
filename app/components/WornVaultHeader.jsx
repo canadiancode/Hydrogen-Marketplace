@@ -143,13 +143,14 @@ function SearchButton() {
 
 /**
  * @param {{
+ *   mainRef?: React.RefObject<HTMLElement | null>;
  *   isLoggedIn?: boolean | Promise<boolean>;
  *   isCreator?: boolean | Promise<boolean>;
  *   isAdmin?: boolean | Promise<boolean>;
  *   cart?: any;
  * }}
  */
-export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
+export function WornVaultHeader({mainRef, isLoggedIn, isCreator, isAdmin, cart}) {
   const location = useLocation();
   const headerRef = useRef(/** @type {HTMLElement | null} */ (null));
   const shopPopoverRef = useRef(/** @type {HTMLElement | null} */ (null));
@@ -200,16 +201,33 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
     aboutPopoverOpenRef.current = aboutPopoverOpen;
   }, [aboutPopoverOpen]);
 
-  // Close popovers when clicking outside any Popover
-  // When any click-outside is detected, close ALL popovers to ensure clean state
-  // Listeners are always attached (not dependent on popover state) to work across all pages
+  // Close popovers when clicking outside any Popover or when clicking inside main content
+  // Explicit "click in main" ensures dropdowns close when user interacts with page content
   useEffect(() => {
+    const closeAllMenus = () => {
+      startTransition(() => {
+        setMobileMenuOpen(false);
+        setShopPopoverOpen(false);
+        setHowItWorksPopoverOpen(false);
+        setCreatorsPopoverOpen(false);
+        setAboutPopoverOpen(false);
+        if (closeAccountPopoverRef.current) {
+          closeAccountPopoverRef.current();
+        }
+      });
+    };
+
     const handleClickOutside = (event) => {
       const target = /** @type {Node} */ (event.target);
-      
-      // Helper function to check if click is inside a Popover (wrapper or panel)
+
+      // Click inside main content: close all header menus (desktop + mobile)
+      if (mainRef?.current?.contains(target)) {
+        closeAllMenus();
+        return;
+      }
+
+      // Helper: check if click is inside a Popover (wrapper or panel)
       const isClickInsidePopover = (wrapperRef, panelRef) => {
-        // Check if refs exist before calling contains
         if (!wrapperRef?.current && !panelRef?.current) {
           return false;
         }
@@ -217,53 +235,24 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
         const isInPanel = panelRef?.current?.contains(target);
         return isInWrapper || isInPanel;
       };
-      
-      // Check if click is inside ANY popover
-      const isInsideAnyPopover = 
+
+      const isInsideAnyPopover =
         isClickInsidePopover(shopPopoverRef, shopPopoverPanelRef) ||
         isClickInsidePopover(howItWorksPopoverRef, howItWorksPopoverPanelRef) ||
         isClickInsidePopover(creatorsPopoverRef, creatorsPopoverPanelRef) ||
         isClickInsidePopover(aboutPopoverRef, aboutPopoverPanelRef);
-      
-      // If click is outside all popovers and at least one is open, close all
-      const hasAnyPopoverOpen = 
+
+      const hasAnyPopoverOpen =
         shopPopoverOpenRef.current ||
         howItWorksPopoverOpenRef.current ||
         creatorsPopoverOpenRef.current ||
         aboutPopoverOpenRef.current;
-      
+
       if (!isInsideAnyPopover && hasAnyPopoverOpen) {
-        // Determine which popover was clicked outside of for logging
-        if (shopPopoverOpenRef.current) {
-          console.log('🛍️ Clicked outside Shop Popover');
-        }
-        if (howItWorksPopoverOpenRef.current) {
-          console.log('ℹ️ Clicked outside How It Works Popover');
-        }
-        if (creatorsPopoverOpenRef.current) {
-          console.log('👥 Clicked outside Creators Popover');
-        }
-        if (aboutPopoverOpenRef.current) {
-          console.log('📖 Clicked outside About Popover');
-        }
-        
-        // Close ALL popovers when clicking outside any of them
-        startTransition(() => {
-          setShopPopoverOpen(false);
-          setHowItWorksPopoverOpen(false);
-          setCreatorsPopoverOpen(false);
-          setAboutPopoverOpen(false);
-          // Also close account popover if it exists
-          if (closeAccountPopoverRef.current) {
-            closeAccountPopoverRef.current();
-          }
-        });
+        closeAllMenus();
       }
     };
 
-    // Attach listeners to document and window for click-outside detection
-    // Use capture phase to catch events before they bubble
-    // Always attach listeners (not dependent on popover state) so they work on all pages
     document.addEventListener('click', handleClickOutside, true);
     document.addEventListener('mousedown', handleClickOutside, true);
     window.addEventListener('click', handleClickOutside, true);
@@ -275,7 +264,7 @@ export function WornVaultHeader({isLoggedIn, isCreator, isAdmin, cart}) {
       window.removeEventListener('click', handleClickOutside, true);
       window.removeEventListener('mousedown', handleClickOutside, true);
     };
-  }, []); // Empty dependency array - listeners are always attached
+  }, [mainRef]); // mainRef is stable from parent; re-attach if ref changes
 
   return (
     <header ref={headerRef} className="relative z-10 bg-white dark:bg-gray-900">

@@ -510,7 +510,7 @@ export default function TermsOfServicePage() {
           {/* Section 8: Returns, Disputes, and Chargebacks */}
           <section className="mb-12 pb-8 border-b border-gray-200 dark:border-gray-700">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 mt-0">
-              8. Returns, Disputes, and Chargebacks
+              8. Sales, Returns, Disputes, and Chargebacks
             </h2>
             <p className="text-base text-gray-700 dark:text-gray-300 mb-3 leading-relaxed">
               All disputes, delivery issues, and chargebacks are handled through WornVault.
@@ -520,6 +520,9 @@ export default function TermsOfServicePage() {
             </p>
             <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
               WornVault reserves the right to make final determinations regarding disputes, refunds, and payouts.
+            </p>
+            <p className="text-base text-gray-700 dark:text-gray-300 leading-relaxed">
+              All sales are final. No refunds are offered.
             </p>
           </section>
           
