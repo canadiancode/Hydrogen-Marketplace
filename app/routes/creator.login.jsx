@@ -1,4 +1,5 @@
 import {Form, redirect, useActionData, useLoaderData} from 'react-router';
+import {AnimatedBlobSection} from '~/components/AnimatedBlobSection';
 import {checkCreatorAuth, sendMagicLink, initiateGoogleOAuth} from '~/lib/supabase';
 import {getClientIP, generateCSRFToken, constantTimeEquals} from '~/lib/auth-helpers';
 import {rateLimit} from '~/lib/rate-limit';
@@ -169,20 +170,11 @@ export default function CreatorLogin() {
   const {csrfToken, returnTo, message} = useLoaderData();
   
   return (
-    <div className="flex min-h-full flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="mx-auto mt-6 max-w-2xl text-center">
-          <h1 className="text-2xl font-semibold tracking-tight text-balance text-gray-900 sm:text-3xl dark:text-white">
-            Welcome to WornVault
-          </h1>
-          <p className="mx-auto mt-4 max-w-xl text-base/7 text-pretty text-gray-600 dark:text-gray-300">
-            Sign in or create your creator account to access your private dashboard.
-            We'll guide you through setup if you're new.
-          </p>
-        </div>
-      </div>
+    <div className="bg-white dark:bg-gray-900">
+      <AnimatedBlobSection></AnimatedBlobSection>
 
-      <div className="mt-10 sm:mx-auto sm:w-full sm:max-w-[480px]">
+      <div className="flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative z-[1]">
+        <div className="sm:mx-auto sm:w-full sm:max-w-[480px]">
         <div className="bg-white dark:bg-gray-800 px-6 py-12 shadow-sm sm:rounded-lg sm:px-12">
           {message && (
             <div className="mb-6 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4">
@@ -276,6 +268,7 @@ export default function CreatorLogin() {
             Your email is used only for account access and platform communication.
             We never share personal information with buyers.
           </p>
+        </div>
         </div>
       </div>
     </div>

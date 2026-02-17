@@ -1,5 +1,6 @@
 import {Analytics, getShopAnalytics, useNonce} from '@shopify/hydrogen';
 import {
+  Link,
   Outlet,
   useRouteError,
   isRouteErrorResponse,
@@ -293,7 +294,7 @@ export default function App() {
 export function ErrorBoundary() {
   const error = useRouteError();
   const isDev = process.env.NODE_ENV === 'development';
-  
+
   let errorMessage = 'An unexpected error occurred';
   let errorStatus = 500;
 
@@ -318,23 +319,60 @@ export function ErrorBoundary() {
     errorMessage = error.message;
   }
 
+  // Detect recoverable DOM/navigation errors (e.g. insertBefore) where refresh helps
+  const rawMessage =
+    (error instanceof Error && error.message) ||
+    (isRouteErrorResponse(error) && error?.data?.message) ||
+    '';
+  const isRecoverableDomError =
+    typeof rawMessage === 'string' && rawMessage.includes('insertBefore');
+  if (isRecoverableDomError && !isDev) {
+    errorMessage =
+      'Something went wrong while loading this page. Refreshing the page or returning home usually fixes it.';
+  }
+
   // Log full error server-side but don't expose to client in production
   if (!isDev) {
     console.error('ErrorBoundary caught:', error);
   }
 
   return (
-    <div className="route-error">
-      <h1>Oops</h1>
-      <h2>{errorStatus}</h2>
-      {isDev && errorMessage && (
-        <fieldset>
-          <pre>{errorMessage}</pre>
-        </fieldset>
-      )}
-      {!isDev && (
-        <p>{errorMessage}</p>
-      )}
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col items-center justify-center px-4 py-16 sm:px-6 lg:px-8">
+      <div className="w-full max-w-md mx-auto text-center">
+        <h1 className="text-4xl font-semibold tracking-tight text-gray-900 dark:text-white sm:text-5xl">
+          Oops
+        </h1>
+        <p className="mt-2 text-lg font-medium text-gray-600 dark:text-gray-400">
+          {errorStatus}
+        </p>
+        <p className="mt-4 text-base text-gray-600 dark:text-gray-400">
+          {errorMessage}
+        </p>
+        {isDev && errorMessage && (
+          <fieldset className="mt-6 text-left">
+            <pre className="p-4 overflow-auto text-xs bg-gray-100 dark:bg-gray-800 rounded-md text-gray-800 dark:text-gray-200">
+              {errorMessage}
+            </pre>
+          </fieldset>
+        )}
+        <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
+          <Link
+            to="/"
+            className="inline-flex items-center justify-center rounded-md bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+          >
+            Back to homepage
+          </Link>
+          {(errorStatus === 500 || isRecoverableDomError) && (
+            <button
+              type="button"
+              onClick={() => typeof window !== 'undefined' && window.location.reload()}
+              className="inline-flex items-center justify-center rounded-md bg-white dark:bg-gray-800 px-4 py-2.5 text-sm font-semibold text-gray-900 dark:text-white shadow-xs ring-1 ring-inset ring-gray-300 dark:ring-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+            >
+              Refresh page
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

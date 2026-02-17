@@ -4,7 +4,9 @@ import {
   CheckCircleIcon,
   GiftIcon,
 } from '@heroicons/react/20/solid';
+import {useState} from 'react';
 import marketplaceImage from '~/assets/worn-vault-logictics-b-roll.png';
+import {useAnimatedClipPath, DEFAULT_POLYGON} from '~/hooks/useAnimatedClipPath';
 
 const steps = [
   {
@@ -38,8 +40,14 @@ const steps = [
 ];
 
 export function HowMarketplaceWorks() {
+  const [sectionEl, setSectionEl] = useState(null);
+  const clipPath = useAnimatedClipPath(sectionEl, DEFAULT_POLYGON);
+
   return (
-    <div className="overflow-hidden bg-white py-24 sm:py-32 dark:bg-gray-900">
+    <div
+      ref={setSectionEl}
+      className="overflow-hidden bg-white py-24 sm:py-32 dark:bg-gray-900"
+    >
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
         <div className="mx-auto grid max-w-2xl grid-cols-1 gap-x-8 gap-y-16 sm:gap-y-20 lg:mx-0 lg:max-w-none lg:grid-cols-2">
           <div className="lg:pt-4 lg:pr-8">
@@ -49,10 +57,7 @@ export function HowMarketplaceWorks() {
                 className="absolute inset-x-0 -top-0 z-10 transform-gpu overflow-hidden blur-3xl sm:-top-0"
               >
                 <div
-                  style={{
-                    clipPath:
-                      'polygon(74.1% 44.1%, 100% 61.6%, 97.5% 26.9%, 85.5% 0.1%, 80.7% 2%, 72.5% 32.5%, 60.2% 62.4%, 52.4% 68.1%, 47.5% 58.3%, 45.2% 34.5%, 27.5% 76.7%, 0.1% 64.9%, 17.9% 100%, 27.6% 76.8%, 76.1% 97.7%, 74.1% 44.1%)',
-                  }}
+                  style={{ clipPath }}
                   className="relative left-[calc(50%-11rem)] aspect-1155/678 w-144.5 -translate-x-1/2 rotate-30 bg-gradient-to-tr from-[#ff80b5] to-[#9089fc] opacity-30 sm:left-[calc(50%-30rem)] sm:w-288.75"
                 />
               </div>
