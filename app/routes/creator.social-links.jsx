@@ -1575,11 +1575,6 @@ export default function CreatorSocialLinks() {
       return () => clearTimeout(timer);
     }
   }, [revalidator]);
-  
-  // Debug logging (remove in production if needed)
-  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-    console.log('CreatorSocialLinks - socialLinks:', socialLinks);
-  }
 
   // Copy to clipboard handler for Instagram verification code
   const handleCopyCode = async () => {

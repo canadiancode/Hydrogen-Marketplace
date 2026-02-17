@@ -101,7 +101,7 @@ export function CreatorNavigation({isAdmin = false}) {
             </TransitionChild>
 
             {/* Mobile Sidebar */}
-            <div className="relative flex grow flex-col gap-y-5 overflow-y-auto bg-gray-50 px-6 dark:bg-gray-900 dark:ring dark:ring-white/10 dark:before:pointer-events-none dark:before:absolute dark:before:inset-0 dark:before:bg-black/10">
+            <div className="relative flex grow flex-col gap-y-5 overflow-y-auto bg-gray-50 px-6 overflow-hidden dark:bg-gray-900 dark:ring dark:ring-white/10 dark:before:pointer-events-none dark:before:absolute dark:before:inset-0 dark:before:bg-black/10">
               <div className="relative flex h-16 shrink-0 items-center">
                 <Link to="/" className="-m-1.5 p-1.5">
                 <span className="sr-only">WornVault</span>
