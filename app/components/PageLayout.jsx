@@ -95,8 +95,8 @@ export function PageLayout({
  */
 function MobileMenuAside({header, publicStoreDomain}) {
   return (
-    header.menu &&
-    header.shop.primaryDomain?.url && (
+    header?.menu &&
+    header?.shop?.primaryDomain?.url && (
       <Aside type="mobile" heading="MENU">
         <HeaderMenu
           menu={header.menu}
