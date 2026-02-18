@@ -56,38 +56,6 @@ function isReturningFromCheckout(url, request) {
 }
 
 /**
- * Minimal header shape used when root loader data is unavailable (e.g. during
- * client-side navigation before cached data is ready). Prevents layout switch
- * from "Outlet only" to "full shell" which causes insertBefore DOM errors.
- * PageLayout/MobileMenuAside guard with header?.menu && header?.shop?.primaryDomain?.url.
- */
-const EMPTY_HEADER = Object.freeze({
-  menu: null,
-  shop: Object.freeze({ primaryDomain: Object.freeze({ url: '' }) }),
-});
-
-/**
- * Placeholder data used when useRouteLoaderData('root') is undefined.
- * Keeps the DOM structure stable (Analytics.Provider + PageLayout + Outlet)
- * so React never swaps between different top-level trees during client navigation.
- */
-const ROOT_PLACEHOLDER_DATA = Object.freeze({
-  header: EMPTY_HEADER,
-  cart: Promise.resolve(null),
-  footer: Promise.resolve(null),
-  isLoggedIn: Promise.resolve(false),
-  isAdmin: Promise.resolve(false),
-  isCreator: Promise.resolve(false),
-  publicStoreDomain: '',
-  shop: null,
-  consent: Object.freeze({
-    checkoutDomain: '',
-    storefrontAccessToken: '',
-    withPrivacyBanner: false,
-  }),
-});
-
-/**
  * This is important to avoid re-fetching root queries on sub-navigations
  * @type {ShouldRevalidateFunction}
  */
@@ -148,9 +116,6 @@ export function links() {
 }
 
 /**
- * Root loader: must return enough data to render the shell (header, cart, footer,
- * auth flags, etc.). When data is briefly unavailable during client navigation,
- * the App component uses ROOT_PLACEHOLDER_DATA so the shell stays stable.
  * @param {Route.LoaderArgs} args
  */
 export async function loader(args) {
@@ -304,29 +269,22 @@ function CheckoutReturnHandler() {
   return null;
 }
 
-/**
- * ROOT LAYOUT CONTRACT: The root layout must never switch between two different
- * top-level structures (e.g. Outlet-only vs full PageLayout tree). Always
- * render the same shell (Analytics.Provider + PageLayout + Outlet) so React's
- * DOM reconciliation never hits a stale/moved node (insertBefore error).
- * When root loader data is unavailable (e.g. during client-side navigation),
- * use ROOT_PLACEHOLDER_DATA to keep the shell stable. The root loader should
- * return enough to render the shell; if not, placeholders are used briefly.
- */
 export default function App() {
   /** @type {RootLoader} */
   const data = useRouteLoaderData('root');
-  const resolved = data ?? ROOT_PLACEHOLDER_DATA;
+
+  if (!data) {
+    return <Outlet />;
+  }
 
   return (
     <Analytics.Provider
-      cart={resolved.cart}
-      shop={resolved.shop}
-      consent={resolved.consent}
-      disableThrowOnError={!data}
+      cart={data.cart}
+      shop={data.shop}
+      consent={data.consent}
     >
       <CheckoutReturnHandler />
-      <PageLayout {...resolved} isCreator={resolved.isCreator}>
+      <PageLayout {...data} isCreator={data.isCreator}>
         <Outlet />
       </PageLayout>
     </Analytics.Provider>
