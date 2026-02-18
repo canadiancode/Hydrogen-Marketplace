@@ -83,26 +83,16 @@ export const shouldRevalidate = ({formMethod, currentUrl, nextUrl, request}) => 
 };
 
 /**
- * Stable stylesheet paths used for both SSR and client to avoid hydration mismatch.
- * Vite SSR resolves ?url imports to /app/... paths; we use the same literals
- * so server and client render identical <link> hrefs.
- */
-const STYLESHEET_HREFS = {
-  tailwind: '/app/styles/tailwind.css',
-  reset: '/app/styles/reset.css',
-  app: '/app/styles/app.css',
-};
-
-/**
  * The main and reset stylesheets are added via links() to prevent a bug in
  * development HMR updates and to avoid hydration mismatch (same hrefs both sides).
+ * Use ?url imports so Vite resolves correct production asset paths (hashed in build).
  * https://github.com/remix-run/remix/issues/9242
  */
 export function links() {
   return [
-    { rel: 'stylesheet', href: STYLESHEET_HREFS.tailwind },
-    { rel: 'stylesheet', href: STYLESHEET_HREFS.reset },
-    { rel: 'stylesheet', href: STYLESHEET_HREFS.app },
+    { rel: 'stylesheet', href: tailwindCss },
+    { rel: 'stylesheet', href: resetStyles },
+    { rel: 'stylesheet', href: appStyles },
     {
       rel: 'preconnect',
       href: 'https://cdn.shopify.com',
